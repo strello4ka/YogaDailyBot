@@ -18,6 +18,7 @@ def init_database():
     - channel_name: название канала
     - description: описание видео (автоматически с YouTube)
     - my_description: мое описание (заполняется вручную)
+    - intensity: интенсивность практики (легкая, средняя, высокая)
     - weekday: день недели (1=понедельник, 7=воскресенье, NULL=любой день)
     - created_at: дата добавления записи
     - updated_at: дата последнего обновления
@@ -37,6 +38,7 @@ def init_database():
             notify_time TEXT NOT NULL,
             user_name TEXT,
             user_phone TEXT,
+            user_days INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -51,9 +53,24 @@ def init_database():
             time_practices INTEGER NOT NULL,
             channel_name TEXT NOT NULL,
             description TEXT,
+            my_description TEXT,
+            intensity TEXT,
             weekday INTEGER CHECK (weekday >= 1 AND weekday <= 7),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Создаем таблицу для логирования отправленных практик
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS practice_logs (
+            log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            practice_id INTEGER NOT NULL,
+            sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            day_number INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users (user_id),
+            FOREIGN KEY (practice_id) REFERENCES yoga_practices (practices_id)
         )
     ''')
     
@@ -68,9 +85,20 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Колонка уже существует
     
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN user_days INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+    
     # Добавляем поле weekday, если его нет
     try:
         cursor.execute('ALTER TABLE yoga_practices ADD COLUMN weekday INTEGER')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+    
+    # Добавляем поле intensity, если его нет
+    try:
+        cursor.execute('ALTER TABLE yoga_practices ADD COLUMN intensity TEXT')
     except sqlite3.OperationalError:
         pass  # Колонка уже существует
     
@@ -93,6 +121,10 @@ def init_database():
     
     cursor.execute('''
         CREATE INDEX IF NOT EXISTS idx_weekday ON yoga_practices(weekday)
+    ''')
+    
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_intensity ON yoga_practices(intensity)
     ''')
     
     conn.commit()
@@ -129,10 +161,10 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                 WHERE user_id = ?
             ''', (chat_id, notify_time, user_name, user_phone, user_id))
         else:
-            # Создаем новую запись
+            # Создаем новую запись с user_days = 0
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_days)
+                VALUES (?, ?, ?, ?, ?, 0)
             ''', (user_id, chat_id, notify_time, user_name, user_phone))
         
         conn.commit()
@@ -152,14 +184,14 @@ def get_user_time(user_id: int) -> tuple:
         user_id: ID пользователя
         
     Returns:
-        tuple: (chat_id, notify_time, user_name, user_phone) или (None, None, None, None) если пользователь не найден
+        tuple: (chat_id, notify_time, user_name, user_phone, user_days) или (None, None, None, None, None) если пользователь не найден
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT chat_id, notify_time, user_name, user_phone
+            SELECT chat_id, notify_time, user_name, user_phone, user_days
             FROM users 
             WHERE user_id = ?
         ''', (user_id,))
@@ -170,11 +202,76 @@ def get_user_time(user_id: int) -> tuple:
         if result:
             return result
         else:
-            return (None, None, None, None)
+            return (None, None, None, None, None)
             
     except Exception as e:
         print(f"Ошибка получения времени пользователя {user_id}: {e}")
-        return (None, None)
+        return (None, None, None, None, None)
+
+
+def increment_user_days(user_id: int) -> bool:
+    """Увеличивает счетчик дней пользователя на 1.
+    
+    Args:
+        user_id: ID пользователя
+        
+    Returns:
+        bool: True если операция успешна, False в случае ошибки
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE users 
+            SET user_days = user_days + 1, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        ''', (user_id,))
+        
+        if cursor.rowcount == 0:
+            print(f"Пользователь {user_id} не найден")
+            return False
+        
+        conn.commit()
+        conn.close()
+        print(f"Дни пользователя {user_id} увеличены")
+        return True
+        
+    except Exception as e:
+        print(f"Ошибка увеличения дней пользователя {user_id}: {e}")
+        return False
+
+
+def get_user_days(user_id: int) -> int:
+    """Получает количество дней пользователя.
+    
+    Args:
+        user_id: ID пользователя
+        
+    Returns:
+        int: Количество дней или 0 если пользователь не найден
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT user_days
+            FROM users 
+            WHERE user_id = ?
+        ''', (user_id,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return result[0]
+        else:
+            return 0
+            
+    except Exception as e:
+        print(f"Ошибка получения дней пользователя {user_id}: {e}")
+        return 0
 
 
 def delete_user(user_id: int) -> bool:
@@ -206,14 +303,14 @@ def get_all_users() -> list:
     """Получает список всех пользователей с их данными.
     
     Returns:
-        list: Список кортежей (user_id, chat_id, notify_time, user_name, user_phone)
+        list: Список кортежей (user_id, chat_id, notify_time, user_name, user_phone, user_days)
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT user_id, chat_id, notify_time, user_name, user_phone
+            SELECT user_id, chat_id, notify_time, user_name, user_phone, user_days
             FROM users 
             ORDER BY user_id
         ''')
@@ -259,7 +356,7 @@ def get_users_by_time(notify_time: str) -> list:
 
 # Функции для работы с йога практиками
 
-def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_name: str, description: str = None, my_description: str = None, weekday: int = None) -> bool:
+def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_name: str, description: str = None, my_description: str = None, intensity: str = None, weekday: int = None) -> bool:
     """Добавляет новую йога практику в базу данных.
     
     Args:
@@ -269,6 +366,7 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
         channel_name: название канала
         description: описание видео (опционально)
         my_description: мое описание (заполняется вручную, опционально)
+        intensity: интенсивность практики (опционально)
         weekday: день недели (1=понедельник, 7=воскресенье, None=любой день)
         
     Returns:
@@ -279,9 +377,9 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT INTO yoga_practices (title, video_url, time_practices, channel_name, description, my_description, weekday)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (title, video_url, time_practices, channel_name, description, my_description, weekday))
+            INSERT INTO yoga_practices (title, video_url, time_practices, channel_name, description, my_description, intensity, weekday)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (title, video_url, time_practices, channel_name, description, my_description, intensity, weekday))
         
         conn.commit()
         conn.close()
@@ -303,7 +401,7 @@ def get_yoga_practice_by_id(practice_id: int) -> tuple:
         practice_id: ID практики
         
     Returns:
-        tuple: (practices_id, title, video_url, time_practices, channel_name, description, my_description, weekday, created_at, updated_at) 
+        tuple: (practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at) 
                или None если практика не найдена
     """
     try:
@@ -311,7 +409,7 @@ def get_yoga_practice_by_id(practice_id: int) -> tuple:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, weekday, created_at, updated_at
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
             FROM yoga_practices 
             WHERE practices_id = ?
         ''', (practice_id,))
@@ -333,7 +431,7 @@ def get_yoga_practice_by_url(video_url: str) -> tuple:
         video_url: ссылка на видео
         
     Returns:
-        tuple: (id, title, video_url, duration_minutes, channel_name, description, weekday, created_at, updated_at) 
+        tuple: (id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at) 
                или None если практика не найдена
     """
     try:
@@ -341,7 +439,7 @@ def get_yoga_practice_by_url(video_url: str) -> tuple:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT practices_id, title, video_url, time_practices, channel_name, description, weekday, created_at, updated_at
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
             FROM yoga_practices 
             WHERE video_url = ?
         ''', (video_url,))
@@ -559,7 +657,7 @@ def search_yoga_practices(search_term: str) -> list:
 
 def update_yoga_practice(practice_id: int, title: str = None, video_url: str = None, 
                         time_practices: int = None, channel_name: str = None, 
-                        description: str = None, weekday: int = None) -> bool:
+                        description: str = None, my_description: str = None, intensity: str = None, weekday: int = None) -> bool:
     """Обновляет данные йога практики.
     
     Args:
@@ -569,6 +667,8 @@ def update_yoga_practice(practice_id: int, title: str = None, video_url: str = N
         time_practices: новая длительность в минутах (опционально)
         channel_name: новое название канала (опционально)
         description: новое описание (опционально)
+        my_description: новое мое описание (опционально)
+        intensity: новая интенсивность (опционально)
         weekday: новый день недели (1=понедельник, 7=воскресенье, None=любой день)
         
     Returns:
@@ -597,6 +697,12 @@ def update_yoga_practice(practice_id: int, title: str = None, video_url: str = N
         if description is not None:
             update_fields.append('description = ?')
             params.append(description)
+        if my_description is not None:
+            update_fields.append('my_description = ?')
+            params.append(my_description)
+        if intensity is not None:
+            update_fields.append('intensity = ?')
+            params.append(intensity)
         if weekday is not None:
             update_fields.append('weekday = ?')
             params.append(weekday)
@@ -709,6 +815,74 @@ def get_practice_count() -> int:
         return 0
 
 
+def get_yoga_practice_by_weekday_order(weekday: int, day_number: int) -> tuple:
+    """Получает йога практику для определенного дня недели по порядку.
+    
+    Args:
+        weekday: день недели (1=понедельник, 7=воскресенье)
+        day_number: номер дня (начиная с 1)
+        
+    Returns:
+        tuple: (practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at) 
+               или None если практик нет
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Получаем все практики для данного дня недели, отсортированные по ID
+        cursor.execute('''
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
+            FROM yoga_practices 
+            WHERE weekday = ?
+            ORDER BY practices_id
+        ''', (weekday,))
+        
+        practices = cursor.fetchall()
+        conn.close()
+        
+        if not practices:
+            print(f"Нет практик для дня недели {weekday}")
+            return None
+        
+        # Вычисляем индекс практики с учетом циклического повторения
+        practice_index = (day_number - 1) % len(practices)
+        return practices[practice_index]
+        
+    except Exception as e:
+        print(f"Ошибка получения практики по порядку для дня недели {weekday}, день {day_number}: {e}")
+        return None
+
+
+def get_practice_count_by_weekday(weekday: int) -> int:
+    """Получает количество практик для определенного дня недели.
+    
+    Args:
+        weekday: день недели (1=понедельник, 7=воскресенье)
+        
+    Returns:
+        int: Количество практик для данного дня недели
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT COUNT(*)
+            FROM yoga_practices 
+            WHERE weekday = ?
+        ''', (weekday,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        return result[0] if result else 0
+        
+    except Exception as e:
+        print(f"Ошибка получения количества практик для дня недели {weekday}: {e}")
+        return 0
+
+
 # Вспомогательные функции для работы с днями недели
 
 def weekday_to_name(weekday: int) -> str:
@@ -806,3 +980,98 @@ def get_weekday_statistics() -> dict:
 
 # Инициализируем базу данных при импорте модуля
 init_database()
+
+
+# Функции для логирования отправленных практик
+
+def log_practice_sent(user_id: int, practice_id: int, day_number: int) -> bool:
+    """Логирует отправку практики пользователю.
+    
+    Args:
+        user_id: ID пользователя
+        practice_id: ID практики
+        day_number: номер дня пользователя
+        
+    Returns:
+        bool: True если операция успешна, False в случае ошибки
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO practice_logs (user_id, practice_id, day_number)
+            VALUES (?, ?, ?)
+        ''', (user_id, practice_id, day_number))
+        
+        conn.commit()
+        conn.close()
+        print(f"Практика {practice_id} залогирована для пользователя {user_id}, день {day_number}")
+        return True
+        
+    except Exception as e:
+        print(f"Ошибка логирования практики {practice_id} для пользователя {user_id}: {e}")
+        return False
+
+
+def get_user_practice_history(user_id: int, limit: int = 10) -> list:
+    """Получает историю отправленных практик пользователю.
+    
+    Args:
+        user_id: ID пользователя
+        limit: максимальное количество записей (по умолчанию 10)
+        
+    Returns:
+        list: Список кортежей (log_id, practice_id, sent_at, day_number, title, video_url)
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT pl.log_id, pl.practice_id, pl.sent_at, pl.day_number, 
+                   yp.title, yp.video_url
+            FROM practice_logs pl
+            JOIN yoga_practices yp ON pl.practice_id = yp.practices_id
+            WHERE pl.user_id = ?
+            ORDER BY pl.sent_at DESC
+            LIMIT ?
+        ''', (user_id, limit))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return results
+        
+    except Exception as e:
+        print(f"Ошибка получения истории практик пользователя {user_id}: {e}")
+        return []
+
+
+def get_practice_sent_count(practice_id: int) -> int:
+    """Получает количество отправок конкретной практики.
+    
+    Args:
+        practice_id: ID практики
+        
+    Returns:
+        int: Количество отправок
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT COUNT(*)
+            FROM practice_logs 
+            WHERE practice_id = ?
+        ''', (practice_id,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        return result[0] if result else 0
+        
+    except Exception as e:
+        print(f"Ошибка получения количества отправок практики {practice_id}: {e}")
+        return 0

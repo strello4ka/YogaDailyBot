@@ -286,7 +286,7 @@ async def handle_time_input(update: Update, context: CallbackContext):
     await schedule_recommendations(context, chat_id)
     
     # Сохраняем время в базу данных
-    from app.db import save_user_time
+    from data.db import save_user_time
     user_name = update.effective_user.first_name
     save_success = save_user_time(user_id, chat_id, selected_time, user_name)
     
