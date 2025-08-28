@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: yogadaily-bot-service
+  labels:
+    app: yogadaily-bot
+spec:
+  selector:
+    app: yogadaily-bot
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

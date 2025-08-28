@@ -75,6 +75,10 @@ def main():
     # Создаем приложение с JobQueue
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # Регистрируем обработчики callback-запросов (кнопки) ПЕРВЫМИ
+    application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
+    application.add_handler(CallbackQueryHandler(cancel_time_callback, pattern="^cancel_time$"))
+    
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("test", test_practice_command))

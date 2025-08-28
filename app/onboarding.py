@@ -209,8 +209,11 @@ async def want_start_callback(update: Update, context: CallbackContext):
         update: Объект обновления от Telegram
         context: Контекст бота
     """
+    print("=== want_start_callback вызван ===")
+    
     # Получаем callback query (нажатие кнопки)
     query = update.callback_query
+    print(f"Callback data: {query.data}")
     
     # Отвечаем на callback, чтобы убрать "часики" у кнопки
     await query.answer()
@@ -310,7 +313,7 @@ async def handle_time_input(update: Update, context: CallbackContext):
     await update.message.reply_text(
         success_text,
         parse_mode='Markdown',
-        disable_web_page_preview=True  # Отключаем предпросмотр ссылки
+        disable_web_page_preview=False  # Включаем превью видео
     )
     
     # Отправляем сообщение с описанием кнопок меню

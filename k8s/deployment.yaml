@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yogadaily-bot
+  labels:
+    app: yogadaily-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: yogadaily-bot
+  template:
+    metadata:
+      labels:
+        app: yogadaily-bot
+    spec:
+      containers:
+      - name: yogadaily-bot
+        image: yogadaily-bot:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: yogadaily-bot-secret
+              key: BOT_TOKEN
+        - name: DEFAULT_TZ
+          valueFrom:
+            configMapKeyRef:
+              name: yogadaily-bot-config
+              key: DEFAULT_TZ
+        - name: DB_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: yogadaily-bot-config
+              key: DB_PATH
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: yogadaily-bot-config
+              key: LOG_LEVEL
+        volumeMounts:
+        - name: db-storage
+          mountPath: /app/data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: db-storage
+        persistentVolumeClaim:
+          claimName: yogadaily-bot-db-pvc
+      restartPolicy: Always

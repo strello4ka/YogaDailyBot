@@ -89,7 +89,7 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             chat_id=chat_id,
             text=message_text,
             parse_mode='Markdown',
-            disable_web_page_preview=True
+            disable_web_page_preview=False  # Включаем превью видео
         )
         
         # Логируем отправку
@@ -208,7 +208,7 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
             chat_id=chat_id,
             text=message_text,
             parse_mode='Markdown',
-            disable_web_page_preview=True
+            disable_web_page_preview=False  # Включаем превью видео
         )
         
         # Логируем отправку

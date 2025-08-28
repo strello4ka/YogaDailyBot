@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yogadaily-bot-config
+  labels:
+    app: yogadaily-bot
+data:
+  # Часовой пояс по умолчанию
+  DEFAULT_TZ: "Europe/Moscow"
+  # Путь к базе данных
+  DB_PATH: "/app/data/yogadaily.db"
+  # Уровень логирования
+  LOG_LEVEL: "INFO"
