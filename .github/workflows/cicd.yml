@@ -10,9 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: yoga-bot-py
-  DEPLOYMENT_NAME: yoga-bot-py
-  CONTAINER_NAME: yoga-bot-py
+  IMAGE_NAME: yogadaily-bot
+  DEPLOYMENT_NAME: yogadaily-bot
+  CONTAINER_NAME: yogadaily-bot
 
 jobs:
   build-and-push:
