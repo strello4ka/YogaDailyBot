@@ -434,3 +434,40 @@ async def cancel_time_callback(update: Update, context: CallbackContext):
     
     # Возвращаемся к приветствию
     await start_command(update, context)
+
+
+async def reset_user_callback(update: Update, context: CallbackContext):
+    """Обработчик кнопки "Начать сначала".
+    
+    Сбрасывает счетчик дней пользователя и запускает онбординг заново.
+    
+    Args:
+        update: Объект обновления от Telegram
+        context: Контекст бота
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    # Получаем данные пользователя
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    
+    # Сбрасываем счетчик дней пользователя
+    from data.db import reset_user_days
+    reset_success = reset_user_days(user_id)
+    
+    if reset_success:
+        # Отправляем подтверждение
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="🔄 Счетчик дней сброшен! Теперь начнем сначала."
+        )
+        
+        # Запускаем онбординг заново
+        await start_command(update, context)
+    else:
+        # Отправляем сообщение об ошибке
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="❌ Ошибка сброса счетчика дней. Попробуй еще раз."
+        )

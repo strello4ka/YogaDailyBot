@@ -70,7 +70,11 @@ kubectl apply -f k8s/service.yaml
 |------------|----------|----------|
 | `BOT_TOKEN` | Токен Telegram бота | Secret |
 | `DEFAULT_TZ` | Часовой пояс | ConfigMap |
-| `DB_PATH` | Путь к файлу БД | ConfigMap |
+| `POSTGRESQL_HOST` | Хост PostgreSQL | Secret |
+| `POSTGRESQL_PORT` | Порт PostgreSQL | Secret |
+| `POSTGRESQL_USER` | Пользователь PostgreSQL | Secret |
+| `POSTGRESQL_PASSWORD` | Пароль PostgreSQL | Secret |
+| `POSTGRESQL_DBNAME` | Имя базы данных | Secret |
 | `LOG_LEVEL` | Уровень логирования | ConfigMap |
 
 ### Ресурсы

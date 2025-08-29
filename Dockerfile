@@ -27,7 +27,6 @@ USER botuser
 # Устанавливаем переменные окружения по умолчанию
 ENV PYTHONPATH=/app
 ENV DEFAULT_TZ=Europe/Moscow
-ENV DB_PATH=/app/data/yogadaily.db
 
 # Открываем порт (хотя для Telegram бота он не нужен, но может пригодиться для health checks)
 EXPOSE 8080

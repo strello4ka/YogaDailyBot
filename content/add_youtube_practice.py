@@ -9,9 +9,9 @@ import re
 from urllib.parse import urlparse, parse_qs
 
 # Добавляем путь к модулю app в sys.path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from app.db import add_yoga_practice, get_practice_count, weekday_to_name
+from data.db import add_yoga_practice, get_practice_count, weekday_to_name
 
 
 def extract_video_id(url):

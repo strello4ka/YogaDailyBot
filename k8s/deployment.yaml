@@ -32,11 +32,7 @@ spec:
             configMapKeyRef:
               name: yogadaily-bot-config
               key: DEFAULT_TZ
-        - name: DB_PATH
-          valueFrom:
-            configMapKeyRef:
-              name: yogadaily-bot-config
-              key: DB_PATH
+
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:

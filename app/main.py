@@ -17,7 +17,8 @@ from app.onboarding import (
     start_command,
     want_start_callback,
     handle_time_input,
-    cancel_time_callback
+    cancel_time_callback,
+    reset_user_callback
 )
 from app.scheduler import schedule_daily_practices, send_test_practice
 
@@ -78,6 +79,7 @@ def main():
     # Регистрируем обработчики callback-запросов (кнопки) ПЕРВЫМИ
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(cancel_time_callback, pattern="^cancel_time$"))
+    application.add_handler(CallbackQueryHandler(reset_user_callback, pattern="^reset$"))
     
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
@@ -87,6 +89,7 @@ def main():
     # Регистрируем обработчики callback-запросов (кнопки)
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(cancel_time_callback, pattern="^cancel_time$"))
+    application.add_handler(CallbackQueryHandler(reset_user_callback, pattern="^reset$"))
     
     # Регистрируем обработчик текстовых сообщений для ввода времени
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_time_input))

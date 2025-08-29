@@ -5,9 +5,9 @@
 
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from app.db import get_all_yoga_practices, weekday_to_name
+from data.db import get_all_yoga_practices, weekday_to_name
 
 def main():
     print("📊 ТАБЛИЦА БАЗЫ ДАННЫХ ЙОГА ПРАКТИК")
