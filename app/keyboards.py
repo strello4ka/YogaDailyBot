@@ -2,7 +2,7 @@
 Contains all inline keyboards used in the bot interface.
 """
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
 
 def get_welcome_keyboard():
@@ -38,3 +38,28 @@ def get_main_menu_keyboard():
         [InlineKeyboardButton("Донаты", callback_data="donations")]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_main_reply_keyboard():
+    """Создает главную Reply-клавиатуру с основными функциями бота.
+    
+    Кнопки:
+    - Изменить время
+    - Предложить практику
+    - Помощь
+    - Начать сначала
+    - Донаты
+    
+    Returns:
+        ReplyKeyboardMarkup: Reply-клавиатура с основными функциями
+    """
+    keyboard = [
+        [KeyboardButton("Изменить время"), KeyboardButton("Предложить практику")],
+        [KeyboardButton("Помощь"), KeyboardButton("Начать сначала")],
+        [KeyboardButton("Донаты")]
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard, 
+        resize_keyboard=True,  # Автоматически подгоняет размер кнопок
+        one_time_keyboard=False  # Клавиатура остается после нажатия
+    )

@@ -20,7 +20,8 @@ from app.onboarding import (
     cancel_time_callback,
     reset_user_callback
 )
-from app.scheduler import schedule_daily_practices, send_test_practice
+from app.handlers.reply_handlers import handle_reply_button
+from app.schedule.scheduler import schedule_daily_practices, send_test_practice
 
 # Настройка логирования
 logging.basicConfig(
@@ -90,6 +91,13 @@ def main():
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(cancel_time_callback, pattern="^cancel_time$"))
     application.add_handler(CallbackQueryHandler(reset_user_callback, pattern="^reset$"))
+    
+    # Регистрируем обработчик Reply-кнопок (с высоким приоритетом)
+    reply_buttons = ["Изменить время", "Предложить практику", "Помощь", "Начать сначала", "Донаты"]
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(f"^({'|'.join(reply_buttons)})$"),
+        handle_reply_button
+    ))
     
     # Регистрируем обработчик текстовых сообщений для ввода времени
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_time_input))
