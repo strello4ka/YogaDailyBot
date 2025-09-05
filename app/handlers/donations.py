@@ -99,13 +99,13 @@ async def handle_donate_stars_callback(update: Update, context: ContextTypes.DEF
     
     # Создаем клавиатуру с вариантами количества звезд
     keyboard = [
-        [InlineKeyboardButton("1 ⭐️ (тест)", callback_data="stars_1")],
+        [InlineKeyboardButton("1 (тест) ⭐️", callback_data="stars_1")],
+        [InlineKeyboardButton("10 ⭐️", callback_data="stars_10")],
+        [InlineKeyboardButton("30 ⭐️", callback_data="stars_30")],
         [InlineKeyboardButton("50 ⭐️", callback_data="stars_50")],
         [InlineKeyboardButton("100 ⭐️", callback_data="stars_100")],
-        [InlineKeyboardButton("200 ⭐️", callback_data="stars_200")],
         [InlineKeyboardButton("500 ⭐️", callback_data="stars_500")],
-        [InlineKeyboardButton("1000 ⭐️", callback_data="stars_1000")],
-        [InlineKeyboardButton("5000 ⭐️", callback_data="stars_5000")]
+        [InlineKeyboardButton("1000 ⭐️", callback_data="stars_1000")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
