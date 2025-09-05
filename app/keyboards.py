@@ -17,28 +17,6 @@ def get_welcome_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_main_menu_keyboard():
-    """Создает главное меню бота с 5 кнопками.
-    
-    Кнопки:
-    - Изменить время
-    - Начать сначала  
-    - Предложить практику
-    - Помощь
-    - Донаты
-    
-    Returns:
-        InlineKeyboardMarkup: Главное меню
-    """
-    keyboard = [
-        [InlineKeyboardButton("Изменить время", callback_data="change_time")],
-        [InlineKeyboardButton("Начать сначала", callback_data="reset")],
-        [InlineKeyboardButton("Предложить практику", callback_data="suggest_practice")],
-        [InlineKeyboardButton("Помощь", callback_data="help")],
-        [InlineKeyboardButton("Донаты", callback_data="donations")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
 
 def get_main_reply_keyboard():
     """Создает главную Reply-клавиатуру с основными функциями бота.

@@ -47,6 +47,8 @@ def init_database():
                 user_name TEXT,
                 user_phone TEXT,
                 user_days INTEGER DEFAULT 0,
+                recommend TEXT,
+                comment TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -82,6 +84,39 @@ def init_database():
             )
         ''')
         
+        # Создаем таблицу для предложений пользователей
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_suggestions (
+                suggestion_id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                video_url TEXT NOT NULL,
+                comment TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Миграция: удаляем старые поля recommend и comment из таблицы users
+        try:
+            # Проверяем, существуют ли колонки, и удаляем их
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name IN ('recommend', 'comment')
+            """)
+            existing_columns = [row[0] for row in cursor.fetchall()]
+            
+            if 'recommend' in existing_columns:
+                cursor.execute('ALTER TABLE users DROP COLUMN recommend')
+                print("✅ Колонка recommend удалена из таблицы users")
+            
+            if 'comment' in existing_columns:
+                cursor.execute('ALTER TABLE users DROP COLUMN comment')
+                print("✅ Колонка comment удалена из таблицы users")
+                
+        except Exception as e:
+            print(f"⚠️ Ошибка удаления колонок из users: {e}")
+        
         # Создаем индексы для быстрого поиска
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_id ON users(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_video_url ON yoga_practices(video_url)')
@@ -91,6 +126,8 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_intensity ON yoga_practices(intensity)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_logs_user ON practice_logs(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_logs_practice ON practice_logs(practice_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_user ON user_suggestions(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_created ON user_suggestions(created_at)')
         
         conn.commit()
         conn.close()
@@ -144,6 +181,109 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
             conn.rollback()
             conn.close()
         return False
+
+def save_user_practice_suggestion(user_id: int, video_url: str, comment: str = None) -> bool:
+    """Сохраняет предложение практики от пользователя в отдельную таблицу.
+    
+    Args:
+        user_id: ID пользователя, предложившего практику
+        video_url: ссылка на рекомендуемое видео
+        comment: комментарий пользователя к рекомендации (опционально)
+        
+    Returns:
+        bool: True если операция успешна, False в случае ошибки
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Проверяем, что пользователь существует
+        cursor.execute('SELECT user_id FROM users WHERE user_id = %s', (user_id,))
+        if not cursor.fetchone():
+            print(f"Пользователь {user_id} не найден")
+            return False
+        
+        # Добавляем новое предложение в таблицу user_suggestions
+        cursor.execute('''
+            INSERT INTO user_suggestions (user_id, video_url, comment)
+            VALUES (%s, %s, %s)
+        ''', (user_id, video_url, comment))
+        
+        conn.commit()
+        conn.close()
+        print(f"Предложение практики от пользователя {user_id} сохранено: {video_url}")
+        return True
+        
+    except Exception as e:
+        print(f"Ошибка сохранения предложения практики от пользователя {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+def get_user_suggestions(user_id: int, limit: int = 10) -> list:
+    """Получает предложения пользователя.
+    
+    Args:
+        user_id: ID пользователя
+        limit: максимальное количество предложений (по умолчанию 10)
+        
+    Returns:
+        list: Список кортежей (suggestion_id, video_url, comment, created_at)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT suggestion_id, video_url, comment, created_at
+            FROM user_suggestions 
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+        ''', (user_id, limit))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return results
+        
+    except Exception as e:
+        print(f"Ошибка получения предложений пользователя {user_id}: {e}")
+        if conn:
+            conn.close()
+        return []
+
+def get_all_user_suggestions(limit: int = 100) -> list:
+    """Получает все предложения пользователей.
+    
+    Args:
+        limit: максимальное количество предложений (по умолчанию 100)
+        
+    Returns:
+        list: Список кортежей (suggestion_id, user_id, video_url, comment, created_at)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT suggestion_id, user_id, video_url, comment, created_at
+            FROM user_suggestions 
+            ORDER BY created_at DESC
+            LIMIT %s
+        ''', (limit,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return results
+        
+    except Exception as e:
+        print(f"Ошибка получения всех предложений: {e}")
+        if conn:
+            conn.close()
+        return []
 
 def get_user_time(user_id: int) -> tuple:
     """Получает данные пользователя.
