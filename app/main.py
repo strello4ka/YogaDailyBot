@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import logging
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, filters, ContextTypes
 from telegram import Update
 
 from app.config import BOT_TOKEN
@@ -22,6 +22,14 @@ from app.onboarding import (
 from app.handlers.restart import handle_restart_callback
 from app.handlers.reply_handlers import handle_reply_button
 from app.handlers.suggest_practice import handle_practice_suggestion_input
+from app.handlers.donations import (
+    handle_donations_callback,
+    handle_donate_card_callback,
+    handle_donate_stars_callback,
+    handle_stars_amount_callback,
+    handle_pre_checkout_query,
+    handle_successful_payment
+)
 from app.schedule.scheduler import schedule_daily_practices, send_test_practice
 
 
@@ -106,6 +114,17 @@ def main():
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(cancel_time_callback, pattern="^cancel_time$"))
     application.add_handler(CallbackQueryHandler(handle_restart_callback, pattern="^reset$"))
+    
+    # Регистрируем обработчики для донатов
+    application.add_handler(CallbackQueryHandler(handle_donate_card_callback, pattern="^donate_card$"))
+    application.add_handler(CallbackQueryHandler(handle_donate_stars_callback, pattern="^donate_stars$"))
+    
+    # Регистрируем обработчики для выбора количества звезд
+    application.add_handler(CallbackQueryHandler(handle_stars_amount_callback, pattern="^stars_"))
+    
+    # Регистрируем обработчики для платежей
+    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
+    application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout_query))
     
     # Регистрируем обработчик Reply-кнопок (с высоким приоритетом)
     reply_buttons = ["Изменить время", "Предложить практику", "Помощь", "Начать сначала", "Донаты"]
