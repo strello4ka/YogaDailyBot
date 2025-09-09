@@ -18,7 +18,7 @@ spec:
         - name: regcred
       containers:
       - name: yogadaily-bot
-        image: dimatorzok-images.registry.twcstorage.ru/yogadaily-bot:latest
+        image: dimatorzok-images.registry.twcstorage.ru/yogadaily-bot:20250909150442-39a6cfa
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
@@ -35,16 +35,4 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "200m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
       restartPolicy: Always
