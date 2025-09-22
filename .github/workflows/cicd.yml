@@ -42,14 +42,22 @@ jobs:
           SHA="${GITHUB_SHA::7}"
           TS="$(date -u +%Y%m%d%H%M%S)"
           echo "TAG=${TS}-${SHA}" >> $GITHUB_OUTPUT
-          echo "IMAGE=${{ secrets.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
+          REG="${{ secrets.REGISTRY }}"
+          REPO="${{ secrets.REGISTRY_REPO }}"
+          if [ -n "$REPO" ]; then
+            IMAGE="$REG/$REPO/${{ env.IMAGE_NAME }}"
+          else
+            IMAGE="$REG/${{ env.IMAGE_NAME }}"
+          fi
+          echo "IMAGE=$IMAGE" >> $GITHUB_OUTPUT
 
       - name: Build & Push
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ./deploy/Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.meta.outputs.IMAGE }}:${{ steps.meta.outputs.TAG }}
             ${{ steps.meta.outputs.IMAGE }}:latest
@@ -69,6 +77,8 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Download image ref
         uses: actions/download-artifact@v4
         with:
@@ -87,6 +97,11 @@ jobs:
         run: |
           mkdir -p ~/.kube
           printf "%s" "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+
+      - name: Apply manifests (ConfigMap & Deployment)
+        run: |
+          kubectl -n "${{ secrets.K8S_NAMESPACE }}" apply -f deploy/k8s/configmap.yaml
+          kubectl -n "${{ secrets.K8S_NAMESPACE }}" apply -f deploy/k8s/deployment.yaml
 
       - name: Set image to :latest
         run: |

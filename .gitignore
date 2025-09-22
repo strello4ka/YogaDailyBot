@@ -37,6 +37,7 @@ wheels/
 # Конфигурационные файлы с секретами
 config.py
 .env
+!app/config.py
 
 # База данных
 *.db

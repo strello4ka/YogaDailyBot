@@ -14,33 +14,20 @@ spec:
       labels:
         app: yogadaily-bot
     spec:
+      imagePullSecrets:
+        - name: regcred
       containers:
       - name: yogadaily-bot
-        image: yogadaily-bot:latest
+        image: dimatorzok-images.registry.twcstorage.ru/yogadaily-bot:20250909150442-39a6cfa
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
           name: http
-        env:
-        - name: BOT_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: yogadaily-bot-secret
-              key: BOT_TOKEN
-        - name: DEFAULT_TZ
-          valueFrom:
-            configMapKeyRef:
-              name: yogadaily-bot-config
-              key: DEFAULT_TZ
-
-        - name: LOG_LEVEL
-          valueFrom:
-            configMapKeyRef:
-              name: yogadaily-bot-config
-              key: LOG_LEVEL
-        volumeMounts:
-        - name: db-storage
-          mountPath: /app/data
+        envFrom:
+        - secretRef:
+            name: yogadaily-bot-secret
+        - configMapRef:
+            name: yogadaily-bot-config
         resources:
           requests:
             memory: "128Mi"
@@ -48,20 +35,4 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "200m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
-      volumes:
-      - name: db-storage
-        persistentVolumeClaim:
-          claimName: yogadaily-bot-db-pvc
       restartPolicy: Always
