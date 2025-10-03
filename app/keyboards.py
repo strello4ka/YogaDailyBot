@@ -24,8 +24,7 @@ def get_main_reply_keyboard():
     Кнопки:
     - Изменить время
     - Предложить практику
-    - Помощь
-    - Начать сначала
+    - Советы
     - Донаты
     
     Returns:
@@ -33,8 +32,7 @@ def get_main_reply_keyboard():
     """
     keyboard = [
         [KeyboardButton("Изменить время"), KeyboardButton("Предложить практику")],
-        [KeyboardButton("Помощь"), KeyboardButton("Начать сначала")],
-        [KeyboardButton("Донаты")]
+        [KeyboardButton("Советы"), KeyboardButton("Донаты")]
     ]
     return ReplyKeyboardMarkup(
         keyboard, 

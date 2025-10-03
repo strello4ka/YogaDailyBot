@@ -42,6 +42,9 @@ async def handle_suggest_practice_callback(update: Update, context: ContextTypes
         disable_web_page_preview=True
     )
     
+    # Очищаем другие состояния перед установкой нового
+    context.user_data.pop('waiting_for_time', None)
+    
     # Устанавливаем состояние ожидания предложения практики
     context.user_data['waiting_for_practice_suggestion'] = True
 

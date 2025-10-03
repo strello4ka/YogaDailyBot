@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env файла
+load_dotenv()
 
 # Обязательные/основные переменные
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")

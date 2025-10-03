@@ -2,6 +2,9 @@ import psycopg2
 import psycopg2.extras
 import os
 from datetime import datetime
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.config import get_db_config
 
 def get_connection():
@@ -135,9 +138,7 @@ def init_database():
         
     except Exception as e:
         print(f"Ошибка инициализации PostgreSQL базы данных: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
+        conn = None
 
 def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_phone: str = None) -> bool:
     """Сохраняет или обновляет время уведомлений пользователя.
