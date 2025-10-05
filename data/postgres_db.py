@@ -99,6 +99,21 @@ def init_database():
             )
         ''')
         
+        # Создаем таблицу для фиксированного набора практик новичков
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS newbie_practices (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                video_url TEXT NOT NULL UNIQUE,
+                duration_minutes INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                description TEXT,
+                number_practices INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         # Миграция: удаляем старые поля recommend и comment из таблицы users
         try:
             # Проверяем, существуют ли колонки, и удаляем их
@@ -120,6 +135,32 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка удаления колонок из users: {e}")
         
+        # Миграция: добавляем поле user_week для отслеживания недели пользователя
+        try:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'user_week'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN user_week INTEGER DEFAULT 1')
+                print("✅ Колонка user_week добавлена в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка добавления колонки user_week: {e}")
+        
+        # Миграция: добавляем поле onboarding_weekday для отслеживания дня недели регистрации
+        try:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'onboarding_weekday'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN onboarding_weekday INTEGER')
+                print("✅ Колонка onboarding_weekday добавлена в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка добавления колонки onboarding_weekday: {e}")
+        
         # Создаем индексы для быстрого поиска
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_id ON users(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_video_url ON yoga_practices(video_url)')
@@ -131,6 +172,8 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_logs_practice ON practice_logs(practice_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_user ON user_suggestions(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_created ON user_suggestions(created_at)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_newbie_practices_number ON newbie_practices(number_practices)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_newbie_practices_url ON newbie_practices(video_url)')
         
         conn.commit()
         conn.close()
@@ -140,7 +183,7 @@ def init_database():
         print(f"Ошибка инициализации PostgreSQL базы данных: {e}")
         conn = None
 
-def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_phone: str = None) -> bool:
+def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_phone: str = None, onboarding_weekday: int = None) -> bool:
     """Сохраняет или обновляет время уведомлений пользователя.
     
     Args:
@@ -149,6 +192,7 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         notify_time: время в формате HH:MM
         user_name: имя пользователя (опционально)
         user_phone: телефон пользователя (опционально)
+        onboarding_weekday: день недели регистрации (1-7, опционально)
         
     Returns:
         bool: True если операция успешна, False в случае ошибки
@@ -159,8 +203,8 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         
         # Используем UPSERT (INSERT ... ON CONFLICT)
         cursor.execute('''
-            INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_days)
-            VALUES (%s, %s, %s, %s, %s, 0)
+            INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_days, onboarding_weekday)
+            VALUES (%s, %s, %s, %s, %s, 0, %s)
             ON CONFLICT (user_id) 
             DO UPDATE SET 
                 chat_id = EXCLUDED.chat_id,
@@ -168,8 +212,9 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                 user_name = EXCLUDED.user_name,
                 user_phone = EXCLUDED.user_phone,
                 user_days = 0,
+                onboarding_weekday = COALESCE(EXCLUDED.onboarding_weekday, users.onboarding_weekday),
                 updated_at = CURRENT_TIMESTAMP
-        ''', (user_id, chat_id, notify_time, user_name, user_phone))
+        ''', (user_id, chat_id, notify_time, user_name, user_phone, onboarding_weekday))
         
         conn.commit()
         conn.close()
@@ -293,14 +338,14 @@ def get_user_time(user_id: int) -> tuple:
         user_id: ID пользователя
         
     Returns:
-        tuple: (chat_id, notify_time, user_name, user_phone, user_days) или (None, None, None, None, None) если пользователь не найден
+        tuple: (chat_id, notify_time, user_name, user_phone, user_days, user_week, onboarding_weekday) или (None, None, None, None, None, None, None) если пользователь не найден
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT chat_id, notify_time, user_name, user_phone, user_days
+            SELECT chat_id, notify_time, user_name, user_phone, user_days, user_week, onboarding_weekday
             FROM users 
             WHERE user_id = %s
         ''', (user_id,))
@@ -311,13 +356,13 @@ def get_user_time(user_id: int) -> tuple:
         if result:
             return result
         else:
-            return (None, None, None, None, None)
+            return (None, None, None, None, None, None, None)
             
     except Exception as e:
         print(f"Ошибка получения времени пользователя {user_id}: {e}")
         if conn:
             conn.close()
-        return (None, None, None, None, None)
+        return (None, None, None, None, None, None, None)
 
 def increment_user_days(user_id: int) -> bool:
     """Увеличивает счетчик дней пользователя на 1.
@@ -1247,3 +1292,192 @@ def get_practice_sent_count(practice_id: int) -> int:
         if conn:
             conn.close()
         return 0
+
+# Функции для работы с практиками новичков
+
+def add_newbie_practice(title: str, video_url: str, duration_minutes: int, channel_name: str, description: str = None, number_practices: int = 1) -> bool:
+    """Добавляет новую практику для новичков в базу данных.
+    
+    Args:
+        title: название видео
+        video_url: ссылка на видео
+        duration_minutes: длительность видео в минутах
+        channel_name: название канала
+        description: описание видео (опционально)
+        number_practices: номер практики в программе (не уникальный)
+        
+    Returns:
+        bool: True если операция успешна, False в случае ошибки
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO newbie_practices (title, video_url, duration_minutes, channel_name, description, number_practices)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        ''', (title, video_url, duration_minutes, channel_name, description, number_practices))
+        
+        conn.commit()
+        conn.close()
+        print(f"Практика для новичков добавлена: {title}")
+        return True
+        
+    except psycopg2.IntegrityError:
+        print(f"Видео с URL {video_url} уже существует в базе данных новичков")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+    except Exception as e:
+        print(f"Ошибка добавления практики для новичков: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+def get_newbie_practice_by_number(practice_number: int) -> list:
+    """Получает все практики для новичков с указанным номером.
+    
+    Args:
+        practice_number: номер практики
+        
+    Returns:
+        list: Список кортежей (id, title, video_url, duration_minutes, channel_name, description, number_practices, created_at, updated_at)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, title, video_url, duration_minutes, channel_name, description, number_practices, created_at, updated_at
+            FROM newbie_practices 
+            WHERE number_practices = %s
+            ORDER BY id
+        ''', (practice_number,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return results
+        
+    except Exception as e:
+        print(f"Ошибка получения практик новичков с номером {practice_number}: {e}")
+        if conn:
+            conn.close()
+        return []
+
+def get_newbie_practice_count() -> int:
+    """Получает общее количество практик для новичков в базе данных.
+    
+    Returns:
+        int: Количество практик
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT COUNT(*) FROM newbie_practices')
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        return result[0] if result else 0
+        
+    except Exception as e:
+        print(f"Ошибка получения количества практик новичков: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+def get_max_newbie_practice_number() -> int:
+    """Получает максимальный номер практики для новичков.
+    
+    Returns:
+        int: Максимальный номер практики
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT MAX(number_practices) FROM newbie_practices')
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        return result[0] if result and result[0] else 0
+        
+    except Exception as e:
+        print(f"Ошибка получения максимального номера практики новичков: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+def update_user_week(user_id: int, new_week: int) -> bool:
+    """Обновляет неделю пользователя.
+    
+    Args:
+        user_id: ID пользователя
+        new_week: новая неделя
+        
+    Returns:
+        bool: True если операция успешна, False в случае ошибки
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE users 
+            SET user_week = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+        ''', (new_week, user_id))
+        
+        if cursor.rowcount == 0:
+            print(f"Пользователь {user_id} не найден")
+            return False
+        
+        conn.commit()
+        conn.close()
+        print(f"Неделя пользователя {user_id} обновлена на {new_week}")
+        return True
+        
+    except Exception as e:
+        print(f"Ошибка обновления недели пользователя {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+def get_user_week(user_id: int) -> int:
+    """Получает текущую неделю пользователя.
+    
+    Args:
+        user_id: ID пользователя
+        
+    Returns:
+        int: Номер недели или 1 если пользователь не найден
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT user_week
+            FROM users 
+            WHERE user_id = %s
+        ''', (user_id,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return result[0] or 1
+        else:
+            return 1
+            
+    except Exception as e:
+        print(f"Ошибка получения недели пользователя {user_id}: {e}")
+        if conn:
+            conn.close()
+        return 1
