@@ -129,7 +129,7 @@ async def handle_time_change_input(update: Update, context: ContextTypes.DEFAULT
     context.user_data.pop('is_time_change', None)
     
     # Сохраняем время в базу данных (НЕ изменяем день недели регистрации)
-    from data.db import save_user_time
+    from data.postgres_db import save_user_time
     user_name = update.effective_user.first_name
     save_success = save_user_time(user_id, chat_id, selected_time, user_name, onboarding_weekday=None)
     

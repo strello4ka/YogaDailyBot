@@ -9,9 +9,10 @@ import csv
 from urllib.parse import urlparse, parse_qs
 
 # Добавляем путь к корневой папке проекта в sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
-from data.db import add_newbie_practice, get_newbie_practice_count, get_max_newbie_practice_number
+from data.postgres_db import add_newbie_practice, get_newbie_practice_count, get_max_newbie_practice_number
 
 
 def extract_video_id(url):
@@ -39,6 +40,7 @@ def get_youtube_data(url):
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
+            'ignoreerrors': True,  # Игнорируем ошибки формата
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

@@ -126,7 +126,7 @@ async def handle_practice_suggestion_input(update: Update, context: ContextTypes
     # Сохраняем предложение в базу данных
     user_id = update.effective_user.id
     
-    from data.db import save_user_practice_suggestion
+    from data.postgres_db import save_user_practice_suggestion
     save_success = save_user_practice_suggestion(user_id, result, comment)
     
     if not save_success:

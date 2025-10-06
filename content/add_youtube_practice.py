@@ -11,7 +11,7 @@ from urllib.parse import urlparse, parse_qs
 # Добавляем путь к модулю app в sys.path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from data.db import add_yoga_practice, get_practice_count, weekday_to_name
+from data.postgres_db import add_yoga_practice, get_practice_count, weekday_to_name
 
 
 def extract_video_id(url):

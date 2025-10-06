@@ -69,7 +69,7 @@
 ### 1. Инициализация БД
 ```bash
 source venv/bin/activate
-python -c "from data.db import init_database; print('БД готова')"
+python -c "from data.postgres_db import init_database; print('БД готова')"
 ```
 
 ### 2. Добавление тестовых данных
@@ -103,7 +103,7 @@ python test_scheduler.py
 ### История практик
 Можно получить историю отправленных практик:
 ```python
-from data.db import get_user_practice_history
+from data.postgres_db import get_user_practice_history
 history = get_user_practice_history(user_id, limit=10)
 ```
 
@@ -119,7 +119,7 @@ history = get_user_practice_history(user_id, limit=10)
 
 ### Через скрипт
 ```python
-from data.db import add_yoga_practice
+from data.postgres_db import add_yoga_practice
 
 add_yoga_practice(
     title="Название практики",

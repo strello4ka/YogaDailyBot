@@ -11,7 +11,7 @@ import asyncio
 import logging
 from datetime import datetime, time
 from telegram.ext import ContextTypes
-from data.db import (
+from data.postgres_db import (
     get_users_by_time, 
     get_yoga_practice_by_weekday_order,
     increment_user_days,
@@ -19,8 +19,7 @@ from data.db import (
     log_practice_sent,
     get_current_weekday,
     get_user_time,
-    get_newbie_practice_by_number,
-    get_max_newbie_practice_number
+    get_newbie_practice_by_number
 )
 
 logger = logging.getLogger(__name__)
@@ -142,13 +141,6 @@ async def send_newbie_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int,
             
             logger.info(f"Практика новичка {practice_id} отправлена пользователю {user_id}, день {day_number}")
         
-        # Проверяем, нужно ли перейти к следующей неделе
-        max_practice_number = get_max_newbie_practice_number()
-        if practice_number >= max_practice_number and user_week < 4:
-            # Переходим к следующей неделе
-            new_week = user_week + 1
-            update_user_week(user_id, new_week)
-            logger.info(f"Пользователь {user_id} переведен на неделю {new_week}")
         
     except Exception as e:
         logger.error(f"Ошибка отправки практики новичка пользователю {user_id}: {e}")

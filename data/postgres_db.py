@@ -135,19 +135,6 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка удаления колонок из users: {e}")
         
-        # Миграция: добавляем поле user_week для отслеживания недели пользователя
-        try:
-            cursor.execute("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'users' AND column_name = 'user_week'
-            """)
-            if not cursor.fetchone():
-                cursor.execute('ALTER TABLE users ADD COLUMN user_week INTEGER DEFAULT 1')
-                print("✅ Колонка user_week добавлена в таблицу users")
-        except Exception as e:
-            print(f"⚠️ Ошибка добавления колонки user_week: {e}")
-        
         # Миграция: добавляем поле onboarding_weekday для отслеживания дня недели регистрации
         try:
             cursor.execute("""
@@ -338,14 +325,14 @@ def get_user_time(user_id: int) -> tuple:
         user_id: ID пользователя
         
     Returns:
-        tuple: (chat_id, notify_time, user_name, user_phone, user_days, user_week, onboarding_weekday) или (None, None, None, None, None, None, None) если пользователь не найден
+        tuple: (chat_id, notify_time, user_name, user_phone, user_days, onboarding_weekday) или (None, None, None, None, None, None) если пользователь не найден
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT chat_id, notify_time, user_name, user_phone, user_days, user_week, onboarding_weekday
+            SELECT chat_id, notify_time, user_name, user_phone, user_days, onboarding_weekday
             FROM users 
             WHERE user_id = %s
         ''', (user_id,))
@@ -356,13 +343,13 @@ def get_user_time(user_id: int) -> tuple:
         if result:
             return result
         else:
-            return (None, None, None, None, None, None, None)
+            return (None, None, None, None, None, None)
             
     except Exception as e:
         print(f"Ошибка получения времени пользователя {user_id}: {e}")
         if conn:
             conn.close()
-        return (None, None, None, None, None, None, None)
+        return (None, None, None, None, None, None)
 
 def increment_user_days(user_id: int) -> bool:
     """Увеличивает счетчик дней пользователя на 1.
@@ -1413,71 +1400,3 @@ def get_max_newbie_practice_number() -> int:
             conn.close()
         return 0
 
-def update_user_week(user_id: int, new_week: int) -> bool:
-    """Обновляет неделю пользователя.
-    
-    Args:
-        user_id: ID пользователя
-        new_week: новая неделя
-        
-    Returns:
-        bool: True если операция успешна, False в случае ошибки
-    """
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE users 
-            SET user_week = %s, updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = %s
-        ''', (new_week, user_id))
-        
-        if cursor.rowcount == 0:
-            print(f"Пользователь {user_id} не найден")
-            return False
-        
-        conn.commit()
-        conn.close()
-        print(f"Неделя пользователя {user_id} обновлена на {new_week}")
-        return True
-        
-    except Exception as e:
-        print(f"Ошибка обновления недели пользователя {user_id}: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
-        return False
-
-def get_user_week(user_id: int) -> int:
-    """Получает текущую неделю пользователя.
-    
-    Args:
-        user_id: ID пользователя
-        
-    Returns:
-        int: Номер недели или 1 если пользователь не найден
-    """
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT user_week
-            FROM users 
-            WHERE user_id = %s
-        ''', (user_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return result[0] or 1
-        else:
-            return 1
-            
-    except Exception as e:
-        print(f"Ошибка получения недели пользователя {user_id}: {e}")
-        if conn:
-            conn.close()
-        return 1

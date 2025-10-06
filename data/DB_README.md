@@ -59,7 +59,6 @@ from data.postgres_db import create_tables
 | `user_name` | TEXT | Имя пользователя (опционально) |
 | `user_phone` | TEXT | Телефон пользователя (опционально) |
 | `user_days` | INTEGER | Счетчик дней пользователя (по умолчанию 0) |
-| `user_week` | INTEGER | Текущая неделя пользователя (по умолчанию 1) |
 | `onboarding_weekday` | INTEGER | День недели регистрации (1-7) |
 | `created_at` | TIMESTAMP | Дата создания записи |
 | `updated_at` | TIMESTAMP | Дата последнего обновления |
@@ -144,14 +143,14 @@ from app.db import add_yoga_practice
 ### Управление пользователями
 
 ```python
-from data.db import save_user_time, get_user_time, increment_user_days, get_user_days
+from data.postgres_db import save_user_time, get_user_time, increment_user_days, get_user_days
 
 # Сохранение пользователя с днем недели регистрации
 save_user_time(user_id, chat_id, "09:00", "Имя", onboarding_weekday=1)
 
 # Получение данных пользователя
 user_data = get_user_time(user_id)
-# Возвращает: (chat_id, notify_time, user_name, user_phone, user_days, user_week, onboarding_weekday)
+# Возвращает: (chat_id, notify_time, user_name, user_phone, user_days, onboarding_weekday)
 
 # Увеличение счетчика дней
 increment_user_days(user_id)
@@ -165,7 +164,7 @@ days = get_user_days(user_id)
 ### Управление практиками новичков
 
 ```python
-from data.db import add_newbie_practice, get_newbie_practice_by_number
+from data.postgres_db import add_newbie_practice, get_newbie_practice_by_number
 
 # Добавление практики для новичков
 add_newbie_practice(
@@ -434,11 +433,11 @@ def find_practices_by_keyword(keyword):
 
 ```python
 from app.schedule.scheduler import send_newbie_practice
-from data.db import get_user_time
+from data.postgres_db import get_user_time
 
 def send_practice_to_newbie(user_id, chat_id):
     user_data = get_user_time(user_id)
-    chat_id, notify_time, user_name, user_phone, user_days, user_week, onboarding_weekday = user_data
+    chat_id, notify_time, user_name, user_phone, user_days, onboarding_weekday = user_data
     
     if user_days <= 28:  # Новый пользователь
         new_day_number = user_days + 1
