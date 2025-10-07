@@ -73,10 +73,11 @@ def create_csv_template():
     with open(csv_file, 'w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         
-        # Заголовки
+        # Заголовки (идентичны yoga_practices, но вместо weekday - number_practices)
         writer.writerow([
             'video_url',
-            'description', 
+            'my_description',
+            'intensity',
             'number_practices'
         ])
         
@@ -84,29 +85,36 @@ def create_csv_template():
         writer.writerow([
             'https://www.youtube.com/watch?v=example1',
             'Первая практика для новичков - основы дыхания',
+            'легкая',
             '1'
         ])
         writer.writerow([
             'https://www.youtube.com/watch?v=example2',
             'Вторая практика - простые асаны',
+            'средняя',
             '1'
         ])
         writer.writerow([
             'https://www.youtube.com/watch?v=example3',
             'Третья практика - растяжка',
+            'легкая',
             '2'
         ])
     
     print(f"✅ Создан шаблон файла: {csv_file}")
     print("📝 Заполните файл своими данными:")
-    print("   - video_url: ссылка на YouTube видео")
-    print("   - description: описание практики (необязательно)")
-    print("   - number_practices: номер практики в программе (1-28 для 4 недель)")
-    print("\n💡 Номера практик:")
-    print("   - 1-7: первая неделя")
-    print("   - 8-14: вторая неделя")
-    print("   - 15-21: третья неделя")
-    print("   - 22-28: четвертая неделя")
+    print("   - video_url: ссылка на YouTube видео (обязательно)")
+    print("   - my_description: ваше описание практики (необязательно)")
+    print("   - intensity: интенсивность - 'легкая', 'средняя' или 'высокая' (необязательно)")
+    print("   - number_practices: номер практики (1-7, обязательно)")
+    print("\n💡 Номера практик соответствуют дням недели:")
+    print("   - 1: практика для тех, кто начал в воскресенье")
+    print("   - 2: практика для тех, кто начал в понедельник")
+    print("   - 3: практика для тех, кто начал во вторник")
+    print("   - 4: практика для тех, кто начал в среду")
+    print("   - 5: практика для тех, кто начал в четверг")
+    print("   - 6: практика для тех, кто начал в пятницу")
+    print("   - 7: практика для тех, кто начал в субботу")
 
 
 def process_csv_file(csv_file):
@@ -130,7 +138,8 @@ def process_csv_file(csv_file):
             
             # Получаем данные из CSV
             video_url = row.get('video_url', '').strip()
-            description = row.get('description', '').strip()
+            my_description = row.get('my_description', '').strip()
+            intensity = row.get('intensity', '').strip()
             number_practices_str = row.get('number_practices', '').strip()
             
             # Проверяем обязательные поля
@@ -154,14 +163,22 @@ def process_csv_file(csv_file):
             # Обрабатываем номер практики
             try:
                 number_practices = int(number_practices_str)
-                if number_practices < 1 or number_practices > 28:
-                    print(f"❌ Строка {row_num}: номер практики должен быть от 1 до 28")
+                if number_practices < 1 or number_practices > 7:
+                    print(f"❌ Строка {row_num}: номер практики должен быть от 1 до 7")
                     error_count += 1
                     continue
             except ValueError:
                 print(f"❌ Строка {row_num}: неверный формат номера практики")
                 error_count += 1
                 continue
+            
+            # Проверяем интенсивность
+            valid_intensities = ['легкая', 'средняя', 'высокая', '']
+            if intensity and intensity not in valid_intensities:
+                print(f"⚠️ Строка {row_num}: неверная интенсивность '{intensity}', будет использовано пустое значение")
+                intensity = None
+            elif not intensity:
+                intensity = None
             
             # Получаем данные с YouTube
             print(f"📡 Получаем данные с YouTube...")
@@ -175,17 +192,23 @@ def process_csv_file(csv_file):
             print(f"   Название: {youtube_data['title']}")
             print(f"   Канал: {youtube_data['channel_name']}")
             print(f"   Длительность: {youtube_data['duration_minutes']} минут")
-            if description:
-                print(f"   Описание: {description}")
+            if youtube_data['description']:
+                print(f"   Описание YouTube: {youtube_data['description'][:100]}...")
+            if my_description:
+                print(f"   Мое описание: {my_description}")
+            if intensity:
+                print(f"   Интенсивность: {intensity}")
             print(f"   Номер практики: {number_practices}")
             
             # Добавляем в базу данных
             success = add_newbie_practice(
                 title=youtube_data['title'],
                 video_url=video_url,
-                duration_minutes=youtube_data['duration_minutes'],
+                time_practices=youtube_data['duration_minutes'],
                 channel_name=youtube_data['channel_name'],
-                description=description if description else youtube_data['description'],
+                description=youtube_data['description'],
+                my_description=my_description if my_description else None,
+                intensity=intensity,
                 number_practices=number_practices
             )
             
@@ -214,15 +237,14 @@ def show_statistics():
     print(f"   Максимальный номер практики: {max_number}")
     
     if max_number > 0:
-        weeks = (max_number + 6) // 7  # Округляем вверх
-        print(f"   Количество недель: {weeks}")
-        
-        # Показываем распределение по неделям
-        print("\n📅 Распределение по неделям:")
-        for week in range(1, weeks + 1):
-            start_practice = (week - 1) * 7 + 1
-            end_practice = min(week * 7, max_number)
-            print(f"   Неделя {week}: практики {start_practice}-{end_practice}")
+        # Показываем распределение по номерам практик
+        print("\n📅 Распределение по номерам:")
+        from data.postgres_db import get_newbie_practice_by_number
+        for num in range(1, min(max_number + 1, 8)):  # Максимум 7 номеров
+            practices = get_newbie_practice_by_number(num)
+            day_names = ['', 'воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу']
+            day_name = day_names[num] if num <= 7 else f'номер {num}'
+            print(f"   Практика #{num} (для начавших в {day_name}): {len(practices)} практик(и)")
 
 
 def main():

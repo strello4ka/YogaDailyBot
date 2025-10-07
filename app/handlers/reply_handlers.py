@@ -14,6 +14,7 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     - "Изменить время" - переадресация к обработчику изменения времени
     - "Предложить практику" - переадресация к обработчику предложения практик
     - "Советы" - переадресация к обработчику советов
+    - "Начать сначала" - перезапуск онбординга (user_days сбросится при вводе времени)
     - "Донаты" - переадресация к обработчику донатов
     
     Args:
@@ -40,6 +41,11 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif message_text == "Донаты":
         from .donations import handle_donations_callback
         await handle_donations_callback(update, context)
+        
+    elif message_text == "Начать сначала":
+        # Перезапускаем онбординг - пользователь повторно пройдет /start
+        from ..onboarding import start_command
+        await start_command(update, context)
         
     else:
         # Если текст не соответствует ни одной кнопке Reply-клавиатуры,

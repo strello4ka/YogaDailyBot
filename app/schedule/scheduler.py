@@ -119,11 +119,11 @@ async def send_newbie_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int,
         
         # Отправляем все практики для данного номера с интервалом 1 минута
         for i, practice in enumerate(practices):
-            (practice_id, title, video_url, duration_minutes, channel_name, 
-             description, number_practices, created_at, updated_at) = practice
+            (practice_id, title, video_url, time_practices, channel_name, 
+             description, my_description, intensity, number_practices, created_at, updated_at) = practice
             
-            # Формируем сообщение для новичка
-            message_text = format_newbie_practice_message(day_number, description, duration_minutes, channel_name, video_url)
+            # Формируем сообщение для новичка (используем ту же функцию, что и для обычных пользователей)
+            message_text = format_practice_message(day_number, my_description, time_practices, intensity, channel_name, video_url)
             
             # Отправляем сообщение с задержкой для множественных практик
             if i > 0:
@@ -219,39 +219,6 @@ def format_practice_message(day_number: int, my_description: str, time_practices
     if intensity:
         message_parts.append(f"🌀 {intensity}")
     
-    message_parts.append(f"🌀 {channel_name}")
-    
-    message_parts.append(f"\n▶️ [Youtube]({video_url})")
-    
-    return "\n".join(message_parts)
-
-
-def format_newbie_practice_message(day_number: int, description: str, duration_minutes: int, 
-                                 channel_name: str, video_url: str) -> str:
-    """Форматирует сообщение с практикой для новичков.
-    
-    Args:
-        day_number: номер дня пользователя
-        description: описание практики
-        duration_minutes: длительность в минутах
-        channel_name: название канала
-        video_url: ссылка на видео
-        
-    Returns:
-        str: Отформатированное сообщение
-    """
-    # Формируем сообщение для новичков
-    message_parts = [
-        f"{day_number} день (программа для новичков)\n"
-    ]
-    
-    if description:
-        message_parts.append(f"{description}")
-    else:
-        # Если нет описания, формируем базовое описание
-        message_parts.append(f"Сегодня у нас практика от канала {channel_name}")
-    
-    message_parts.append(f"\n🌀 {duration_minutes} минут")
     message_parts.append(f"🌀 {channel_name}")
     
     message_parts.append(f"\n▶️ [Youtube]({video_url})")

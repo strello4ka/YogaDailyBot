@@ -100,14 +100,17 @@ def init_database():
         ''')
         
         # Создаем таблицу для фиксированного набора практик новичков
+        # Структура идентична yoga_practices, но вместо weekday используется number_practices
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS newbie_practices (
-                id SERIAL PRIMARY KEY,
+                practices_id SERIAL PRIMARY KEY,
                 title TEXT NOT NULL,
                 video_url TEXT NOT NULL UNIQUE,
-                duration_minutes INTEGER NOT NULL,
+                time_practices INTEGER NOT NULL,
                 channel_name TEXT NOT NULL,
                 description TEXT,
+                my_description TEXT,
+                intensity TEXT,
                 number_practices INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -1282,16 +1285,20 @@ def get_practice_sent_count(practice_id: int) -> int:
 
 # Функции для работы с практиками новичков
 
-def add_newbie_practice(title: str, video_url: str, duration_minutes: int, channel_name: str, description: str = None, number_practices: int = 1) -> bool:
+def add_newbie_practice(title: str, video_url: str, time_practices: int, channel_name: str, 
+                        description: str = None, my_description: str = None, 
+                        intensity: str = None, number_practices: int = 1) -> bool:
     """Добавляет новую практику для новичков в базу данных.
     
     Args:
         title: название видео
         video_url: ссылка на видео
-        duration_minutes: длительность видео в минутах
+        time_practices: длительность видео в минутах
         channel_name: название канала
-        description: описание видео (опционально)
-        number_practices: номер практики в программе (не уникальный)
+        description: описание видео (автоматически с YouTube)
+        my_description: мое описание (заполняется вручную)
+        intensity: интенсивность практики (легкая, средняя, высокая)
+        number_practices: номер практики в программе (не уникальный, 1-7)
         
     Returns:
         bool: True если операция успешна, False в случае ошибки
@@ -1301,9 +1308,9 @@ def add_newbie_practice(title: str, video_url: str, duration_minutes: int, chann
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT INTO newbie_practices (title, video_url, duration_minutes, channel_name, description, number_practices)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        ''', (title, video_url, duration_minutes, channel_name, description, number_practices))
+            INSERT INTO newbie_practices (title, video_url, time_practices, channel_name, description, my_description, intensity, number_practices)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (title, video_url, time_practices, channel_name, description, my_description, intensity, number_practices))
         
         conn.commit()
         conn.close()
@@ -1330,17 +1337,17 @@ def get_newbie_practice_by_number(practice_number: int) -> list:
         practice_number: номер практики
         
     Returns:
-        list: Список кортежей (id, title, video_url, duration_minutes, channel_name, description, number_practices, created_at, updated_at)
+        list: Список кортежей (practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, number_practices, created_at, updated_at)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT id, title, video_url, duration_minutes, channel_name, description, number_practices, created_at, updated_at
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, number_practices, created_at, updated_at
             FROM newbie_practices 
             WHERE number_practices = %s
-            ORDER BY id
+            ORDER BY practices_id
         ''', (practice_number,))
         
         results = cursor.fetchall()
