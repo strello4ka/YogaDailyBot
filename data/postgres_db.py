@@ -140,7 +140,7 @@ def init_database():
         print(f"Ошибка инициализации PostgreSQL базы данных: {e}")
         conn = None
 
-def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_phone: str = None) -> bool:
+def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_phone: str = None, reset_days: bool = True) -> bool:
     """Сохраняет или обновляет время уведомлений пользователя.
     
     Args:
@@ -149,6 +149,7 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         notify_time: время в формате HH:MM
         user_name: имя пользователя (опционально)
         user_phone: телефон пользователя (опционально)
+        reset_days: если True, обнуляет счетчик дней (для первого запуска); если False, сохраняет текущий счетчик (для изменения времени)
         
     Returns:
         bool: True если операция успешна, False в случае ошибки
@@ -157,23 +158,42 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         conn = get_connection()
         cursor = conn.cursor()
         
-        # Используем UPSERT (INSERT ... ON CONFLICT)
-        cursor.execute('''
-            INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_days)
-            VALUES (%s, %s, %s, %s, %s, 0)
-            ON CONFLICT (user_id) 
-            DO UPDATE SET 
-                chat_id = EXCLUDED.chat_id,
-                notify_time = EXCLUDED.notify_time,
-                user_name = EXCLUDED.user_name,
-                user_phone = EXCLUDED.user_phone,
-                user_days = 0,
-                updated_at = CURRENT_TIMESTAMP
-        ''', (user_id, chat_id, notify_time, user_name, user_phone))
+        if reset_days:
+            # Первый запуск (/start) - обнуляем счетчик дней
+            cursor.execute('''
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_days)
+                VALUES (%s, %s, %s, %s, %s, 0)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET 
+                    chat_id = EXCLUDED.chat_id,
+                    notify_time = EXCLUDED.notify_time,
+                    user_name = EXCLUDED.user_name,
+                    user_phone = EXCLUDED.user_phone,
+                    user_days = 0,
+                    updated_at = CURRENT_TIMESTAMP
+            ''', (user_id, chat_id, notify_time, user_name, user_phone))
+        else:
+            # Изменение времени - НЕ обнуляем счетчик дней
+            cursor.execute('''
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_days)
+                VALUES (%s, %s, %s, %s, %s, 0)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET 
+                    chat_id = EXCLUDED.chat_id,
+                    notify_time = EXCLUDED.notify_time,
+                    user_name = EXCLUDED.user_name,
+                    user_phone = EXCLUDED.user_phone,
+                    updated_at = CURRENT_TIMESTAMP
+            ''', (user_id, chat_id, notify_time, user_name, user_phone))
         
         conn.commit()
         conn.close()
-        print(f"Время пользователя {user_id} сохранено: {notify_time}")
+        
+        if reset_days:
+            print(f"Время пользователя {user_id} сохранено: {notify_time} (счетчик дней обнулен)")
+        else:
+            print(f"Время пользователя {user_id} изменено на: {notify_time} (счетчик дней сохранен)")
+        
         return True
         
     except Exception as e:
