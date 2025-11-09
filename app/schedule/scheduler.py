@@ -9,7 +9,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import logging
-from datetime import datetime, time
+from datetime import datetime
+from zoneinfo import ZoneInfo  # Используем таймзону, чтобы сравнивать время корректно
 from telegram.ext import ContextTypes
 from data.db import (
     get_users_by_time, 
@@ -19,8 +20,12 @@ from data.db import (
     log_practice_sent,
     get_current_weekday
 )
+from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
 
 logger = logging.getLogger(__name__)
+
+# Создаём объект таймзоны один раз, чтобы переиспользовать его в дальнейших расчётах
+MOSCOW_TZ = ZoneInfo(DEFAULT_TZ)
 
 
 async def send_daily_practice(context: ContextTypes.DEFAULT_TYPE):
@@ -30,8 +35,8 @@ async def send_daily_practice(context: ContextTypes.DEFAULT_TYPE):
         context: Контекст бота
     """
     try:
-        # Получаем текущее время в формате HH:MM
-        current_time = datetime.now().strftime("%H:%M")
+        # Получаем текущее время в базовой таймзоне, чтобы сравнение с notify_time было честным
+        current_time = datetime.now(MOSCOW_TZ).strftime("%H:%M")
         
         # Получаем всех пользователей, которые должны получить практику в это время
         users = get_users_by_time(current_time)

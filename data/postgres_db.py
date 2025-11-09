@@ -2,10 +2,11 @@ import psycopg2
 import psycopg2.extras
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo  # Нужен для вычисления дня недели с учётом таймзоны
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.config import get_db_config
+from app.config import get_db_config, DEFAULT_TZ  # Берём таймзону из конфигурации проекта
 
 def get_connection():
     """Создает подключение к PostgreSQL базе данных.
@@ -1131,10 +1132,10 @@ def get_current_weekday() -> int:
     Returns:
         int: Номер текущего дня недели (1-7)
     """
-    from datetime import datetime
-    # datetime.weekday() возвращает 0=понедельник, 6=воскресенье
-    # Нам нужно 1=понедельник, 7=воскресенье
-    return datetime.now().weekday() + 1
+    # datetime.now() нужно вызывать в правильной таймзоне, иначе при UTC сдвиге день недели собьётся
+    tz = ZoneInfo(DEFAULT_TZ)
+    # datetime.weekday() возвращает 0=понедельник, 6=воскресенье, поэтому добавляем 1 для совместимости с нашей логикой
+    return datetime.now(tz).weekday() + 1
 
 def get_weekday_statistics() -> dict:
     """Получает статистику по дням недели.
