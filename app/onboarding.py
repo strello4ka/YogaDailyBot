@@ -92,6 +92,9 @@ async def send_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
 async def schedule_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
     """Планирует отправку напоминаний через 4 и 24 часа.
     
+    Перед планированием новых напоминаний отменяет существующие для этого пользователя,
+    чтобы избежать дублирования напоминаний при повторных вызовах функции.
+    
     Args:
         context: Контекст бота
         chat_id: ID чата пользователя
@@ -101,6 +104,10 @@ async def schedule_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: int, u
     if not hasattr(context, 'job_queue') or context.job_queue is None:
         print("JobQueue недоступен - напоминания не будут отправлены")
         return
+    
+    # Сначала отменяем существующие напоминания для этого пользователя,
+    # чтобы избежать дублирования при повторных вызовах функции
+    await cancel_reminders(context, user_id)
     
     job_data = {'chat_id': chat_id, 'user_id': user_id}
     
@@ -127,29 +134,68 @@ async def schedule_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: int, u
 async def cancel_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
     """Отменяет запланированные напоминания при выборе времени.
     
+    Использует несколько методов для отмены задач, чтобы гарантировать их удаление:
+    1. Пытается найти задачи через get_jobs_by_name и вызвать schedule_removal
+    2. Если это не работает, пытается удалить через scheduler.remove_job
+    
     Args:
         context: Контекст бота
         user_id: ID пользователя
     """
+    print(f"=== DEBUG: cancel_reminders вызвана для user_id={user_id} ===")
+    
     # Проверяем, что JobQueue доступен
     if not hasattr(context, 'job_queue') or context.job_queue is None:
-        print("JobQueue недоступен - не можем отменить напоминания")
+        print(f"=== DEBUG: JobQueue недоступен для user_id={user_id} - не можем отменить напоминания ===")
         return
     
+    job_names = [f"reminder_4h_{user_id}", f"reminder_24h_{user_id}"]
+    cancelled_count = 0
+    
     try:
-        # Удаляем задачи напоминаний (если они существуют)
-        try:
-            context.job_queue.scheduler.remove_job(f"reminder_4h_{user_id}")
-        except:
-            pass  # Задача уже удалена или не существует
+        job_queue = context.job_queue
         
+        # Метод 1: Пытаемся найти и отменить задачи через get_jobs_by_name
+        # Это предпочтительный метод для python-telegram-bot
+        for job_name in job_names:
+            try:
+                # Получаем все задачи с таким именем (их может быть несколько)
+                jobs = job_queue.get_jobs_by_name(job_name)
+                if jobs:
+                    for job in jobs:
+                        job.schedule_removal()
+                        cancelled_count += 1
+                        print(f"=== DEBUG: Задача '{job_name}' помечена на удаление через schedule_removal ===")
+                else:
+                    print(f"=== DEBUG: Задача '{job_name}' не найдена через get_jobs_by_name ===")
+            except Exception as e:
+                print(f"=== DEBUG: Ошибка при отмене задачи '{job_name}' через get_jobs_by_name: {e} ===")
+        
+        # Метод 2: Дополнительно пытаемся удалить через scheduler напрямую
+        # Это нужно на случай, если первый метод не сработал
         try:
-            context.job_queue.scheduler.remove_job(f"reminder_24h_{user_id}")
-        except:
-            pass  # Задача уже удалена или не существует
+            scheduler = job_queue.scheduler
+            all_jobs = scheduler.get_jobs()
+            existing_job_ids = [job.id for job in all_jobs]
+            print(f"=== DEBUG: Все задачи в scheduler: {existing_job_ids} ===")
             
+            for job_name in job_names:
+                try:
+                    job = scheduler.get_job(job_name)
+                    if job:
+                        scheduler.remove_job(job_name)
+                        cancelled_count += 1
+                        print(f"=== DEBUG: Задача '{job_name}' удалена через scheduler.remove_job ===")
+                except Exception as e:
+                    # Игнорируем ошибку, если задача уже удалена или не существует
+                    print(f"=== DEBUG: Задача '{job_name}' не найдена в scheduler или уже удалена: {e} ===")
+        except Exception as e:
+            print(f"=== DEBUG: Ошибка при доступе к scheduler: {e} ===")
+        
+        print(f"=== DEBUG: Всего отменено задач для user_id={user_id}: {cancelled_count} ===")
+                
     except Exception as e:
-        print(f"Ошибка отмены напоминаний: {e}")
+        print(f"=== DEBUG: Критическая ошибка при отмене напоминаний для user_id={user_id}: {e} ===")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -211,6 +257,9 @@ async def want_start_callback(update: Update, context: CallbackContext):
     
     # Очищаем другие состояния перед установкой нового
     context.user_data.pop('waiting_for_practice_suggestion', None)
+    # Важно: явно удаляем флаг is_time_change, чтобы гарантировать онбординг,
+    # а не изменение времени (флаг мог остаться от предыдущих действий)
+    context.user_data.pop('is_time_change', None)
     
     # Устанавливаем состояние ожидания ввода времени
     context.user_data['waiting_for_time'] = True
