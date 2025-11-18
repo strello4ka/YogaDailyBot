@@ -61,6 +61,8 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.IMAGE }}:${{ steps.meta.outputs.TAG }}
             ${{ steps.meta.outputs.IMAGE }}:latest
+          # Отключаем кэш для принудительной переустановки зависимостей
+          no-cache: false
           cache-from: type=registry,ref=${{ steps.meta.outputs.IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ steps.meta.outputs.IMAGE }}:buildcache,mode=max
 
