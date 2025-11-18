@@ -25,7 +25,7 @@ if ! command -v docker &> /dev/null; then
 fi
 
 echo "📦 Собираем Docker образ..."
-docker build -t yogadaily-bot:latest .
+docker build -f deploy/Dockerfile -t yogadaily-bot:latest .
 
 echo "🔐 Создаем Secret с токеном бота..."
 echo "Введите токен вашего Telegram бота:"

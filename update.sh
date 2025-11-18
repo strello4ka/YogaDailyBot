@@ -24,7 +24,7 @@ if ! command -v docker &> /dev/null; then
 fi
 
 echo "📦 Собираем новый Docker образ..."
-docker build -t yogadaily-bot:latest .
+docker build -f deploy/Dockerfile -t yogadaily-bot:latest .
 
 echo "🚀 Обновляем deployment в Kubernetes..."
 kubectl rollout restart deployment/yogadaily-bot
