@@ -15,10 +15,6 @@ COPY requirements.txt .
 # Устанавливаем Python зависимости
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Устанавливаем переменные окружения по умолчанию
-ENV PYTHONPATH=/app
-ENV DEFAULT_TZ=Europe/Moscow
-
 # Копируем код приложения
 COPY app/ ./app/
 COPY data/ ./data/
@@ -28,9 +24,12 @@ RUN useradd --create-home --shell /bin/bash botuser && \
     chown -R botuser:botuser /app
 USER botuser
 
+# Устанавливаем переменные окружения по умолчанию
+ENV PYTHONPATH=/app
+ENV DEFAULT_TZ=Europe/Moscow
+
 # Открываем порт (хотя для Telegram бота он не нужен, но может пригодиться для health checks)
 EXPOSE 8080
 
-# Запускаем бота (меняем рабочую директорию на /app/app для корректного импорта)
-WORKDIR /app/app
-CMD ["python", "-m", "main"]
+# Запускаем бота
+CMD ["python", "-m", "app.main"]
