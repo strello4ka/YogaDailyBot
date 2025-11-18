@@ -51,6 +51,12 @@ jobs:
           fi
           echo "IMAGE=$IMAGE" >> $GITHUB_OUTPUT
 
+      - name: Compute cache key from requirements.txt
+        id: cache_key
+        run: |
+          REQ_HASH=$(sha256sum requirements.txt | cut -d' ' -f1 | cut -c1-12)
+          echo "REQ_HASH=$REQ_HASH" >> $GITHUB_OUTPUT
+      
       - name: Build & Push
         uses: docker/build-push-action@v6
         with:
@@ -61,8 +67,8 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.IMAGE }}:${{ steps.meta.outputs.TAG }}
             ${{ steps.meta.outputs.IMAGE }}:latest
-          # Отключаем кэш для принудительной переустановки зависимостей
-          no-cache: false
+          build-args: |
+            CACHE_BUSTER=${{ steps.cache_key.outputs.REQ_HASH }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ steps.meta.outputs.IMAGE }}:buildcache,mode=max
 
