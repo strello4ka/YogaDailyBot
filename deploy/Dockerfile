@@ -31,5 +31,6 @@ USER botuser
 # Открываем порт (хотя для Telegram бота он не нужен, но может пригодиться для health checks)
 EXPOSE 8080
 
-# Запускаем бота
-CMD ["python", "-m", "app.main"]
+# Запускаем бота (меняем рабочую директорию на /app/app для корректного импорта)
+WORKDIR /app/app
+CMD ["python", "-m", "main"]
