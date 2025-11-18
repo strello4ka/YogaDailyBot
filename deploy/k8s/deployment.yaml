@@ -18,8 +18,8 @@ spec:
         - name: regcred
       containers:
       - name: yogadaily-bot
-        image: dimatorzok-images.registry.twcstorage.ru/yogadaily-bot:20250909150442-39a6cfa
-        imagePullPolicy: IfNotPresent
+        image: dimatorzok-images.registry.twcstorage.ru/yogadaily-bot:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
