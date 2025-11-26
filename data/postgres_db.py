@@ -75,6 +75,24 @@ def init_database():
             )
         ''')
         
+        # Создаем таблицу бонусных практик, привязанных к основной
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bonus_practices (
+                bonus_id SERIAL PRIMARY KEY,
+                parent_practice_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                video_url TEXT NOT NULL UNIQUE,
+                time_practices INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                description TEXT,
+                my_description TEXT,
+                intensity TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (parent_practice_id) REFERENCES yoga_practices (practices_id) ON DELETE CASCADE
+            )
+        ''')
+        
         # Создаем таблицу для логирования отправленных практик
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS practice_logs (
@@ -128,6 +146,8 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_duration ON yoga_practices(time_practices)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_weekday ON yoga_practices(weekday)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_intensity ON yoga_practices(intensity)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_bonus_parent_practice ON bonus_practices(parent_practice_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_bonus_video_url ON bonus_practices(video_url)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_logs_user ON practice_logs(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_logs_practice ON practice_logs(practice_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_user ON user_suggestions(user_id)')
@@ -529,7 +549,7 @@ def get_users_by_time(notify_time: str) -> list:
 
 # Функции для работы с йога практиками
 
-def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_name: str, description: str = None, my_description: str = None, intensity: str = None, weekday: int = None) -> bool:
+def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_name: str, description: str = None, my_description: str = None, intensity: str = None, weekday: int = None) -> tuple:
     """Добавляет новую йога практику в базу данных.
     
     Args:
@@ -543,7 +563,7 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
         weekday: день недели (1=понедельник, 7=воскресенье, None=любой день)
         
     Returns:
-        bool: True если операция успешна, False в случае ошибки
+        tuple: (success: bool, message: str) - успех операции и сообщение о результате
     """
     try:
         conn = get_connection()
@@ -556,21 +576,20 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
         
         conn.commit()
         conn.close()
-        print(f"Йога практика добавлена: {title}")
-        return True
+        return (True, f"Йога практика добавлена: {title}")
         
     except psycopg2.IntegrityError:
-        print(f"Видео с URL {video_url} уже существует в базе данных")
+        error_msg = f"Видео с URL {video_url} уже существует в базе данных"
         if conn:
             conn.rollback()
             conn.close()
-        return False
+        return (False, error_msg)
     except Exception as e:
-        print(f"Ошибка добавления йога практики: {e}")
+        error_msg = f"Ошибка добавления йога практики: {e}"
         if conn:
             conn.rollback()
             conn.close()
-        return False
+        return (False, error_msg)
 
 def get_yoga_practice_by_id(practice_id: int) -> tuple:
     """Получает йога практику по ID.
@@ -1077,6 +1096,143 @@ def get_practice_count_by_weekday(weekday: int) -> int:
             conn.close()
         return 0
 
+# --- Функции для бонусных практик ---
+
+def add_bonus_practice(parent_practice_id: int, title: str, video_url: str, time_practices: int,
+                       channel_name: str, description: str = None, my_description: str = None,
+                       intensity: str = None) -> bool:
+    """Добавляет бонусную практику, которая отправляется вместе с основной.
+    
+    Args:
+        parent_practice_id: ID основной практики, к которой привязана бонусная
+        title: название видео
+        video_url: ссылка на видео
+        time_practices: длительность видео
+        channel_name: название канала
+        description: описание (опционально)
+        my_description: мое описание (опционально)
+        intensity: интенсивность (опционально)
+        
+    Returns:
+        bool: True если операция прошла успешно, иначе False
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO bonus_practices (
+                parent_practice_id, title, video_url, time_practices, channel_name,
+                description, my_description, intensity
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (
+            parent_practice_id, title, video_url, time_practices, channel_name,
+            description, my_description, intensity
+        ))
+        
+        conn.commit()
+        conn.close()
+        print(f"Бонусная практика добавлена к {parent_practice_id}: {title}")
+        return True
+        
+    except psycopg2.IntegrityError:
+        print(f"Бонусное видео с URL {video_url} уже существует")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+    except Exception as e:
+        print(f"Ошибка добавления бонусной практики: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_bonus_practices_by_parent(parent_practice_id: int) -> list:
+    """Возвращает бонусные практики, привязанные к основной.
+    
+    Args:
+        parent_practice_id: ID основной практики
+        
+    Returns:
+        list: Список кортежей с данными бонусных практик
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT bonus_id, parent_practice_id, title, video_url, time_practices,
+                   channel_name, description, my_description, intensity,
+                   created_at, updated_at
+            FROM bonus_practices
+            WHERE parent_practice_id = %s
+            ORDER BY bonus_id
+        ''', (parent_practice_id,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return results
+        
+    except Exception as e:
+        print(f"Ошибка получения бонусных практик для {parent_practice_id}: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
+def delete_bonus_practice(bonus_id: int) -> bool:
+    """Удаляет бонусную практику.
+    
+    Args:
+        bonus_id: ID бонусной практики
+        
+    Returns:
+        bool: True если удалено, False при ошибке
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM bonus_practices WHERE bonus_id = %s', (bonus_id,))
+        
+        if cursor.rowcount == 0:
+            print(f"Бонусная практика {bonus_id} не найдена")
+            return False
+        
+        conn.commit()
+        conn.close()
+        print(f"Бонусная практика {bonus_id} удалена")
+        return True
+        
+    except Exception as e:
+        print(f"Ошибка удаления бонусной практики {bonus_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+def get_bonus_practice_count() -> int:
+    """Возвращает общее количество бонусных практик."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT COUNT(*) FROM bonus_practices')
+        result = cursor.fetchone()
+        conn.close()
+        
+        return result[0] if result else 0
+        
+    except Exception as e:
+        print(f"Ошибка получения количества бонусных практик: {e}")
+        if conn:
+            conn.close()
+        return 0
+
 # Вспомогательные функции для работы с днями недели
 
 def weekday_to_name(weekday: int) -> str:
@@ -1268,3 +1424,40 @@ def get_practice_sent_count(practice_id: int) -> int:
         if conn:
             conn.close()
         return 0
+
+def clear_all_yoga_practices() -> bool:
+    """Удаляет все йога практики из базы данных.
+    
+    ВНИМАНИЕ: Эта операция удаляет ВСЕ практики из таблицы yoga_practices.
+    Также автоматически удаляются все связанные записи из practice_logs 
+    благодаря ON DELETE CASCADE.
+    
+    Returns:
+        bool: True если операция успешна, False в случае ошибки
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Сначала получаем количество записей для информации
+        cursor.execute('SELECT COUNT(*) FROM yoga_practices')
+        count_before = cursor.fetchone()[0]
+        
+        # Удаляем все записи из таблицы
+        # Используем DELETE вместо TRUNCATE, чтобы сохранить структуру таблицы
+        # и не нарушить работу автоинкремента (SERIAL)
+        cursor.execute('DELETE FROM yoga_practices')
+        
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Успешно удалено {deleted_count} практик из базы данных (было {count_before})")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Ошибка очистки таблицы yoga_practices: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False

@@ -18,7 +18,8 @@ from data.db import (
     increment_user_days,
     get_user_days,
     log_practice_sent,
-    get_current_weekday
+    get_current_weekday,
+    get_bonus_practices_by_parent
 )
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
 
@@ -97,10 +98,31 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             disable_web_page_preview=False  # Включаем превью видео
         )
         
-        # Логируем отправку
+        # Логируем отправку основной практики
         log_practice_sent(user_id, practice_id, new_day_number)
         
         logger.info(f"Практика {practice_id} отправлена пользователю {user_id}, день {new_day_number}")
+        
+        # Получаем бонусные практики, если они есть
+        bonus_practices = get_bonus_practices_by_parent(practice_id)
+        
+        for bonus in bonus_practices:
+            # Берем только нужные колонки, чтобы не плодить неиспользуемые переменные
+            bonus_id = bonus[0]
+            bonus_url = bonus[3]
+            bonus_my_description = bonus[7]
+            
+            # Формируем бонусное сообщение
+            bonus_message = format_bonus_practice_message(bonus_my_description, bonus_url)
+            
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=bonus_message,
+                parse_mode='Markdown',
+                disable_web_page_preview=False
+            )
+            
+            logger.info(f"Бонусная практика {bonus_id} отправлена пользователю {user_id} вместе с {practice_id}")
         
     except Exception as e:
         logger.error(f"Ошибка отправки практики пользователю {user_id}: {e}")
@@ -123,25 +145,49 @@ def format_practice_message(day_number: int, my_description: str, time_practices
     """
     # Формируем сообщение согласно требованиям
     message_parts = [
-        f"{day_number} день\n"
+        f"*{day_number} день*\n"
     ]
     
     if my_description:
         message_parts.append(f"{my_description}")
     else:
         # Если нет my_description, формируем базовое описание
-        message_parts.append(f"Сегодня у нас практика от канала {channel_name}")
+        message_parts.append(f"Новая праткика ждет тебя!")
     
-    message_parts.append(f"\n🌀 {time_practices} минут")
+    message_parts.append(f"\n🌀 время: {time_practices} минут")
     
     if intensity:
-        message_parts.append(f"🌀 {intensity}")
+        message_parts.append(f"🌀 интенсивность: {intensity}")
     
-    message_parts.append(f"🌀 {channel_name}")
+    message_parts.append(f"🌀 канал: {channel_name}")
     
     message_parts.append(f"\n▶️ [Youtube]({video_url})")
     
     return "\n".join(message_parts)
+
+
+def format_bonus_practice_message(my_description: str, video_url: str) -> str:
+    """Форматирует сообщение с бонусной практикой.
+    
+    Args:
+        my_description: описание бонусной практики
+        video_url: ссылка на бонусное видео
+        
+    Returns:
+        str: сообщение в требуемом формате
+    """
+    # Формат сообщения
+    title_line = "*Бонус недели*"
+    
+    description_text = my_description.strip() if my_description else "Пробуй новое, ищи свое"
+    
+    return "\n".join([
+        title_line,
+        "",
+        description_text,
+        "",
+        f"▶️ [Youtube]({video_url})"
+    ])
 
 
 def schedule_daily_practices(application):
