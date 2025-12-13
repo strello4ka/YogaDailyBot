@@ -262,10 +262,31 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
             disable_web_page_preview=False  # Включаем превью видео
         )
         
-        # Логируем отправку
+        # Логируем отправку основной практики
         log_practice_sent(user_id, practice_id, new_day_number)
         
         logger.info(f"Тестовая практика {practice_id} отправлена пользователю {user_id}, день {new_day_number}")
+        
+        # Получаем бонусные практики, если они есть
+        bonus_practices = get_bonus_practices_by_parent(practice_id)
+        
+        for bonus in bonus_practices:
+            # Берем только нужные колонки, чтобы не плодить неиспользуемые переменные
+            bonus_id = bonus[0]
+            bonus_url = bonus[3]
+            bonus_my_description = bonus[7]
+            
+            # Формируем бонусное сообщение
+            bonus_message = format_bonus_practice_message(bonus_my_description, bonus_url)
+            
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=bonus_message,
+                parse_mode='Markdown',
+                disable_web_page_preview=False
+            )
+            
+            logger.info(f"Бонусная практика {bonus_id} отправлена пользователю {user_id} вместе с {practice_id}")
         
     except Exception as e:
         logger.error(f"Ошибка отправки тестовой практики пользователю {user_id}: {e}")
