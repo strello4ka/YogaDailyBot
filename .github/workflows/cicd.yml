@@ -106,10 +106,11 @@ jobs:
           mkdir -p ~/.kube
           printf "%s" "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
 
-      - name: Apply manifests (ConfigMap & Deployment)
+      - name: Apply ConfigMap
         run: |
           kubectl -n "${{ secrets.K8S_NAMESPACE }}" apply -f deploy/k8s/configmap.yaml
-          kubectl -n "${{ secrets.K8S_NAMESPACE }}" apply -f deploy/k8s/deployment.yaml
+          # Deployment не применяем здесь, чтобы не перезаписывать образ, установленный через set image
+          # Deployment создается один раз вручную или через отдельный скрипт деплоя
 
       - name: Set image to :latest
         run: |
