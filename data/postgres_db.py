@@ -8,6 +8,36 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.config import get_db_config, DEFAULT_TZ  # Берём таймзону из конфигурации проекта
 
+# Приводим my_description к реальным переносам строк, чтобы маркеры из CSV/ручного ввода
+# (/n — новая строка, //n — новый абзац) отображались корректно при сохранении и выдаче.
+def _decode_my_description(text: str | None) -> str | None:
+    if text is None:
+        return None
+    decoded = text.replace('//n', '\n\n')
+    decoded = decoded.replace('/n', '\n')
+    return decoded
+
+
+def _decode_practice_row(row: tuple | None) -> tuple | None:
+    """Декодируем поле my_description в строке из yoga_practices."""
+    if not row:
+        return row
+    row_list = list(row)
+    # my_description всегда в позиции 6 во всех выборках yoga_practices, где оно есть
+    if len(row_list) > 6:
+        row_list[6] = _decode_my_description(row_list[6])
+    return tuple(row_list)
+
+
+def _decode_bonus_practice_row(row: tuple | None) -> tuple | None:
+    """Декодируем поле my_description в строке из bonus_practices (позиция 7)."""
+    if not row:
+        return row
+    row_list = list(row)
+    if len(row_list) > 7:
+        row_list[7] = _decode_my_description(row_list[7])
+    return tuple(row_list)
+
 def get_connection():
     """Создает подключение к PostgreSQL базе данных.
     
@@ -568,6 +598,9 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
     try:
         conn = get_connection()
         cursor = conn.cursor()
+
+        # Декодируем переносы строк до сохранения, чтобы в базе лежал уже готовый текст
+        my_description = _decode_my_description(my_description)
         
         cursor.execute('''
             INSERT INTO yoga_practices (title, video_url, time_practices, channel_name, description, my_description, intensity, weekday)
@@ -614,7 +647,7 @@ def get_yoga_practice_by_id(practice_id: int) -> tuple:
         result = cursor.fetchone()
         conn.close()
         
-        return result
+        return _decode_practice_row(result)
         
     except Exception as e:
         print(f"Ошибка получения йога практики {practice_id}: {e}")
@@ -645,7 +678,7 @@ def get_yoga_practice_by_url(video_url: str) -> tuple:
         result = cursor.fetchone()
         conn.close()
         
-        return result
+        return _decode_practice_row(result)
         
     except Exception as e:
         print(f"Ошибка получения йога практики по URL {video_url}: {e}")
@@ -672,7 +705,7 @@ def get_all_yoga_practices() -> list:
         results = cursor.fetchall()
         conn.close()
         
-        return results
+        return [_decode_practice_row(row) for row in results]
         
     except Exception as e:
         print(f"Ошибка получения списка йога практик: {e}")
@@ -903,8 +936,9 @@ def update_yoga_practice(practice_id: int, title: str = None, video_url: str = N
             update_fields.append('description = %s')
             params.append(description)
         if my_description is not None:
-            update_fields.append('my_description = %s')
-            params.append(my_description)
+        # Декодируем маркеры переноса строк, чтобы при обновлении сразу хранить готовый текст
+        update_fields.append('my_description = %s')
+        params.append(_decode_my_description(my_description))
         if intensity is not None:
             update_fields.append('intensity = %s')
             params.append(intensity)
@@ -1058,7 +1092,7 @@ def get_yoga_practice_by_weekday_order(weekday: int, day_number: int) -> tuple:
         
         # Вычисляем индекс практики с учетом циклического повторения
         practice_index = (day_number - 1) % len(practices)
-        return practices[practice_index]
+        return _decode_practice_row(practices[practice_index])
         
     except Exception as e:
         print(f"Ошибка получения практики по порядку для дня недели {weekday}, день {day_number}: {e}")
@@ -1119,6 +1153,9 @@ def add_bonus_practice(parent_practice_id: int, title: str, video_url: str, time
     try:
         conn = get_connection()
         cursor = conn.cursor()
+
+        # Переводим маркеры /n в реальные переводы строк перед сохранением
+        my_description = _decode_my_description(my_description)
         
         cursor.execute('''
             INSERT INTO bonus_practices (
@@ -1175,7 +1212,7 @@ def get_bonus_practices_by_parent(parent_practice_id: int) -> list:
         results = cursor.fetchall()
         conn.close()
         
-        return results
+        return [_decode_bonus_practice_row(row) for row in results]
         
     except Exception as e:
         print(f"Ошибка получения бонусных практик для {parent_practice_id}: {e}")

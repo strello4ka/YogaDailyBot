@@ -154,12 +154,12 @@ def format_practice_message(day_number: int, my_description: str, time_practices
         # Если нет my_description, формируем базовое описание
         message_parts.append(f"Новая праткика ждет тебя!")
     
-    message_parts.append(f"\n🌀 время: {time_practices} минут")
+    message_parts.append(f"\n🌀 *время:* {time_practices} мин")
     
     if intensity:
-        message_parts.append(f"🌀 интенсивность: {intensity}")
+        message_parts.append(f"🌀 *интенсивность:* {intensity}")
     
-    message_parts.append(f"🌀 канал: {channel_name}")
+    message_parts.append(f"🌀 *канал:* {channel_name}")
     
     message_parts.append(f"\n▶️ [Youtube]({video_url})")
     
