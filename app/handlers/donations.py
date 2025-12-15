@@ -91,21 +91,20 @@ async def handle_donate_stars_callback(update: Update, context: ContextTypes.DEF
     
     # Сообщение с призывом выбрать количество звезд
     stars_text = (
-        "**Поддержка через Telegram Stars** ⭐️\n\n"
+        "*Поддержка через Telegram Stars* ⭐️\n\n"
         "Выбери количество звезд для поддержки проекта:\n\n"
         "Telegram Stars — это виртуальная валюта Telegram, "
-        "которую можно купить в приложении и использовать для поддержки ботов."
+        "которую можно купить в приложении."
     )
     
     # Создаем клавиатуру с вариантами количества звезд
     keyboard = [
-        [InlineKeyboardButton("1 (тест) ⭐️", callback_data="stars_1")],
-        [InlineKeyboardButton("10 ⭐️", callback_data="stars_10")],
-        [InlineKeyboardButton("30 ⭐️", callback_data="stars_30")],
+        [InlineKeyboardButton("1 ⭐️", callback_data="stars_1")],
+        [InlineKeyboardButton("5 ⭐️", callback_data="stars_10")],
+        [InlineKeyboardButton("10 ⭐️", callback_data="stars_30")],
         [InlineKeyboardButton("50 ⭐️", callback_data="stars_50")],
         [InlineKeyboardButton("100 ⭐️", callback_data="stars_100")],
-        [InlineKeyboardButton("500 ⭐️", callback_data="stars_500")],
-        [InlineKeyboardButton("1000 ⭐️", callback_data="stars_1000")]
+        [InlineKeyboardButton("500 ⭐️", callback_data="stars_500")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -165,7 +164,7 @@ async def handle_stars_amount_callback(update: Update, context: ContextTypes.DEF
     except Exception as e:
         # Если произошла ошибка, отправляем сообщение об ошибке
         error_text = (
-            "❌ **Ошибка при создании инвойса**\n\n"
+            "🚨 *Ошибка при создании инвойса*\n\n"
             "К сожалению, не удалось создать инвойс для оплаты. "
             "Попробуй еще раз или используй перевод по номеру карты."
         )
