@@ -936,9 +936,9 @@ def update_yoga_practice(practice_id: int, title: str = None, video_url: str = N
             update_fields.append('description = %s')
             params.append(description)
         if my_description is not None:
-        # Декодируем маркеры переноса строк, чтобы при обновлении сразу хранить готовый текст
-        update_fields.append('my_description = %s')
-        params.append(_decode_my_description(my_description))
+            # Декодируем маркеры переноса строк, чтобы при обновлении сразу хранить готовый текст
+            update_fields.append('my_description = %s')
+            params.append(_decode_my_description(my_description))
         if intensity is not None:
             update_fields.append('intensity = %s')
             params.append(intensity)
