@@ -117,6 +117,10 @@ jobs:
           kubectl -n "${{ secrets.K8S_NAMESPACE }}" set image deploy/${{ env.DEPLOYMENT_NAME }} \
             ${{ env.CONTAINER_NAME }}=${{ steps.img.outputs.IMAGE }} --record
 
+      - name: Restart deployment to pull new image
+        run: |
+          kubectl -n "${{ secrets.K8S_NAMESPACE }}" rollout restart deploy/${{ env.DEPLOYMENT_NAME }}
+
       - name: Wait for rollout
         run: |
           kubectl -n "${{ secrets.K8S_NAMESPACE }}" rollout status deploy/${{ env.DEPLOYMENT_NAME }} --timeout=180s
