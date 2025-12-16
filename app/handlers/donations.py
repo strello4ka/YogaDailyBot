@@ -22,7 +22,7 @@ async def handle_donations_callback(update: Update, context: ContextTypes.DEFAUL
     
     # Лаконичное сообщение о поддержке проекта
     donations_text = (
-        "YogaDailyBot — бесплатный проект, но если он делает твою жизнь лучше, ты можешь поддержать его развитие!\n\n"
+        "YogaDailyBot - бесплатный проект, но если он делает твою жизнь лучше, ты можешь поддержать его развитие!\n\n"
         "Любая поддержка ценна, от 1 рубля до бесконечности"
     )
     
@@ -100,8 +100,8 @@ async def handle_donate_stars_callback(update: Update, context: ContextTypes.DEF
     # Создаем клавиатуру с вариантами количества звезд
     keyboard = [
         [InlineKeyboardButton("1 ⭐️", callback_data="stars_1")],
-        [InlineKeyboardButton("5 ⭐️", callback_data="stars_10")],
-        [InlineKeyboardButton("10 ⭐️", callback_data="stars_30")],
+        [InlineKeyboardButton("5 ⭐️", callback_data="stars_5")],
+        [InlineKeyboardButton("10 ⭐️", callback_data="stars_10")],
         [InlineKeyboardButton("50 ⭐️", callback_data="stars_50")],
         [InlineKeyboardButton("100 ⭐️", callback_data="stars_100")],
         [InlineKeyboardButton("500 ⭐️", callback_data="stars_500")]
