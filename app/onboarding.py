@@ -371,7 +371,8 @@ async def handle_time_input(update: Update, context: CallbackContext):
         "/help - чтобы обратиться в поддержку\n\n"
         "Встретимся завтра! А пока можешь почитать советы и [выполнить практику из примера](https://youtu.be/oTzetTgYpSU?si=_V8LNx3i3Iq5zeoH) ",
         reply_markup=get_main_reply_keyboard(),
-        parse_mode='Markdown'
+        parse_mode='Markdown',
+        disable_web_page_preview=True  # Отключаем предпросмотр видео
     )
 
 

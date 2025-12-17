@@ -3,6 +3,7 @@ import psycopg2.extras
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Нужен для вычисления дня недели с учётом таймзоны
+from typing import Optional  # Для типов, совместимых с Python 3.9
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -10,7 +11,7 @@ from app.config import get_db_config, DEFAULT_TZ  # Берём таймзону 
 
 # Приводим my_description к реальным переносам строк, чтобы маркеры из CSV/ручного ввода
 # (/n — новая строка, //n — новый абзац) отображались корректно при сохранении и выдаче.
-def _decode_my_description(text: str | None) -> str | None:
+def _decode_my_description(text: Optional[str]) -> Optional[str]:
     if text is None:
         return None
     decoded = text.replace('//n', '\n\n')
@@ -18,7 +19,7 @@ def _decode_my_description(text: str | None) -> str | None:
     return decoded
 
 
-def _decode_practice_row(row: tuple | None) -> tuple | None:
+def _decode_practice_row(row: Optional[tuple]) -> Optional[tuple]:
     """Декодируем поле my_description в строке из yoga_practices."""
     if not row:
         return row
@@ -29,7 +30,7 @@ def _decode_practice_row(row: tuple | None) -> tuple | None:
     return tuple(row_list)
 
 
-def _decode_bonus_practice_row(row: tuple | None) -> tuple | None:
+def _decode_bonus_practice_row(row: Optional[tuple]) -> Optional[tuple]:
     """Декодируем поле my_description в строке из bonus_practices (позиция 7)."""
     if not row:
         return row

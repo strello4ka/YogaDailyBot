@@ -207,14 +207,14 @@ python add_bonus_practice.py
 
 ```bash
 source venv/bin/activate
-python bulk_add_practices.py
+python app/content/add_practices.py
 ```
 
 - Бонусные практики:
 
 ```bash
 source venv/bin/activate
-python bulk_add_bonus_practices.py
+python app/content/add_bonus_practices.py
 ```
 
 ## 📊 Индексы

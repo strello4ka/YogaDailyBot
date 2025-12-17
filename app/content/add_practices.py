@@ -9,7 +9,9 @@ import csv
 from urllib.parse import urlparse, parse_qs
 
 # Добавляем путь к корневой папке проекта в sys.path
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+# Файл находится в app/content/, поэтому нужно подняться на 2 уровня выше до корня проекта
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
 from data.db import add_yoga_practice, get_practice_count, weekday_to_name
 
@@ -174,7 +176,8 @@ def process_csv_file(csv_file):
                 print(f"   День недели: Любой день")
             
             # Добавляем в базу данных
-            success = add_yoga_practice(
+            # Функция возвращает кортеж (success: bool, message: str)
+            success, message = add_yoga_practice(
                 title=youtube_data['title'],
                 video_url=video_url,
                 time_practices=youtube_data['time_practices'],
@@ -188,7 +191,7 @@ def process_csv_file(csv_file):
                 print(f"✅ Строка {row_num}: успешно добавлена")
                 added_count += 1
             else:
-                print(f"❌ Строка {row_num}: ошибка добавления (возможно, дубликат)")
+                print(f"❌ Строка {row_num}: {message}")
                 error_count += 1
     
     # Итоговая статистика
