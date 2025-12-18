@@ -1064,9 +1064,14 @@ def get_practice_count() -> int:
 def get_yoga_practice_by_weekday_order(weekday: int, day_number: int) -> tuple:
     """Получает йога практику для определенного дня недели по порядку.
     
+    Логика выбора:
+    - При старте пользователя (неделя 0) отправляется практика с наименьшим ID для данного дня недели
+    - Каждую следующую неделю отправляется следующая практика по возрастанию ID
+    - При достижении максимального ID цикл начинается заново
+    
     Args:
         weekday: день недели (1=понедельник, 7=воскресенье)
-        day_number: номер дня (начиная с 1)
+        day_number: номер дня пользователя (начиная с 1)
         
     Returns:
         tuple: (practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at) 
@@ -1091,8 +1096,14 @@ def get_yoga_practice_by_weekday_order(weekday: int, day_number: int) -> tuple:
             print(f"Нет практик для дня недели {weekday}")
             return None
         
-        # Вычисляем индекс практики с учетом циклического повторения
-        practice_index = (day_number - 1) % len(practices)
+        # Вычисляем номер недели пользователя (0, 1, 2, 3...)
+        # Дни 1-7 = неделя 0, дни 8-14 = неделя 1, дни 15-21 = неделя 2 и т.д.
+        week_number = (day_number - 1) // 7
+        
+        # Выбираем практику по номеру недели с циклическим повторением
+        # Каждую неделю берем следующую практику по возрастанию ID
+        # При достижении максимального ID начинаем заново
+        practice_index = week_number % len(practices)
         return _decode_practice_row(practices[practice_index])
         
     except Exception as e:
