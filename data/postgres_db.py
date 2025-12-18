@@ -184,6 +184,40 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_user ON user_suggestions(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_created ON user_suggestions(created_at)')
         
+        try:
+            # Добавляем ограничение для yoga_practices (если еще нет)
+            cursor.execute("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE table_name = 'yoga_practices' 
+                AND constraint_name = 'description_max_length'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('''
+                    ALTER TABLE yoga_practices 
+                    ADD CONSTRAINT description_max_length 
+                    CHECK (description IS NULL OR LENGTH(description) <= 300)
+                ''')
+                print("   ✅ Добавлено ограничение для yoga_practices.description")
+            
+            # Добавляем ограничение для bonus_practices (если еще нет)
+            cursor.execute("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE table_name = 'bonus_practices' 
+                AND constraint_name = 'bonus_description_max_length'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('''
+                    ALTER TABLE bonus_practices 
+                    ADD CONSTRAINT bonus_description_max_length 
+                    CHECK (description IS NULL OR LENGTH(description) <= 300)
+                ''')
+                print("   ✅ Добавлено ограничение для bonus_practices.description")
+                
+        except Exception as e:
+            print(f"⚠️ Ошибка при применении миграции description: {e}")
+        
         conn.commit()
         conn.close()
         print("PostgreSQL база данных инициализирована успешно")
@@ -603,6 +637,10 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
         # Декодируем переносы строк до сохранения, чтобы в базе лежал уже готовый текст
         my_description = _decode_my_description(my_description)
         
+        # Обрезаем description до 300 символов (ограничение БД)
+        if description and len(description) > 300:
+            description = description[:300]
+        
         cursor.execute('''
             INSERT INTO yoga_practices (title, video_url, time_practices, channel_name, description, my_description, intensity, weekday)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -934,6 +972,9 @@ def update_yoga_practice(practice_id: int, title: str = None, video_url: str = N
             update_fields.append('channel_name = %s')
             params.append(channel_name)
         if description is not None:
+            # Обрезаем description до 300 символов (ограничение БД)
+            if len(description) > 300:
+                description = description[:300]
             update_fields.append('description = %s')
             params.append(description)
         if my_description is not None:
@@ -1168,6 +1209,10 @@ def add_bonus_practice(parent_practice_id: int, title: str, video_url: str, time
 
         # Переводим маркеры /n в реальные переводы строк перед сохранением
         my_description = _decode_my_description(my_description)
+        
+        # Обрезаем description до 300 символов (ограничение БД)
+        if description and len(description) > 300:
+            description = description[:300]
         
         cursor.execute('''
             INSERT INTO bonus_practices (
