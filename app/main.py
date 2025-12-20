@@ -25,6 +25,7 @@ from .handlers.donations import (
     handle_pre_checkout_query,
     handle_successful_payment
 )
+from .handlers.secret import secret_command, handle_secret_input
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
 
 
@@ -36,6 +37,12 @@ async def handle_text_input(update: Update, context):
     print(f"=== DEBUG: handle_text_input вызвана ===")
     print(f"Message text: '{update.message.text}'")
     print(f"User data: {context.user_data}")
+    
+    # Проверяем состояние ожидания рассылки (приоритет выше, так как это административная функция)
+    if context.user_data.get('waiting_for_secret'):
+        print("=== DEBUG: Переадресация на handle_secret_input ===")
+        await handle_secret_input(update, context)
+        return
     
     # Проверяем состояние ожидания предложения практики
     if context.user_data.get('waiting_for_practice_suggestion'):
@@ -59,6 +66,7 @@ async def handle_text_input(update: Update, context):
     # и игнорируем сообщение (это может быть обычное сообщение пользователя)
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
+    context.user_data.pop('waiting_for_secret', None)
 
 # Настройка логирования
 logging.basicConfig(
@@ -110,7 +118,7 @@ async def myid_command(update: Update, context):
 
 
 async def help_command(update: Update, context):
-    """Команда для получения справки по боту."""
+    """Команда для получения помощи."""
     # Очищаем состояние ожидания предложения практики, если оно было установлено
     # Это нужно, чтобы пользователь мог взаимодействовать с другими функциями бота
     context.user_data.pop('waiting_for_practice_suggestion', None)
@@ -139,6 +147,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("test", test_practice_command))
     application.add_handler(CommandHandler("myid", myid_command))
+    application.add_handler(CommandHandler("secret", secret_command))
     
     # Регистрируем обработчики callback-запросов (только для онбординга)
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
@@ -161,6 +170,18 @@ def main():
         filters.TEXT & filters.Regex(f"^({'|'.join(reply_buttons)})$"),
         handle_reply_button
     ))
+    
+    # Регистрируем обработчик фото для массовой рассылки (с высоким приоритетом)
+    # Этот обработчик проверяет состояние waiting_for_secret и обрабатывает фото с подписью
+    async def handle_photo_or_text_for_secret(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик фото и текста для массовой рассылки."""
+        # Проверяем состояние ожидания рассылки
+        if context.user_data.get('waiting_for_secret'):
+            await handle_secret_input(update, context)
+            return
+    
+    # Регистрируем обработчик фото (для рассылки) с высоким приоритетом
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo_or_text_for_secret), group=1)
     
     # Регистрируем обработчик текстовых сообщений для ввода времени и предложений практик
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
