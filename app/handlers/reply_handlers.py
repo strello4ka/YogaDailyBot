@@ -43,7 +43,9 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     else:
         # Если текст не соответствует ни одной кнопке Reply-клавиатуры,
-        # не обрабатываем (оставляем для других обработчиков)
+        # сбрасываем состояние ожидания предложения практики (на случай если оно было установлено)
+        # и не обрабатываем (оставляем для других обработчиков)
+        context.user_data.pop('waiting_for_practice_suggestion', None)
         return
 
 

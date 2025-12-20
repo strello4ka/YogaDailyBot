@@ -17,6 +17,10 @@ async def handle_donations_callback(update: Update, context: ContextTypes.DEFAUL
     if hasattr(update, 'callback_query') and update.callback_query:
         await update.callback_query.answer()
     
+    # Очищаем состояние ожидания предложения практики, если оно было установлено
+    # Это нужно, чтобы пользователь мог взаимодействовать с другими функциями бота
+    context.user_data.pop('waiting_for_practice_suggestion', None)
+    
     # Получаем chat_id
     chat_id = update.effective_chat.id
     

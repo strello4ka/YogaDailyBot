@@ -55,8 +55,10 @@ async def handle_text_input(update: Update, context):
         return
     
     print("=== DEBUG: Никакое состояние не установлено, сообщение игнорируется ===")
-    # Если никакое состояние не установлено, игнорируем сообщение
-    # (это может быть обычное сообщение пользователя)
+    # Если никакое состояние не установлено, сбрасываем возможные "зависшие" состояния
+    # и игнорируем сообщение (это может быть обычное сообщение пользователя)
+    context.user_data.pop('waiting_for_practice_suggestion', None)
+    context.user_data.pop('waiting_for_time', None)
 
 # Настройка логирования
 logging.basicConfig(
@@ -109,6 +111,11 @@ async def myid_command(update: Update, context):
 
 async def help_command(update: Update, context):
     """Команда для получения справки по боту."""
+    # Очищаем состояние ожидания предложения практики, если оно было установлено
+    # Это нужно, чтобы пользователь мог взаимодействовать с другими функциями бота
+    context.user_data.pop('waiting_for_practice_suggestion', None)
+    context.user_data.pop('waiting_for_time', None)
+    
     chat_id = update.effective_chat.id
     
     # Справка по использованию бота
