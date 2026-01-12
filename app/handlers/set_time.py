@@ -130,7 +130,8 @@ async def handle_time_change_input(update: Update, context: ContextTypes.DEFAULT
     # Сохраняем время в базу данных БЕЗ обнуления счетчика дней
     from data.db import save_user_time
     user_name = update.effective_user.first_name
-    save_success = save_user_time(user_id, chat_id, selected_time, user_name, reset_days=False)
+    user_nickname = update.effective_user.username  # Никнейм пользователя из Telegram
+    save_success = save_user_time(user_id, chat_id, selected_time, user_name, user_nickname=user_nickname, reset_days=False)
     
     if not save_success:
         print(f"Ошибка сохранения времени пользователя {user_id} в БД")

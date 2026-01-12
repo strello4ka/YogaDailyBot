@@ -184,8 +184,34 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_user ON user_suggestions(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_created ON user_suggestions(created_at)')
         
+        # Миграция: добавление столбца user_nickname (если еще нет)
         try:
-            # Добавляем ограничение для yoga_practices (если еще нет)
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' 
+                AND column_name = 'user_nickname'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN user_nickname TEXT')
+                print("   ✅ Добавлен столбец user_nickname в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца user_nickname: {e}")
+        
+        try:
+            # Обновляем ограничение для yoga_practices до 500 символов
+            # Сначала удаляем старое ограничение (если есть)
+            cursor.execute("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE table_name = 'yoga_practices' 
+                AND constraint_name = 'description_max_length'
+            """)
+            if cursor.fetchone():
+                cursor.execute('ALTER TABLE yoga_practices DROP CONSTRAINT IF EXISTS description_max_length')
+                print("   🔄 Удалено старое ограничение для yoga_practices.description")
+            
+            # Создаем новое ограничение на 500 символов
             cursor.execute("""
                 SELECT constraint_name 
                 FROM information_schema.table_constraints 
@@ -196,11 +222,23 @@ def init_database():
                 cursor.execute('''
                     ALTER TABLE yoga_practices 
                     ADD CONSTRAINT description_max_length 
-                    CHECK (description IS NULL OR LENGTH(description) <= 300)
+                    CHECK (description IS NULL OR LENGTH(description) <= 500)
                 ''')
-                print("   ✅ Добавлено ограничение для yoga_practices.description")
+                print("   ✅ Добавлено ограничение для yoga_practices.description (500 символов)")
             
-            # Добавляем ограничение для bonus_practices (если еще нет)
+            # Обновляем ограничение для bonus_practices до 500 символов
+            # Сначала удаляем старое ограничение (если есть)
+            cursor.execute("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE table_name = 'bonus_practices' 
+                AND constraint_name = 'bonus_description_max_length'
+            """)
+            if cursor.fetchone():
+                cursor.execute('ALTER TABLE bonus_practices DROP CONSTRAINT IF EXISTS bonus_description_max_length')
+                print("   🔄 Удалено старое ограничение для bonus_practices.description")
+            
+            # Создаем новое ограничение на 500 символов
             cursor.execute("""
                 SELECT constraint_name 
                 FROM information_schema.table_constraints 
@@ -211,9 +249,9 @@ def init_database():
                 cursor.execute('''
                     ALTER TABLE bonus_practices 
                     ADD CONSTRAINT bonus_description_max_length 
-                    CHECK (description IS NULL OR LENGTH(description) <= 300)
+                    CHECK (description IS NULL OR LENGTH(description) <= 500)
                 ''')
-                print("   ✅ Добавлено ограничение для bonus_practices.description")
+                print("   ✅ Добавлено ограничение для bonus_practices.description (500 символов)")
                 
         except Exception as e:
             print(f"⚠️ Ошибка при применении миграции description: {e}")
@@ -226,7 +264,7 @@ def init_database():
         print(f"Ошибка инициализации PostgreSQL базы данных: {e}")
         conn = None
 
-def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_phone: str = None, reset_days: bool = True) -> bool:
+def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_phone: str = None, user_nickname: str = None, reset_days: bool = True) -> bool:
     """Сохраняет или обновляет время уведомлений пользователя.
     
     Args:
@@ -235,6 +273,7 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         notify_time: время в формате HH:MM
         user_name: имя пользователя (опционально)
         user_phone: телефон пользователя (опционально)
+        user_nickname: никнейм пользователя из Telegram (опционально)
         reset_days: если True, обнуляет счетчик дней (для первого запуска); если False, сохраняет текущий счетчик (для изменения времени)
         
     Returns:
@@ -247,30 +286,32 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         if reset_days:
             # Первый запуск (/start) - обнуляем счетчик дней
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_days)
-                VALUES (%s, %s, %s, %s, %s, 0)
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_nickname, user_days)
+                VALUES (%s, %s, %s, %s, %s, %s, 0)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET 
                     chat_id = EXCLUDED.chat_id,
                     notify_time = EXCLUDED.notify_time,
                     user_name = EXCLUDED.user_name,
                     user_phone = EXCLUDED.user_phone,
+                    user_nickname = EXCLUDED.user_nickname,
                     user_days = 0,
                     updated_at = CURRENT_TIMESTAMP
-            ''', (user_id, chat_id, notify_time, user_name, user_phone))
+            ''', (user_id, chat_id, notify_time, user_name, user_phone, user_nickname))
         else:
             # Изменение времени - НЕ обнуляем счетчик дней
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_days)
-                VALUES (%s, %s, %s, %s, %s, 0)
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_nickname, user_days)
+                VALUES (%s, %s, %s, %s, %s, %s, 0)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET 
                     chat_id = EXCLUDED.chat_id,
                     notify_time = EXCLUDED.notify_time,
                     user_name = EXCLUDED.user_name,
                     user_phone = EXCLUDED.user_phone,
+                    user_nickname = EXCLUDED.user_nickname,
                     updated_at = CURRENT_TIMESTAMP
-            ''', (user_id, chat_id, notify_time, user_name, user_phone))
+            ''', (user_id, chat_id, notify_time, user_name, user_phone, user_nickname))
         
         conn.commit()
         conn.close()
@@ -391,39 +432,6 @@ def get_all_user_suggestions(limit: int = 100) -> list:
         if conn:
             conn.close()
         return []
-
-def get_user_time(user_id: int) -> tuple:
-    """Получает данные пользователя.
-    
-    Args:
-        user_id: ID пользователя
-        
-    Returns:
-        tuple: (chat_id, notify_time, user_name, user_phone, user_days) или (None, None, None, None, None) если пользователь не найден
-    """
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT chat_id, notify_time, user_name, user_phone, user_days
-            FROM users 
-            WHERE user_id = %s
-        ''', (user_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return result
-        else:
-            return (None, None, None, None, None)
-            
-    except Exception as e:
-        print(f"Ошибка получения времени пользователя {user_id}: {e}")
-        if conn:
-            conn.close()
-        return (None, None, None, None, None)
 
 def increment_user_days(user_id: int) -> bool:
     """Увеличивает счетчик дней пользователя на 1.
@@ -559,14 +567,14 @@ def get_all_users() -> list:
     """Получает список всех пользователей с их данными.
     
     Returns:
-        list: Список кортежей (user_id, chat_id, notify_time, user_name, user_phone, user_days)
+        list: Список кортежей (user_id, chat_id, notify_time, user_name, user_phone, user_nickname, user_days)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT user_id, chat_id, notify_time, user_name, user_phone, user_days
+            SELECT user_id, chat_id, notify_time, user_name, user_phone, user_nickname, user_days
             FROM users 
             ORDER BY user_id
         ''')
@@ -637,9 +645,9 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
         # Декодируем переносы строк до сохранения, чтобы в базе лежал уже готовый текст
         my_description = _decode_my_description(my_description)
         
-        # Обрезаем description до 300 символов (ограничение БД)
-        if description and len(description) > 300:
-            description = description[:300]
+        # Обрезаем description до 500 символов (ограничение БД)
+        if description and len(description) > 500:
+            description = description[:500]
         
         cursor.execute('''
             INSERT INTO yoga_practices (title, video_url, time_practices, channel_name, description, my_description, intensity, weekday)
@@ -972,9 +980,9 @@ def update_yoga_practice(practice_id: int, title: str = None, video_url: str = N
             update_fields.append('channel_name = %s')
             params.append(channel_name)
         if description is not None:
-            # Обрезаем description до 300 символов (ограничение БД)
-            if len(description) > 300:
-                description = description[:300]
+            # Обрезаем description до 500 символов (ограничение БД)
+            if len(description) > 500:
+                description = description[:500]
             update_fields.append('description = %s')
             params.append(description)
         if my_description is not None:
@@ -1210,9 +1218,9 @@ def add_bonus_practice(parent_practice_id: int, title: str, video_url: str, time
         # Переводим маркеры /n в реальные переводы строк перед сохранением
         my_description = _decode_my_description(my_description)
         
-        # Обрезаем description до 300 символов (ограничение БД)
-        if description and len(description) > 300:
-            description = description[:300]
+        # Обрезаем description до 500 символов (ограничение БД)
+        if description and len(description) > 500:
+            description = description[:500]
         
         cursor.execute('''
             INSERT INTO bonus_practices (
