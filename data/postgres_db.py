@@ -1,6 +1,7 @@
 import psycopg2
 import psycopg2.extras
 import os
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Нужен для вычисления дня недели с учётом таймзоны
 from typing import Optional  # Для типов, совместимых с Python 3.9
@@ -8,6 +9,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.config import get_db_config, DEFAULT_TZ  # Берём таймзону из конфигурации проекта
+
+logger = logging.getLogger(__name__)
 
 # Приводим my_description к реальным переносам строк, чтобы маркеры из CSV/ручного ввода
 # (/n — новая строка, //n — новый абзац) отображались корректно при сохранении и выдаче.
@@ -198,6 +201,20 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца user_nickname: {e}")
         
+        # Миграция: добавление столбца user_nickname в таблицу user_suggestions (если еще нет)
+        try:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'user_suggestions' 
+                AND column_name = 'user_nickname'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE user_suggestions ADD COLUMN user_nickname TEXT')
+                print("   ✅ Добавлен столбец user_nickname в таблицу user_suggestions")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца user_nickname в user_suggestions: {e}")
+        
         try:
             # Обновляем ограничение для yoga_practices до 500 символов
             # Сначала удаляем старое ограничение (если есть)
@@ -330,13 +347,14 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
             conn.close()
         return False
 
-def save_user_practice_suggestion(user_id: int, video_url: str, comment: str = None) -> bool:
+def save_user_practice_suggestion(user_id: int, video_url: str, comment: str = None, user_nickname: str = None) -> bool:
     """Сохраняет предложение практики от пользователя в отдельную таблицу.
     
     Args:
         user_id: ID пользователя, предложившего практику
         video_url: ссылка на рекомендуемое видео
         comment: комментарий пользователя к рекомендации (опционально)
+        user_nickname: никнейм пользователя из Telegram (опционально)
         
     Returns:
         bool: True если операция успешна, False в случае ошибки
@@ -352,10 +370,11 @@ def save_user_practice_suggestion(user_id: int, video_url: str, comment: str = N
             return False
         
         # Добавляем новое предложение в таблицу user_suggestions
+        # Сохраняем user_nickname для удобства просмотра предложений
         cursor.execute('''
-            INSERT INTO user_suggestions (user_id, video_url, comment)
-            VALUES (%s, %s, %s)
-        ''', (user_id, video_url, comment))
+            INSERT INTO user_suggestions (user_id, video_url, comment, user_nickname)
+            VALUES (%s, %s, %s, %s)
+        ''', (user_id, video_url, comment, user_nickname))
         
         conn.commit()
         conn.close()
@@ -377,14 +396,14 @@ def get_user_suggestions(user_id: int, limit: int = 10) -> list:
         limit: максимальное количество предложений (по умолчанию 10)
         
     Returns:
-        list: Список кортежей (suggestion_id, video_url, comment, created_at)
+        list: Список кортежей (suggestion_id, video_url, comment, user_nickname, created_at)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT suggestion_id, video_url, comment, created_at
+            SELECT suggestion_id, video_url, comment, user_nickname, created_at
             FROM user_suggestions 
             WHERE user_id = %s
             ORDER BY created_at DESC
@@ -409,14 +428,14 @@ def get_all_user_suggestions(limit: int = 100) -> list:
         limit: максимальное количество предложений (по умолчанию 100)
         
     Returns:
-        list: Список кортежей (suggestion_id, user_id, video_url, comment, created_at)
+        list: Список кортежей (suggestion_id, user_id, video_url, comment, user_nickname, created_at)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT suggestion_id, user_id, video_url, comment, created_at
+            SELECT suggestion_id, user_id, video_url, comment, user_nickname, created_at
             FROM user_suggestions 
             ORDER BY created_at DESC
             LIMIT %s
@@ -1563,3 +1582,5 @@ def clear_all_yoga_practices() -> bool:
             conn.rollback()
             conn.close()
         return False
+
+

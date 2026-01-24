@@ -31,7 +31,7 @@ async def handle_suggest_practice_callback(update: Update, context: ContextTypes
         "\\*любой комментарий (не обязательно)\\*\n\n"
         "*Пример:*\n"
         "https://youtu.be/oTzetTgYpSU?si=ewHrtkwVb4hFO1NG\n"
-        "моя любимая-любимая практика, бодрит и подниамет настроение 🤤"
+        "моя любимая-любимая практика, бодрит и поднимает настроение 🤤"
     )
     
     # Отправляем сообщение
@@ -125,9 +125,11 @@ async def handle_practice_suggestion_input(update: Update, context: ContextTypes
     
     # Сохраняем предложение в базу данных
     user_id = update.effective_user.id
+    # Получаем никнейм пользователя из Telegram (может быть None, если пользователь не установил username)
+    user_nickname = update.effective_user.username
     
     from data.db import save_user_practice_suggestion
-    save_success = save_user_practice_suggestion(user_id, result, comment)
+    save_success = save_user_practice_suggestion(user_id, result, comment, user_nickname)
     
     if not save_success:
         await update.message.reply_text(

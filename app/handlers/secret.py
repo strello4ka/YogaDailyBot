@@ -148,6 +148,7 @@ async def handle_secret_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Если пользователь заблокировал бота, это нормально - просто пропускаем
             # Продолжаем рассылку остальным пользователям
     
+    
     # Формируем итоговый отчет
     report = (
         f"✅ *Рассылка завершена*\n\n"
@@ -170,4 +171,6 @@ async def handle_secret_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Логируем завершение рассылки
     logger.info(f"Массовая рассылка завершена. Успешно: {success_count}, Ошибок: {error_count}")
+
+
 
