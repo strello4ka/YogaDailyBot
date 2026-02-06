@@ -63,10 +63,9 @@ async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not set_user_challenge(user_id, practice_id):
         await update.message.reply_text("Не удалось включить режим челленджа. Попробуй позже.")
         return
-    time_text = f"завтра в {notify_time}"
     await update.message.reply_text(
         f"Челлендж запущен!\n"
-        f"Завтра в {time_text} придёт твоя первая практика.\n"
+        f"Завтра в {notify_time} придёт твоя первая практика.\n"
         "Удачи 🧡"
     )
     logger.info(f"Пользователь {user_id} включил челлендж с id={practice_id}")
