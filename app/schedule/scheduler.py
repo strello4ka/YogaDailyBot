@@ -13,7 +13,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo  # Используем таймзону, чтобы сравнивать время корректно
 from telegram.ext import ContextTypes
 from data.db import (
-    get_users_by_time, 
+    get_users_by_time,
     get_yoga_practice_by_weekday_order,
     increment_user_days,
     get_user_days,
@@ -21,6 +21,7 @@ from data.db import (
     get_current_weekday,
     get_bonus_practices_by_parent
 )
+from app.mode.challenge import get_practice_for_daily_send
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
 
 logger = logging.getLogger(__name__)
@@ -62,11 +63,14 @@ async def send_daily_practice(context: ContextTypes.DEFAULT_TYPE):
 async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, weekday: int):
     """Отправляет практику конкретному пользователю.
     
+    Если у пользователя включён режим челленджа — практика по порядку id (модуль mode.challenge).
+    Иначе — практика по дню недели и счётчику дней.
+    
     Args:
         context: Контекст бота
         user_id: ID пользователя
         chat_id: ID чата
-        weekday: день недели
+        weekday: день недели (используется только в обычном режиме)
     """
     try:
         # Получаем количество дней пользователя
@@ -76,11 +80,15 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         increment_user_days(user_id)
         new_day_number = user_days + 1
         
-        # Получаем практику для текущего дня недели по порядку
-        practice = get_yoga_practice_by_weekday_order(weekday, new_day_number)
-        
+        # Режим челленджа или обычный: практика по челленджу (если включён) или по дню недели
+        practice, is_challenge = get_practice_for_daily_send(user_id, weekday, new_day_number)
+        if not is_challenge:
+            practice = get_yoga_practice_by_weekday_order(weekday, new_day_number)
         if not practice:
-            logger.error(f"Не найдена практика для дня недели {weekday}, день {new_day_number}")
+            if is_challenge:
+                logger.error(f"Не найдена практика челленджа для пользователя {user_id}, день {new_day_number}")
+            else:
+                logger.error(f"Не найдена практика для дня недели {weekday}, день {new_day_number}")
             return
         
         # Распаковываем данные практики

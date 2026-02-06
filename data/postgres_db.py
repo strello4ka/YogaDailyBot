@@ -273,6 +273,19 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при применении миграции description: {e}")
         
+        # Миграция: добавление столбца challenge_start_id для режима челленджа
+        try:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'challenge_start_id'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN challenge_start_id INTEGER')
+                print("   ✅ Добавлен столбец challenge_start_id в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца challenge_start_id: {e}")
+        
         conn.commit()
         conn.close()
         print("PostgreSQL база данных инициализирована успешно")
@@ -638,6 +651,98 @@ def get_users_by_time(notify_time: str) -> list:
         if conn:
             conn.close()
         return []
+
+
+def get_user_challenge_start_id(user_id: int):
+    """Возвращает challenge_start_id пользователя (режим челленджа) или None.
+    
+    Returns:
+        int или None: ID стартовой практики челленджа или None при обычном режиме
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT challenge_start_id FROM users WHERE user_id = %s', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row and row[0] is not None else None
+    except Exception as e:
+        print(f"Ошибка получения challenge_start_id для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return None
+
+
+def set_user_challenge(user_id: int, challenge_start_id: int) -> bool:
+    """Включает режим челленджа: задаёт стартовый id и обнуляет счётчик дней.
+    
+    Returns:
+        bool: True при успехе
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users 
+            SET challenge_start_id = %s, user_days = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+        ''', (challenge_start_id, user_id))
+        if cursor.rowcount == 0:
+            conn.close()
+            return False
+        conn.commit()
+        conn.close()
+        print(f"Пользователь {user_id}: режим челленджа с id={challenge_start_id}, дни обнулены")
+        return True
+    except Exception as e:
+        print(f"Ошибка set_user_challenge {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def clear_user_challenge(user_id: int) -> bool:
+    """Выключает режим челленджа (challenge_start_id = NULL).
+    
+    Returns:
+        bool: True при успехе
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users 
+            SET challenge_start_id = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+        ''', (user_id,))
+        conn.commit()
+        conn.close()
+        print(f"Пользователь {user_id}: режим челленджа выключен")
+        return True
+    except Exception as e:
+        print(f"Ошибка clear_user_challenge {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_user_notify_time(user_id: int):
+    """Возвращает время уведомления пользователя (HH:MM) или None."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT notify_time FROM users WHERE user_id = %s', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception as e:
+        print(f"Ошибка get_user_notify_time {user_id}: {e}")
+        if conn:
+            conn.close()
+        return None
+
 
 # Функции для работы с йога практиками
 
@@ -1179,6 +1284,45 @@ def get_yoga_practice_by_weekday_order(weekday: int, day_number: int) -> tuple:
         if conn:
             conn.close()
         return None
+
+
+def get_yoga_practice_by_challenge_order(challenge_start_id: int, day_number: int):
+    """Возвращает практику для режима челленджа: все практики по возрастанию id, день N — N-я от старта, цикл с id=1 после конца.
+    
+    Args:
+        challenge_start_id: id практики, с которой начинается челлендж
+        day_number: номер дня (1, 2, 3, ...)
+        
+    Returns:
+        tuple: (practices_id, title, video_url, ...) или None
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
+            FROM yoga_practices
+            ORDER BY practices_id
+        ''')
+        practices = cursor.fetchall()
+        conn.close()
+        if not practices:
+            return None
+        # Найти индекс первой практики с id >= challenge_start_id
+        start_index = 0
+        for i, row in enumerate(practices):
+            if row[0] >= challenge_start_id:
+                start_index = i
+                break
+        # День N → индекс (start_index + (N - 1)) % len(practices)
+        position = (start_index + (day_number - 1)) % len(practices)
+        return _decode_practice_row(practices[position])
+    except Exception as e:
+        print(f"Ошибка get_yoga_practice_by_challenge_order({challenge_start_id}, {day_number}): {e}")
+        if conn:
+            conn.close()
+        return None
+
 
 def get_practice_count_by_weekday(weekday: int) -> int:
     """Получает количество практик для определенного дня недели.
