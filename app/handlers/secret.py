@@ -70,13 +70,22 @@ async def handle_secret_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.pop('waiting_for_secret', None)
     
     # Получаем всех пользователей из базы данных
-    from data.db import get_all_users
+    from data.db import get_all_users, get_next_broadcast_batch_id, save_broadcast_message
     users = get_all_users()
     
     if not users:
         await update.message.reply_text("❌ В базе данных нет пользователей для рассылки.")
         logger.warning("Попытка рассылки при отсутствии пользователей в БД")
         return
+    
+    # Определяем тип сообщения (текст или фото)
+    has_photo = update.message.photo is not None and len(update.message.photo) > 0
+    message_text = update.message.caption if has_photo else update.message.text
+    photo_file_id = update.message.photo[-1].file_id if has_photo else None
+    message_type = 'photo' if has_photo else 'text'
+    
+    # Одна партия рассылки — один batch_id для всех сообщений
+    broadcast_batch_id = get_next_broadcast_batch_id()
     
     # Подтверждаем начало рассылки
     total_users = len(users)
@@ -85,58 +94,46 @@ async def handle_secret_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"Это может занять некоторое время."
     )
     
-    # Определяем тип сообщения (текст или фото)
-    has_photo = update.message.photo is not None and len(update.message.photo) > 0
-    message_text = update.message.caption if has_photo else update.message.text
-    
-    # Если это фото, получаем файл фото (берем самое большое разрешение)
-    photo_file_id = None
-    if has_photo:
-        # Берем последний элемент (самое большое разрешение)
-        photo_file_id = update.message.photo[-1].file_id
-    
-    # Логируем начало рассылки
     logger.info(f"Начало массовой рассылки администратором {user_id}. "
-                f"Пользователей: {total_users}, Тип: {'фото с подписью' if has_photo else 'текст'}")
+                f"Пользователей: {total_users}, Тип: {'фото с подписью' if has_photo else 'текст'}, batch_id={broadcast_batch_id}")
     
-    # Отправляем сообщения всем пользователям с задержками
     success_count = 0
     error_count = 0
     errors = []
     
     for idx, user_data in enumerate(users, 1):
         try:
-            # Распаковываем данные пользователя
-            # get_all_users возвращает: (user_id, chat_id, notify_time, user_name, user_phone, user_days)
             target_user_id, chat_id = user_data[0], user_data[1]
             
-            # Отправляем сообщение в зависимости от типа
             if has_photo:
-                # Отправляем фото с подписью (или без подписи, если текст пустой)
-                await context.bot.send_photo(
+                sent_message = await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=photo_file_id,
                     caption=message_text if message_text else None,
                     parse_mode='Markdown' if message_text else None
                 )
             else:
-                # Отправляем текстовое сообщение
-                await context.bot.send_message(
+                sent_message = await context.bot.send_message(
                     chat_id=chat_id,
                     text=message_text,
                     parse_mode='Markdown'
                 )
             
+            save_broadcast_message(
+                broadcast_batch_id=broadcast_batch_id,
+                user_id=target_user_id,
+                chat_id=chat_id,
+                message_id=sent_message.message_id,
+                message_type=message_type,
+                message_text=message_text,
+                photo_file_id=photo_file_id
+            )
             success_count += 1
             
-            # Логируем прогресс каждые 10 пользователей
             if idx % 10 == 0:
                 logger.info(f"Прогресс рассылки: {idx}/{total_users} пользователей обработано")
             
-            # Добавляем задержку между отправками, чтобы не превысить лимиты Telegram
-            # Telegram позволяет отправлять ~30 сообщений в секунду
-            # Делаем задержку 0.05 секунды (20 сообщений в секунду) для безопасности
-            if idx < total_users:  # Не делаем задержку после последнего сообщения
+            if idx < total_users:
                 await asyncio.sleep(0.05)
                 
         except Exception as e:
@@ -144,33 +141,179 @@ async def handle_secret_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             error_msg = f"Ошибка отправки пользователю {target_user_id} (chat_id: {chat_id}): {str(e)}"
             errors.append(error_msg)
             logger.error(error_msg)
-            
-            # Если пользователь заблокировал бота, это нормально - просто пропускаем
-            # Продолжаем рассылку остальным пользователям
     
-    
-    # Формируем итоговый отчет
     report = (
         f"✅ *Рассылка завершена*\n\n"
         f"📊 *Статистика:*\n"
         f"• Всего пользователей: {total_users}\n"
         f"• Успешно отправлено: {success_count}\n"
-        f"• Ошибок: {error_count}"
+        f"• Ошибок: {error_count}\n\n"
+        f"Используй /secret_delete для удаления или /secret_edit для редактирования."
     )
-    
-    # Добавляем информацию об ошибках, если они были
     if errors:
-        # Показываем только первые 5 ошибок, чтобы не перегружать сообщение
         error_preview = "\n".join(errors[:5])
         if len(errors) > 5:
             error_preview += f"\n... и еще {len(errors) - 5} ошибок"
         report += f"\n\n⚠️ *Ошибки:*\n`{error_preview}`"
     
-    # Отправляем отчет администратору
     await update.message.reply_text(report, parse_mode='Markdown')
-    
-    # Логируем завершение рассылки
     logger.info(f"Массовая рассылка завершена. Успешно: {success_count}, Ошибок: {error_count}")
+
+
+async def secret_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Удаление последней массовой рассылки: удаляет все сообщения у пользователей и записи в БД."""
+    if update.effective_user.id != ADMIN_USER_ID:
+        logger.warning(f"Попытка /secret_delete пользователем {update.effective_user.id}")
+        await update.message.reply_text("❌ У тебя нет доступа к этой команде.")
+        return
+    
+    from data.db import get_latest_broadcast_messages, delete_latest_broadcast
+    messages = get_latest_broadcast_messages()
+    
+    if not messages:
+        await update.message.reply_text("❌ Нет сохранённых рассылок для удаления.")
+        return
+    
+    total = len(messages)
+    await update.message.reply_text(f"🗑️ Удаляю {total} сообщений рассылки...")
+    
+    success_count = 0
+    error_count = 0
+    errors = []
+    for target_user_id, chat_id, message_id, *_ in messages:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            success_count += 1
+            if success_count % 10 == 0:
+                await asyncio.sleep(0.05)
+        except Exception as e:
+            error_count += 1
+            errors.append(f"user {target_user_id}: {str(e)}")
+            logger.error(f"Ошибка удаления сообщения {message_id}: {e}")
+    
+    delete_latest_broadcast()
+    
+    report = (
+        f"✅ *Удаление завершено*\n\n"
+        f"• Всего: {total}\n"
+        f"• Удалено: {success_count}\n"
+        f"• Ошибок: {error_count}"
+    )
+    if errors:
+        report += f"\n\n⚠️ Ошибки: `{' '.join(errors[:3])}`"
+    await update.message.reply_text(report, parse_mode='Markdown')
+    logger.info(f"Удаление рассылки завершено. Удалено: {success_count}, Ошибок: {error_count}")
+
+
+async def secret_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Запрос нового текста/подписи для редактирования последней рассылки."""
+    if update.effective_user.id != ADMIN_USER_ID:
+        logger.warning(f"Попытка /secret_edit пользователем {update.effective_user.id}")
+        await update.message.reply_text("❌ У тебя нет доступа к этой команде.")
+        return
+    
+    from data.db import get_latest_broadcast_messages, get_latest_broadcast_meta
+    messages = get_latest_broadcast_messages()
+    meta = get_latest_broadcast_meta()
+    
+    if not messages:
+        await update.message.reply_text("❌ Нет сохранённых рассылок для редактирования.")
+        return
+    
+    message_type, _, photo_file_id = meta
+    context.user_data['waiting_for_secret_edit'] = True
+    context.user_data['edit_message_type'] = message_type
+    context.user_data['edit_photo_file_id'] = photo_file_id
+    
+    if message_type == 'photo':
+        request_text = (
+            "✏️ *Редактирование рассылки*\n\n"
+            "Текущая рассылка — фото с подписью.\n"
+            "Отправь *новый текст подписи* (без нового фото).\n\n"
+            "Разметка Markdown: *жирный*, [ссылка](url)."
+        )
+    else:
+        request_text = (
+            "✏️ *Редактирование рассылки*\n\n"
+            "Текущая рассылка — текст.\n"
+            "Отправь *новый текст сообщения*.\n\n"
+            "Разметка Markdown: *жирный*, [ссылка](url)."
+        )
+    await update.message.reply_text(request_text, parse_mode='Markdown')
+    logger.info(f"Администратор {update.effective_user.id} начал редактирование рассылки")
+
+
+async def handle_secret_edit_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка ввода нового текста для редактирования последней рассылки."""
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    if not context.user_data.get('waiting_for_secret_edit'):
+        return
+    
+    context.user_data.pop('waiting_for_secret_edit', None)
+    message_type = context.user_data.pop('edit_message_type', None)
+    photo_file_id = context.user_data.pop('edit_photo_file_id', None)
+    
+    from data.db import get_latest_broadcast_messages
+    messages = get_latest_broadcast_messages()
+    if not messages:
+        await update.message.reply_text("❌ Не найдено сообщений для редактирования.")
+        return
+    
+    # Новый контент: только текст (фото не меняем)
+    has_photo = update.message.photo is not None and len(update.message.photo) > 0
+    new_text = update.message.caption if has_photo else (update.message.text or "")
+    
+    if has_photo and message_type == 'photo':
+        await update.message.reply_text(
+            "⚠️ Telegram не позволяет заменить фото в уже отправленных сообщениях.\n"
+            "Отправь только текст — будет изменена подпись. Или удали рассылку и создай новую."
+        )
+        return
+    if has_photo and message_type == 'text':
+        await update.message.reply_text("⚠️ Нельзя заменить текстовую рассылку на фото. Удали рассылку и создай новую.")
+        return
+    
+    total = len(messages)
+    await update.message.reply_text(f"✏️ Редактирую {total} сообщений...")
+    
+    success_count = 0
+    error_count = 0
+    errors = []
+    for target_user_id, chat_id, message_id, msg_type, *_ in messages:
+        try:
+            if msg_type == 'photo':
+                await context.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=new_text,
+                    parse_mode='Markdown'
+                )
+            else:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=new_text,
+                    parse_mode='Markdown'
+                )
+            success_count += 1
+            if success_count % 10 == 0:
+                await asyncio.sleep(0.05)
+        except Exception as e:
+            error_count += 1
+            errors.append(f"user {target_user_id}: {str(e)}")
+            logger.error(f"Ошибка редактирования сообщения {message_id}: {e}")
+    
+    report = (
+        f"✅ *Редактирование завершено*\n\n"
+        f"• Всего: {total}\n"
+        f"• Отредактировано: {success_count}\n"
+        f"• Ошибок: {error_count}"
+    )
+    if errors:
+        report += f"\n\n⚠️ Ошибки: `{' '.join(errors[:3])}`"
+    await update.message.reply_text(report, parse_mode='Markdown')
+    logger.info(f"Редактирование рассылки завершено. Успешно: {success_count}, Ошибок: {error_count}")
 
 
 

@@ -25,7 +25,13 @@ from .handlers.donations import (
     handle_pre_checkout_query,
     handle_successful_payment
 )
-from .handlers.secret import secret_command, handle_secret_input
+from .handlers.secret import (
+    secret_command,
+    handle_secret_input,
+    secret_delete_command,
+    secret_edit_command,
+    handle_secret_edit_input,
+)
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
 from .mode.challenge import challenge_command, challenge_off_command
 
@@ -39,7 +45,11 @@ async def handle_text_input(update: Update, context):
     print(f"Message text: '{update.message.text}'")
     print(f"User data: {context.user_data}")
     
-    # Проверяем состояние ожидания рассылки (приоритет выше, так как это административная функция)
+    # Проверяем состояние ожидания редактирования рассылки
+    if context.user_data.get('waiting_for_secret_edit'):
+        await handle_secret_edit_input(update, context)
+        return
+    # Проверяем состояние ожидания рассылки
     if context.user_data.get('waiting_for_secret'):
         print("=== DEBUG: Переадресация на handle_secret_input ===")
         await handle_secret_input(update, context)
@@ -68,6 +78,7 @@ async def handle_text_input(update: Update, context):
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('waiting_for_secret', None)
+    context.user_data.pop('waiting_for_secret_edit', None)
 
 # Настройка логирования
 logging.basicConfig(
@@ -149,6 +160,8 @@ def main():
     application.add_handler(CommandHandler("test", test_practice_command))
     application.add_handler(CommandHandler("myid", myid_command))
     application.add_handler(CommandHandler("secret", secret_command))
+    application.add_handler(CommandHandler("secret_delete", secret_delete_command))
+    application.add_handler(CommandHandler("secret_edit", secret_edit_command))
     application.add_handler(CommandHandler("challenge", challenge_command))
     application.add_handler(CommandHandler("challenge_off", challenge_off_command))
     
@@ -178,7 +191,9 @@ def main():
     # Этот обработчик проверяет состояние waiting_for_secret и обрабатывает фото с подписью
     async def handle_photo_or_text_for_secret(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик фото и текста для массовой рассылки."""
-        # Проверяем состояние ожидания рассылки
+        if context.user_data.get('waiting_for_secret_edit'):
+            await handle_secret_edit_input(update, context)
+            return
         if context.user_data.get('waiting_for_secret'):
             await handle_secret_input(update, context)
             return

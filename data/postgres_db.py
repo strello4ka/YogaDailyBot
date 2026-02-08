@@ -152,6 +152,22 @@ def init_database():
             )
         ''')
         
+        # Создаем таблицу для хранения отправленных сообщений массовой рассылки
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS broadcast_messages (
+                id SERIAL PRIMARY KEY,
+                broadcast_batch_id INTEGER NOT NULL,
+                user_id BIGINT NOT NULL,
+                chat_id BIGINT NOT NULL,
+                message_id INTEGER NOT NULL,
+                message_type TEXT NOT NULL,
+                message_text TEXT,
+                photo_file_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+            )
+        ''')
+        
         # Миграция: удаляем старые поля recommend и comment из таблицы users
         try:
             # Проверяем, существуют ли колонки, и удаляем их
@@ -186,6 +202,8 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_logs_practice ON practice_logs(practice_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_user ON user_suggestions(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_suggestions_created ON user_suggestions(created_at)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_broadcast_messages_batch ON broadcast_messages(broadcast_batch_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_broadcast_messages_created ON broadcast_messages(created_at DESC)')
         
         # Миграция: добавление столбца user_nickname (если еще нет)
         try:
@@ -1727,4 +1745,144 @@ def clear_all_yoga_practices() -> bool:
             conn.close()
         return False
 
+
+# --- Функции для массовых рассылок ---
+
+def get_next_broadcast_batch_id() -> int:
+    """Возвращает следующий номер партии рассылки (для группировки сообщений одной рассылки)."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COALESCE(MAX(broadcast_batch_id), 0) + 1 FROM broadcast_messages')
+        batch_id = cursor.fetchone()[0]
+        conn.close()
+        return batch_id
+    except Exception as e:
+        print(f"Ошибка получения следующего broadcast_batch_id: {e}")
+        if conn:
+            conn.close()
+        return 1
+
+
+def save_broadcast_message(broadcast_batch_id: int, user_id: int, chat_id: int, message_id: int,
+                          message_type: str, message_text: str = None,
+                          photo_file_id: str = None) -> bool:
+    """Сохраняет информацию об отправленном сообщении рассылки.
+
+    Args:
+        broadcast_batch_id: номер партии рассылки (одна рассылка = один batch_id)
+        user_id: ID пользователя
+        chat_id: ID чата
+        message_id: ID отправленного сообщения в Telegram
+        message_type: тип сообщения ('text' или 'photo')
+        message_text: текст сообщения или подпись к фото (опционально)
+        photo_file_id: file_id фото (опционально)
+
+    Returns:
+        bool: True если успешно, False при ошибке
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO broadcast_messages (broadcast_batch_id, user_id, chat_id, message_id, message_type, message_text, photo_file_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ''', (broadcast_batch_id, user_id, chat_id, message_id, message_type, message_text, photo_file_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка сохранения сообщения рассылки: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_latest_broadcast_messages() -> list:
+    """Возвращает все сообщения последней рассылки.
+
+    Returns:
+        list: Список кортежей (user_id, chat_id, message_id, message_type, message_text, photo_file_id)
+              или пустой список, если рассылок нет.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT MAX(broadcast_batch_id) FROM broadcast_messages')
+        row = cursor.fetchone()
+        if not row or row[0] is None:
+            conn.close()
+            return []
+        batch_id = row[0]
+        cursor.execute('''
+            SELECT user_id, chat_id, message_id, message_type, message_text, photo_file_id
+            FROM broadcast_messages
+            WHERE broadcast_batch_id = %s
+            ORDER BY id
+        ''', (batch_id,))
+        results = cursor.fetchall()
+        conn.close()
+        return results
+    except Exception as e:
+        print(f"Ошибка получения последней рассылки: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
+def get_latest_broadcast_meta() -> tuple:
+    """Возвращает тип и контент последней рассылки (для подсказки при редактировании).
+
+    Returns:
+        tuple: (message_type, message_text, photo_file_id) или (None, None, None) если рассылок нет.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT message_type, message_text, photo_file_id
+            FROM broadcast_messages
+            ORDER BY broadcast_batch_id DESC, id
+            LIMIT 1
+        ''')
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return (row[0], row[1], row[2])
+        return (None, None, None)
+    except Exception as e:
+        print(f"Ошибка получения мета последней рассылки: {e}")
+        if conn:
+            conn.close()
+        return (None, None, None)
+
+
+def delete_latest_broadcast() -> bool:
+    """Удаляет из БД все записи последней рассылки (по максимальному broadcast_batch_id).
+
+    Returns:
+        bool: True если удалено, False при ошибке или если нечего удалять.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT MAX(broadcast_batch_id) FROM broadcast_messages')
+        row = cursor.fetchone()
+        if not row or row[0] is None:
+            conn.close()
+            return False
+        batch_id = row[0]
+        cursor.execute('DELETE FROM broadcast_messages WHERE broadcast_batch_id = %s', (batch_id,))
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        print(f"Удалено {deleted_count} записей рассылки (batch_id={batch_id}) из БД")
+        return True
+    except Exception as e:
+        print(f"Ошибка удаления последней рассылки из БД: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
 
