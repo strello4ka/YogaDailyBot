@@ -11,12 +11,17 @@ import asyncio
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Используем таймзону, чтобы сравнивать время корректно
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from data.db import (
     get_users_by_time,
     get_yoga_practice_by_weekday_order,
     increment_user_days,
     get_user_days,
+    get_program_position,
+    increment_program_position,
+    set_last_practice_message_id,
+    get_last_practice_message_id,
     log_practice_sent,
     get_current_weekday,
     get_bonus_practices_by_parent
@@ -73,43 +78,62 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         weekday: день недели (используется только в обычном режиме)
     """
     try:
-        # Получаем количество дней пользователя
-        user_days = get_user_days(user_id)
-        
-        # Увеличиваем счетчик дней
+        # Снимаем кнопку «Выполнено» с предыдущего сообщения с практикой
+        last_message_id = get_last_practice_message_id(user_id)
+        if last_message_id is not None:
+            try:
+                await context.bot.edit_message_reply_markup(
+                    chat_id=chat_id, message_id=last_message_id, reply_markup=None
+                )
+            except Exception as edit_err:
+                logger.debug(f"Не удалось снять кнопку с сообщения {last_message_id}: {edit_err}")
+
+        # Позиция в программе (не сбрасывается при сбросе прогресса)
+        program_position = get_program_position(user_id)
+        increment_program_position(user_id)
+        next_position = program_position + 1
+
+        # Счётчик дней для отображения «N день» и «N из M» (сбрасывается при сбросе прогресса)
         increment_user_days(user_id)
-        new_day_number = user_days + 1
-        
+        user_days = get_user_days(user_id)
+
         # Режим челленджа или обычный: практика по челленджу (если включён) или по дню недели
-        practice, is_challenge = get_practice_for_daily_send(user_id, weekday, new_day_number)
+        practice, is_challenge = get_practice_for_daily_send(user_id, weekday, next_position)
         if not is_challenge:
-            practice = get_yoga_practice_by_weekday_order(weekday, new_day_number)
+            practice = get_yoga_practice_by_weekday_order(weekday, next_position)
         if not practice:
             if is_challenge:
-                logger.error(f"Не найдена практика челленджа для пользователя {user_id}, день {new_day_number}")
+                logger.error(f"Не найдена практика челленджа для пользователя {user_id}, день {next_position}")
             else:
-                logger.error(f"Не найдена практика для дня недели {weekday}, день {new_day_number}")
+                logger.error(f"Не найдена практика для дня недели {weekday}, день {next_position}")
             return
-        
+
         # Распаковываем данные практики
-        (practice_id, title, video_url, time_practices, channel_name, 
+        (practice_id, title, video_url, time_practices, channel_name,
          description, my_description, intensity, practice_weekday, created_at, updated_at) = practice
-        
-        # Формируем сообщение
-        message_text = format_practice_message(new_day_number, my_description, time_practices, intensity, channel_name, video_url)
-        
-        # Отправляем сообщение
-        await context.bot.send_message(
+
+        # Формируем сообщение (номер дня для пользователя = user_days)
+        message_text = format_practice_message(user_days, my_description, time_practices, intensity, channel_name, video_url)
+
+        # Inline-кнопка «Выполнено» под сообщением с практикой
+        done_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Выполнено", callback_data="practice_done")]
+        ])
+
+        # Отправляем сообщение с кнопкой
+        message = await context.bot.send_message(
             chat_id=chat_id,
             text=message_text,
             parse_mode='Markdown',
-            disable_web_page_preview=False  # Включаем превью видео
+            disable_web_page_preview=False,
+            reply_markup=done_keyboard
         )
-        
+        set_last_practice_message_id(user_id, message.message_id)
+
         # Логируем отправку основной практики
-        log_practice_sent(user_id, practice_id, new_day_number)
+        log_practice_sent(user_id, practice_id, user_days)
         
-        logger.info(f"Практика {practice_id} отправлена пользователю {user_id}, день {new_day_number}")
+        logger.info(f"Практика {practice_id} отправлена пользователю {user_id}, день {user_days}")
         
         # Получаем бонусные практики, если они есть
         bonus_practices = get_bonus_practices_by_parent(practice_id)
@@ -236,44 +260,50 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
     """
     try:
         logger.info(f"Отправка тестовой практики пользователю {user_id}")
-        
-        # Получаем количество дней пользователя
-        user_days = get_user_days(user_id)
-        
-        # Увеличиваем счетчик дней
+
+        last_message_id = get_last_practice_message_id(user_id)
+        if last_message_id is not None:
+            try:
+                await context.bot.edit_message_reply_markup(
+                    chat_id=chat_id, message_id=last_message_id, reply_markup=None
+                )
+            except Exception as edit_err:
+                logger.debug(f"Не удалось снять кнопку с сообщения {last_message_id}: {edit_err}")
+
+        program_position = get_program_position(user_id)
+        increment_program_position(user_id)
+        next_position = program_position + 1
+
         increment_user_days(user_id)
-        new_day_number = user_days + 1
-        
-        # Получаем текущий день недели
+        user_days = get_user_days(user_id)
+
         current_weekday = get_current_weekday()
-        
-        # Получаем практику для текущего дня недели по порядку
-        practice = get_yoga_practice_by_weekday_order(current_weekday, new_day_number)
-        
+        practice = get_yoga_practice_by_weekday_order(current_weekday, next_position)
+
         if not practice:
-            logger.error(f"Не найдена практика для дня недели {current_weekday}, день {new_day_number}")
+            logger.error(f"Не найдена практика для дня недели {current_weekday}, день {next_position}")
             await context.bot.send_message(chat_id, "❌ Практика не найдена для текущего дня недели")
             return
-        
-        # Распаковываем данные практики
-        (practice_id, title, video_url, time_practices, channel_name, 
+
+        (practice_id, title, video_url, time_practices, channel_name,
          description, my_description, intensity, practice_weekday, created_at, updated_at) = practice
-        
-        # Формируем сообщение
-        message_text = format_practice_message(new_day_number, my_description, time_practices, intensity, channel_name, video_url)
-        
-        # Отправляем сообщение
-        await context.bot.send_message(
+
+        message_text = format_practice_message(user_days, my_description, time_practices, intensity, channel_name, video_url)
+        done_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Выполнено", callback_data="practice_done")]
+        ])
+
+        message = await context.bot.send_message(
             chat_id=chat_id,
             text=message_text,
             parse_mode='Markdown',
-            disable_web_page_preview=False  # Включаем превью видео
+            disable_web_page_preview=False,
+            reply_markup=done_keyboard
         )
-        
-        # Логируем отправку основной практики
-        log_practice_sent(user_id, practice_id, new_day_number)
-        
-        logger.info(f"Тестовая практика {practice_id} отправлена пользователю {user_id}, день {new_day_number}")
+        set_last_practice_message_id(user_id, message.message_id)
+
+        log_practice_sent(user_id, practice_id, user_days)
+        logger.info(f"Тестовая практика {practice_id} отправлена пользователю {user_id}, день {user_days}")
         
         # Получаем бонусные практики, если они есть
         bonus_practices = get_bonus_practices_by_parent(practice_id)

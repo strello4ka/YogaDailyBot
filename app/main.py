@@ -25,6 +25,12 @@ from .handlers.donations import (
     handle_pre_checkout_query,
     handle_successful_payment
 )
+from .handlers.done import handle_practice_done_callback
+from .handlers.progress import (
+    handle_progress_reset_callback,
+    handle_progress_reset_yes_callback,
+    handle_progress_reset_no_callback,
+)
 from .handlers.secret import (
     secret_command,
     handle_secret_input,
@@ -175,13 +181,19 @@ def main():
     
     # Регистрируем обработчики для выбора количества звезд
     application.add_handler(CallbackQueryHandler(handle_stars_amount_callback, pattern="^stars_"))
+
+    # Трекер прогресса: кнопка «Выполнено» и «Мой прогресс» / сброс
+    application.add_handler(CallbackQueryHandler(handle_practice_done_callback, pattern="^practice_done$"))
+    application.add_handler(CallbackQueryHandler(handle_progress_reset_callback, pattern="^progress_reset$"))
+    application.add_handler(CallbackQueryHandler(handle_progress_reset_yes_callback, pattern="^progress_reset_yes$"))
+    application.add_handler(CallbackQueryHandler(handle_progress_reset_no_callback, pattern="^progress_reset_no$"))
     
     # Регистрируем обработчики для платежей
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout_query))
     
     # Регистрируем обработчик Reply-кнопок (с высоким приоритетом)
-    reply_buttons = ["Изменить время", "Предложить практику", "Советы", "Начать сначала", "Донаты"]
+    reply_buttons = ["Изменить время", "Предложить практику", "Советы", "Начать сначала", "Донаты", "Мой прогресс"]
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(f"^({'|'.join(reply_buttons)})$"),
         handle_reply_button

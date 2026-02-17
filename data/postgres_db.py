@@ -303,6 +303,41 @@ def init_database():
                 print("   ✅ Добавлен столбец challenge_start_id в таблицу users")
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца challenge_start_id: {e}")
+
+        # Миграция: program_position и last_practice_message_id для трекера прогресса
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'program_position'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN program_position INTEGER DEFAULT 0')
+                cursor.execute('UPDATE users SET program_position = user_days WHERE program_position = 0 OR program_position IS NULL')
+                print("   ✅ Добавлен столбец program_position в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца program_position: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'last_practice_message_id'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN last_practice_message_id BIGINT')
+                print("   ✅ Добавлен столбец last_practice_message_id в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца last_practice_message_id: {e}")
+
+        # Миграция: completed_at в practice_logs для отметки «Выполнено»
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'practice_logs' AND column_name = 'completed_at'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE practice_logs ADD COLUMN completed_at TIMESTAMP')
+                print("   ✅ Добавлен столбец completed_at в таблицу practice_logs")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца completed_at: {e}")
         
         conn.commit()
         conn.close()
@@ -585,6 +620,80 @@ def reset_user_days(user_id: int) -> bool:
             conn.rollback()
             conn.close()
         return False
+
+
+def get_program_position(user_id: int) -> int:
+    """Возвращает позицию в программе (для выбора следующей практики). Не сбрасывается при сбросе прогресса."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COALESCE(program_position, 0) FROM users WHERE user_id = %s', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row is not None else 0
+    except Exception as e:
+        print(f"Ошибка get_program_position для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+
+def increment_program_position(user_id: int) -> bool:
+    """Увеличивает позицию в программе на 1. Вызывается при каждой отправке практики."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users SET program_position = COALESCE(program_position, 0) + 1, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+        ''', (user_id,))
+        ok = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception as e:
+        print(f"Ошибка increment_program_position для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def set_last_practice_message_id(user_id: int, message_id: int) -> bool:
+    """Сохраняет message_id последнего сообщения с практикой (для снятия кнопки при следующей отправке)."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users SET last_practice_message_id = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s
+        ''', (message_id, user_id))
+        ok = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception as e:
+        print(f"Ошибка set_last_practice_message_id для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_last_practice_message_id(user_id: int):
+    """Возвращает message_id последнего сообщения с практикой или None."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT last_practice_message_id FROM users WHERE user_id = %s', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row and row[0] is not None else None
+    except Exception as e:
+        print(f"Ошибка get_last_practice_message_id для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return None
+
 
 def delete_user(user_id: int) -> bool:
     """Удаляет пользователя из базы данных.
@@ -1707,6 +1816,73 @@ def get_practice_sent_count(practice_id: int) -> int:
         if conn:
             conn.close()
         return 0
+
+
+def mark_practice_completed_today(user_id: int) -> bool:
+    """Отмечает последнюю отправленную практику пользователя (без completed_at) как выполненную.
+    Returns True если запись найдена и обновлена."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
+            WHERE log_id = (
+                SELECT log_id FROM practice_logs
+                WHERE user_id = %s AND completed_at IS NULL
+                ORDER BY sent_at DESC LIMIT 1
+            )
+        ''', (user_id,))
+        ok = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception as e:
+        print(f"Ошибка mark_practice_completed_today для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_completed_count(user_id: int) -> int:
+    """Количество практик, отмеченных как выполненные (completed_at IS NOT NULL)."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT COUNT(*) FROM practice_logs WHERE user_id = %s AND completed_at IS NOT NULL
+        ''', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else 0
+    except Exception as e:
+        print(f"Ошибка get_completed_count для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+
+def reset_user_progress(user_id: int) -> bool:
+    """Сбрасывает прогресс: user_days = 0, completed_at = NULL по всем логам пользователя. program_position не меняется."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('UPDATE users SET user_days = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s', (user_id,))
+        if cursor.rowcount == 0:
+            conn.close()
+            return False
+        cursor.execute('UPDATE practice_logs SET completed_at = NULL WHERE user_id = %s', (user_id,))
+        conn.commit()
+        conn.close()
+        print(f"Прогресс пользователя {user_id} сброшен")
+        return True
+    except Exception as e:
+        print(f"Ошибка reset_user_progress для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
 
 def clear_all_yoga_practices() -> bool:
     """Удаляет все йога практики из базы данных.

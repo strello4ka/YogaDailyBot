@@ -26,13 +26,15 @@ def get_main_reply_keyboard():
     - Предложить практику
     - Советы
     - Донаты
+    - Мой прогресс
     
     Returns:
         ReplyKeyboardMarkup: Reply-клавиатура с основными функциями
     """
     keyboard = [
         [KeyboardButton("Изменить время"), KeyboardButton("Предложить практику")],
-        [KeyboardButton("Советы"), KeyboardButton("Донаты")]
+        [KeyboardButton("Советы"), KeyboardButton("Донаты")],
+        [KeyboardButton("Мой прогресс")]
     ]
     return ReplyKeyboardMarkup(
         keyboard, 
