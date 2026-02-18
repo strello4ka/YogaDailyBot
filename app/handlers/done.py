@@ -1,4 +1,4 @@
-"""Обработчик кнопки «Выполнено» под сообщением с практикой."""
+"""Обработчик кнопки «✔️Я сделал!» под сообщением с практикой."""
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -7,7 +7,7 @@ from data.db import mark_practice_completed_today, get_completed_count, get_user
 
 
 async def handle_practice_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатия «Выполнено»: отмечает последнюю практику выполненной и показывает прогресс."""
+    """Обработчик нажатия «✔️Я сделал!»: отмечает последнюю практику выполненной и показывает прогресс."""
     query = update.callback_query
     if not query:
         return
@@ -28,5 +28,5 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
         m = get_user_days(user_id)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=f"Так держать! Выполнено {n} из {m}",
+            text=f"Ты супер! Выполнено {n} из {m} практик✨",
         )

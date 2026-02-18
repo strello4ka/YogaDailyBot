@@ -327,7 +327,7 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца last_practice_message_id: {e}")
 
-        # Миграция: completed_at в practice_logs для отметки «Выполнено»
+        # Миграция: completed_at в practice_logs для отметки «✔️Я сделал!»
         try:
             cursor.execute("""
                 SELECT column_name FROM information_schema.columns

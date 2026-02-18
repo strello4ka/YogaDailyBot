@@ -11,8 +11,8 @@ import asyncio
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Используем таймзону, чтобы сравнивать время корректно
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+from app.keyboards import get_practice_done_keyboard
 from data.db import (
     get_users_by_time,
     get_yoga_practice_by_weekday_order,
@@ -78,7 +78,7 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         weekday: день недели (используется только в обычном режиме)
     """
     try:
-        # Снимаем кнопку «Выполнено» с предыдущего сообщения с практикой
+        # Снимаем кнопку «✔️Я сделал!» с предыдущего сообщения с практикой
         last_message_id = get_last_practice_message_id(user_id)
         if last_message_id is not None:
             try:
@@ -115,10 +115,8 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         # Формируем сообщение (номер дня для пользователя = user_days)
         message_text = format_practice_message(user_days, my_description, time_practices, intensity, channel_name, video_url)
 
-        # Inline-кнопка «Выполнено» под сообщением с практикой
-        done_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Выполнено", callback_data="practice_done")]
-        ])
+        # Отправляем сообщение с кнопкой «✔️Я сделал!»
+        done_keyboard = get_practice_done_keyboard()
 
         # Отправляем сообщение с кнопкой
         message = await context.bot.send_message(
@@ -289,9 +287,7 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
          description, my_description, intensity, practice_weekday, created_at, updated_at) = practice
 
         message_text = format_practice_message(user_days, my_description, time_practices, intensity, channel_name, video_url)
-        done_keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Выполнено", callback_data="practice_done")]
-        ])
+        done_keyboard = get_practice_done_keyboard()
 
         message = await context.bot.send_message(
             chat_id=chat_id,

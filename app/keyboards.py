@@ -17,6 +17,16 @@ def get_welcome_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_practice_done_keyboard():
+    """Клавиатура с кнопкой «✔️Я сделал!» под сообщением с практикой.
+    
+    Returns:
+        InlineKeyboardMarkup: Одна кнопка «✔️Я сделал!» (callback_data="practice_done")
+    """
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✔️Я сделал!", callback_data="practice_done")]
+    ])
+
 
 def get_main_reply_keyboard():
     """Создает главную Reply-клавиатуру с основными функциями бота.
