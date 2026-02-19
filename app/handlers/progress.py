@@ -7,10 +7,10 @@ from data.db import get_completed_count, get_user_days, get_user_rank, reset_use
 
 
 def _rank_line(user_id: int) -> str:
-    """Строка «Твое место среди всех пользователей: X из Y» или пусто, если ранг ещё не посчитан."""
+    """Строка «Твое место в YogaDailyBot: X из Y» или пусто, если ранг ещё не посчитан."""
     rank, total = get_user_rank(user_id)
     if rank is not None and total is not None:
-        return f"\nТвое место среди всех пользователей: *{rank} из {total}*"
+        return f"\nТвое место в YogaDailyBot: *{rank} из {total}*"
     return ""
 
 
@@ -20,7 +20,7 @@ def _progress_text(user_id: int) -> str:
     m = get_user_days(user_id)
     if m == 0:
         return "Ты еще не выполнил ни одной практики, все самое прекрасное впереди✨"
-    return f"Твой прогресс: *{n} из {m}* практик✨"
+    return f"*Твой прогресс📈*\n\nВыполнено практик: *{n} из {m}*"
 
 
 def _progress_keyboard() -> InlineKeyboardMarkup:
