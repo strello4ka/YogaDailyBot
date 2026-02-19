@@ -338,6 +338,24 @@ def init_database():
                 print("   ✅ Добавлен столбец completed_at в таблицу practice_logs")
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца completed_at: {e}")
+
+        # Миграция: место среди пользователей (DENSE_RANK), обновляется раз в сутки
+        for col in ('rank', 'rank_total_users', 'rank_updated_at'):
+            try:
+                cursor.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name = %s
+                """, (col,))
+                if not cursor.fetchone():
+                    if col == 'rank':
+                        cursor.execute('ALTER TABLE users ADD COLUMN rank INTEGER')
+                    elif col == 'rank_total_users':
+                        cursor.execute('ALTER TABLE users ADD COLUMN rank_total_users INTEGER')
+                    else:
+                        cursor.execute('ALTER TABLE users ADD COLUMN rank_updated_at TIMESTAMP')
+                    print(f"   ✅ Добавлен столбец {col} в таблицу users")
+            except Exception as e:
+                print(f"⚠️ Ошибка при добавлении столбца {col}: {e}")
         
         conn.commit()
         conn.close()
@@ -1882,6 +1900,68 @@ def reset_user_progress(user_id: int) -> bool:
             conn.rollback()
             conn.close()
         return False
+
+
+def update_all_users_rank() -> bool:
+    """Пересчитывает место (DENSE_RANK) по числу выполненных практик для всех пользователей с user_days > 0.
+    Вызывается раз в сутки (например в 5:00 МСК). У пользователей с user_days = 0 rank обнуляется."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users SET rank = NULL, rank_total_users = NULL, rank_updated_at = NULL
+        ''')
+        cursor.execute('''
+            WITH user_completed AS (
+                SELECT u.user_id, COALESCE(pl.cnt, 0) AS completed
+                FROM users u
+                LEFT JOIN (
+                    SELECT user_id, COUNT(*) AS cnt
+                    FROM practice_logs WHERE completed_at IS NOT NULL GROUP BY user_id
+                ) pl ON u.user_id = pl.user_id
+                WHERE u.user_days > 0
+            ),
+            ranked AS (
+                SELECT user_id,
+                       DENSE_RANK() OVER (ORDER BY completed DESC) AS rnk,
+                       (SELECT COUNT(*) FROM user_completed) AS total
+                FROM user_completed
+            )
+            UPDATE users u
+            SET rank = r.rnk, rank_total_users = r.total, rank_updated_at = CURRENT_TIMESTAMP
+            FROM ranked r
+            WHERE u.user_id = r.user_id
+        ''')
+        conn.commit()
+        conn.close()
+        logger.info("Ранги пользователей обновлены")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка update_all_users_rank: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_user_rank(user_id: int):
+    """Возвращает (rank, total_users) для пользователя или (None, None) если место ещё не посчитано."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT rank, rank_total_users FROM users WHERE user_id = %s
+        ''', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0] is not None and row[1] is not None:
+            return (int(row[0]), int(row[1]))
+        return (None, None)
+    except Exception as e:
+        logger.error(f"Ошибка get_user_rank для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return (None, None)
 
 
 def clear_all_yoga_practices() -> bool:
