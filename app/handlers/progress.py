@@ -17,7 +17,7 @@ def _rank_line(user_id: int) -> str:
 
 
 def _progress_text(user_id: int) -> str:
-    """Формирует текст прогресса «N из M» (без фразы про гордость — она добавляется в обработчике при необходимости)."""
+    """Формирует текст прогресса «N из M»."""
     n = get_completed_count(user_id)
     m = get_user_days(user_id)
     if m == 0:
@@ -40,22 +40,12 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def _progress_proud_suffix(user_id: int) -> str:
-    """Добавляет «Невероятно! Я горжусь тобой 🫂» в конце сообщения «Мой прогресс», если n=m или место 1–5."""
-    n = get_completed_count(user_id)
-    m = get_user_days(user_id)
-    rank, _ = get_user_rank(user_id)
-    if (m > 0 and n == m) or (rank is not None and 1 <= rank <= 5):
-        return "\n\nНевероятно! Я горжусь тобой 🫂"
-    return ""
-
-
 async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки «Мой прогресс»: показывает прогресс и кнопку сброса."""
     user_id = update.effective_user.id if update.effective_user else None
     if not user_id:
         return
-    text = _progress_text(user_id) + _rank_line(user_id) + _progress_proud_suffix(user_id)
+    text = _progress_text(user_id) + _rank_line(user_id)
     await update.message.reply_text(text, reply_markup=_progress_keyboard(), parse_mode='Markdown')
 
 
