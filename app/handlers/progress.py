@@ -7,7 +7,9 @@ from data.db import get_completed_count, get_user_days, get_user_rank, reset_use
 
 
 def _rank_line(user_id: int) -> str:
-    """Строка «Твое место в YogaDailyBot: X из Y» или пусто, если ранг ещё не посчитан."""
+    """Строка «Твое место в YogaDailyBot: X из Y» или пусто, если ранг не посчитан или не выполнено ни одной практики."""
+    if get_completed_count(user_id) == 0:
+        return ""
     rank, total = get_user_rank(user_id)
     if rank is not None and total is not None:
         return f"\nТвое место в YogaDailyBot: *{rank} из {total}*"
