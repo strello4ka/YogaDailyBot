@@ -819,7 +819,8 @@ def get_user_challenge_start_id(user_id: int):
 
 
 def set_user_challenge(user_id: int, challenge_start_id: int) -> bool:
-    """Включает режим челленджа: задаёт стартовый id и обнуляет счётчик дней.
+    """Включает режим челленджа: задаёт стартовый id, обнуляет счётчик дней и позицию в программе.
+    program_position обнуляется, чтобы первая отправка в челлендже была «день 1» (практика с challenge_start_id).
     
     Returns:
         bool: True при успехе
@@ -829,7 +830,7 @@ def set_user_challenge(user_id: int, challenge_start_id: int) -> bool:
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE users 
-            SET challenge_start_id = %s, user_days = 0, updated_at = CURRENT_TIMESTAMP
+            SET challenge_start_id = %s, user_days = 0, program_position = 0, updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
         ''', (challenge_start_id, user_id))
         if cursor.rowcount == 0:
