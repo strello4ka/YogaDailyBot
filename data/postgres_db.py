@@ -85,8 +85,6 @@ def init_database():
                 user_name TEXT,
                 user_phone TEXT,
                 user_days INTEGER DEFAULT 0,
-                recommend TEXT,
-                comment TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -188,6 +186,19 @@ def init_database():
                 
         except Exception as e:
             print(f"⚠️ Ошибка удаления колонок из users: {e}")
+        
+        # Миграция: добавление столбца is_blocked для пометки заблокировавших бота пользователей
+        try:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'is_blocked'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE users ADD COLUMN is_blocked BOOLEAN DEFAULT FALSE")
+                print("   ✅ Добавлен столбец is_blocked в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца is_blocked: {e}")
         
         # Создаем индексы для быстрого поиска
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_id ON users(user_id)')
@@ -785,6 +796,7 @@ def get_users_by_time(notify_time: str) -> list:
             SELECT user_id, chat_id 
             FROM users 
             WHERE notify_time = %s
+              AND COALESCE(is_blocked, FALSE) = FALSE
         ''', (notify_time,))
         
         results = cursor.fetchall()
@@ -823,6 +835,7 @@ def get_users_pending_for_today(current_time: str) -> list:
             SELECT u.user_id, u.chat_id
             FROM users u
             WHERE u.notify_time <= %s
+              AND COALESCE(u.is_blocked, FALSE) = FALSE
               AND NOT EXISTS (
                   SELECT 1
                   FROM practice_logs pl
@@ -916,6 +929,32 @@ def clear_user_challenge(user_id: int) -> bool:
         return True
     except Exception as e:
         print(f"Ошибка clear_user_challenge {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def set_user_blocked(user_id: int, is_blocked: bool) -> bool:
+    """Помечает пользователя как заблокировавшего бота (is_blocked = TRUE) или снимает флаг."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET is_blocked = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (is_blocked, user_id),
+        )
+        conn.commit()
+        conn.close()
+        print(f"Пользователь {user_id}: is_blocked={is_blocked}")
+        return True
+    except Exception as e:
+        print(f"Ошибка set_user_blocked {user_id}: {e}")
         if conn:
             conn.rollback()
             conn.close()

@@ -27,6 +27,7 @@ from data.db import (
     get_current_weekday,
     get_bonus_practices_by_parent,
     update_all_users_rank,
+    set_user_blocked,
 )
 from app.mode.challenge import get_practice_for_daily_send
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
@@ -132,6 +133,9 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         )
         set_last_practice_message_id(user_id, message.message_id)
 
+        # Если отправка прошла успешно, снимаем флаг блокировки (если он был)
+        set_user_blocked(user_id, False)
+
         # Логируем отправку основной практики
         log_practice_sent(user_id, practice_id, user_days)
         
@@ -159,7 +163,13 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             logger.info(f"Бонусная практика {bonus_id} отправлена пользователю {user_id} вместе с {practice_id}")
         
     except Exception as e:
-        logger.error(f"Ошибка отправки практики пользователю {user_id}: {e}")
+        # Если пользователь заблокировал бота - помечаем его как is_blocked, чтобы не слать дальше
+        error_text = str(e)
+        if "bot was blocked by the user" in error_text or "Forbidden: bot was blocked by the user" in error_text:
+            set_user_blocked(user_id, True)
+            logger.info(f"Пользователь {user_id} заблокировал бота, помечаем is_blocked=True")
+        else:
+            logger.error(f"Ошибка отправки практики пользователю {user_id}: {e}")
 
 
 def format_practice_message(day_number: int, my_description: str, time_practices: int, 
