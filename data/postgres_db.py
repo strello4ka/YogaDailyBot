@@ -776,6 +776,7 @@ def get_users_by_time(notify_time: str) -> list:
     Returns:
         list: Список кортежей (user_id, chat_id)
     """
+    conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -798,12 +799,59 @@ def get_users_by_time(notify_time: str) -> list:
         return []
 
 
+def get_users_pending_for_today(current_time: str) -> list:
+    """Возвращает пользователей, которым ещё не отправляли практику сегодня,
+    и чьё время уведомлений уже наступило (notify_time <= current_time).
+
+    Используется для повторных попыток: если в слоте не удалось отправить практику,
+    пользователь останется без записи в practice_logs за сегодня и будет выбран
+    при следующем тике до конца дня.
+
+    Args:
+        current_time: текущее время в формате HH:MM (в базовой таймзоне бота)
+
+    Returns:
+        list: Список кортежей (user_id, chat_id)
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT u.user_id, u.chat_id
+            FROM users u
+            WHERE u.notify_time <= %s
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM practice_logs pl
+                  WHERE pl.user_id = u.user_id
+                    AND pl.sent_at::date = CURRENT_DATE
+              )
+            ''',
+            (current_time,),
+        )
+
+        results = cursor.fetchall()
+        conn.close()
+
+        return results
+
+    except Exception as e:
+        print(f"Ошибка получения пользователей для сегодняшней отправки на {current_time}: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
 def get_user_challenge_start_id(user_id: int):
     """Возвращает challenge_start_id пользователя (режим челленджа) или None.
     
     Returns:
         int или None: ID стартовой практики челленджа или None при обычном режиме
     """
+    conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()

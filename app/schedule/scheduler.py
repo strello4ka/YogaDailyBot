@@ -15,6 +15,7 @@ from telegram.ext import ContextTypes
 from app.keyboards import get_practice_done_keyboard
 from data.db import (
     get_users_by_time,
+    get_users_pending_for_today,
     get_yoga_practice_by_weekday_order,
     increment_user_days,
     get_user_days,
@@ -46,8 +47,10 @@ async def send_daily_practice(context: ContextTypes.DEFAULT_TYPE):
         # Получаем текущее время в базовой таймзоне, чтобы сравнение с notify_time было честным
         current_time = datetime.now(MOSCOW_TZ).strftime("%H:%M")
         
-        # Получаем всех пользователей, которые должны получить практику в это время
-        users = get_users_by_time(current_time)
+        # Получаем всех пользователей, которые должны получить практику сегодня:
+        # их время уведомлений уже наступило (notify_time <= current_time),
+        # и в логах practice_logs за сегодня ещё нет записи.
+        users = get_users_pending_for_today(current_time)
         
         if not users:
             logger.info(f"Нет пользователей для отправки практики в {current_time}")

@@ -1,8 +1,18 @@
 """Handlers for selecting and saving preferred delivery time."""
 
 import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from app.config import DEFAULT_TZ
+from app.schedule.scheduler import send_practice_to_user
+from data.db import get_current_weekday, get_user_notify_time
+
+
+MOSCOW_TZ = ZoneInfo(DEFAULT_TZ)
 
 
 def validate_time_format(time_str: str) -> tuple[bool, str]:
@@ -122,20 +132,75 @@ async def handle_time_change_input(update: Update, context: ContextTypes.DEFAULT
     selected_time = result
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    
+
+    # Получаем предыдущее время уведомлений пользователя до изменения
+    old_notify_time = get_user_notify_time(user_id)
+
     # Убираем состояние ожидания
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
-    
+
     # Сохраняем время в базу данных БЕЗ обнуления счетчика дней
     from data.db import save_user_time
     user_name = update.effective_user.first_name
     user_nickname = update.effective_user.username  # Никнейм пользователя из Telegram
-    save_success = save_user_time(user_id, chat_id, selected_time, user_name, user_nickname=user_nickname, reset_days=False)
-    
+    save_success = save_user_time(
+        user_id,
+        chat_id,
+        selected_time,
+        user_name,
+        user_nickname=user_nickname,
+        reset_days=False,
+    )
+
     if not save_success:
         print(f"Ошибка сохранения времени пользователя {user_id} в БД")
-    
+
+    # Если пользователь изменил время ДО того, как должна была прийти сегодняшняя практика,
+    # гарантируем, что она всё равно придёт по старому времени один раз.
+    try:
+        if (
+            save_success
+            and old_notify_time
+            and old_notify_time != selected_time
+            and hasattr(context, "job_queue")
+            and context.job_queue is not None
+        ):
+            now = datetime.now(MOSCOW_TZ)
+
+            try:
+                old_hour, old_minute = map(int, old_notify_time.split(":"))
+            except ValueError:
+                old_hour = old_minute = None
+
+            if old_hour is not None:
+                today_old_time = now.replace(
+                    hour=old_hour,
+                    minute=old_minute,
+                    second=0,
+                    microsecond=0,
+                )
+
+                # Ситуация из бага: время изменили ДО наступления старого времени.
+                if today_old_time > now:
+                    delay = (today_old_time - now).total_seconds()
+
+                    async def _send_today_practice_job(job_context: ContextTypes.DEFAULT_TYPE):
+                        job = job_context.job
+                        job_user_id = job.data["user_id"]
+                        job_chat_id = job.data["chat_id"]
+                        weekday = get_current_weekday()
+                        await send_practice_to_user(job_context, job_user_id, job_chat_id, weekday)
+
+                    context.job_queue.run_once(
+                        _send_today_practice_job,
+                        when=timedelta(seconds=delay),
+                        data={"user_id": user_id, "chat_id": chat_id},
+                        name=f"today_practice_{user_id}_{old_notify_time.replace(':', '')}",
+                    )
+    except Exception as e:
+        print(f"=== DEBUG: Ошибка при планировании сегодняшней практики по старому времени для user_id={user_id}: {e} ===")
+
     # Сообщение для изменения времени
     success_text = (
         f"Время успешно изменено ✔️\n"
