@@ -93,14 +93,11 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             except Exception as edit_err:
                 logger.debug(f"Не удалось снять кнопку с сообщения {last_message_id}: {edit_err}")
 
-        # Позиция в программе (не сбрасывается при сбросе прогресса)
+        # Вычисляем "плановую" позицию и день, но подтверждаем их только после успешной отправки.
+        # Это защищает от скачков прогресса при сетевых таймаутах Telegram API.
         program_position = get_program_position(user_id)
-        increment_program_position(user_id)
         next_position = program_position + 1
-
-        # Счётчик дней для отображения «N день» и «N из M» (сбрасывается при сбросе прогресса)
-        increment_user_days(user_id)
-        user_days = get_user_days(user_id)
+        user_days = get_user_days(user_id) + 1
 
         # Режим челленджа или обычный: практика по челленджу (если включён) или по дню недели
         practice, is_challenge = get_practice_for_daily_send(user_id, weekday, next_position)
@@ -135,6 +132,10 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
 
         # Если отправка прошла успешно, снимаем флаг блокировки (если он был)
         set_user_blocked(user_id, False)
+
+        # Подтверждаем прогресс только после успешной отправки пользователю.
+        increment_program_position(user_id)
+        increment_user_days(user_id)
 
         # Логируем отправку основной практики
         log_practice_sent(user_id, practice_id, user_days)
@@ -303,11 +304,8 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
                 logger.debug(f"Не удалось снять кнопку с сообщения {last_message_id}: {edit_err}")
 
         program_position = get_program_position(user_id)
-        increment_program_position(user_id)
         next_position = program_position + 1
-
-        increment_user_days(user_id)
-        user_days = get_user_days(user_id)
+        user_days = get_user_days(user_id) + 1
 
         current_weekday = get_current_weekday()
         practice = get_yoga_practice_by_weekday_order(current_weekday, next_position)
@@ -331,6 +329,9 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
             reply_markup=done_keyboard
         )
         set_last_practice_message_id(user_id, message.message_id)
+
+        increment_program_position(user_id)
+        increment_user_days(user_id)
 
         log_practice_sent(user_id, practice_id, user_days)
         logger.info(f"Тестовая практика {practice_id} отправлена пользователю {user_id}, день {user_days}")
