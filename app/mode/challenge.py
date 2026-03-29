@@ -5,6 +5,7 @@ get_yoga_practice_by_id, get_yoga_practice_by_challenge_order и т.д.) ост�
 """
 
 import logging
+import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -37,15 +38,24 @@ def get_practice_for_daily_send(user_id: int, weekday: int, day_number: int):
 
 
 async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда челленджа: /challenge <id>. Без id — никакого ответа."""
+    """Команда челленджа: поддерживает /challenge <id> и /challenge<id>."""
     user_id = update.effective_user.id
-    if not context.args or len(context.args) != 1:
-        return
-    try:
-        practice_id = int(context.args[0].strip())
-    except ValueError:
-        await update.message.reply_text("Нужно указать число — id практики. Пример: /challenge 54")
-        return
+    practice_id = None
+
+    if context.args and len(context.args) == 1:
+        try:
+            practice_id = int(context.args[0].strip())
+        except ValueError:
+            await update.message.reply_text("Нужно указать число — id практики. Пример: /challenge 54")
+            return
+    else:
+        text = (update.message.text or "").strip()
+        match = re.match(r"^/challenge(?:@[\w_]+)?(\d+)$", text)
+        if match:
+            practice_id = int(match.group(1))
+        else:
+            return
+
     if practice_id < 1:
         await update.message.reply_text("Id практики должен быть положительным числом.")
         return

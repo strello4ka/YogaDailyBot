@@ -3,19 +3,26 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from data.db import mark_practice_completed_today, get_completed_count, get_user_days, get_user_rank
+from data.db import (
+    mark_practice_completed_today,
+    get_completed_count,
+    get_user_days,
+    get_user_rank,
+    get_user_challenge_start_id,
+)
 
 
 ACHIEVEMENT_MESSAGES = {
     1: "Ура! Начало положено, заглядывай еще 🫂",
     3: "Ого, ты набираешь обороты 🧡",
     5: "Давай дневник, ставлю 5️⃣",
-    10: "Первая десяточка! Очень горжусь твоей дисциплиной 🫂",
+    10: "Первая ДЕСЯТОЧКА! Очень горжусь твоей дисциплиной 🫂",
     15: "Легенда коврика, официально ✨",
-    20: "Ты настоящий йога-двигатель 🔋",
+    20: "20 ДНЕЙ С ПРАКТИКОЙ!Ты настоящий йога-двигатель 🔋",
+    25: "Ритм держишь как профи 🧡 ",
     30: "30 — это уже уровень мастера привычек 🧘‍♂️",
-    40: "Такой темп пугает и восхищает одновременно 🌀",
-    50: "Полсотни — уровень МАШИНА 🦾",
+    40: "40 ДНЕЙ С ПРАКТИКОЙ!Такой темп пугает и восхищает одновременно 🌀",
+    50: "ПОЛСОТНИ — уровень МАШИНА 🦾",
     60: "Ты уже сверхчеловек на коврике...",
     70: "Кажется, тебя уже не остановить 🧘‍♂️",
     80: "До сотни рукой подать — добивай красиво 🪄",
@@ -37,9 +44,11 @@ def _rank_line(user_id: int) -> str:
     return ""
 
 
-def _done_text(n: int, m: int, rank_line: str) -> str:
+def _done_text(n: int, m: int, rank_line: str, is_challenge: bool) -> str:
     """Текст после отметки практики с ачивками на заданных порогах."""
     title = ACHIEVEMENT_MESSAGES.get(n, "Ты супер🧡")
+    if is_challenge:
+        return f"{title}\n\nВыполнено практик: *{n}* {rank_line}"
     return f"{title}\n\nВыполнено практик: *{n} из {m}* {rank_line}"
 
 
@@ -63,8 +72,9 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
             pass
         n = get_completed_count(user_id)
         m = get_user_days(user_id)
+        is_challenge = get_user_challenge_start_id(user_id) is not None
         rank_line = _rank_line(user_id)
-        text = _done_text(n, m, rank_line)
+        text = _done_text(n, m, rank_line, is_challenge)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=text,

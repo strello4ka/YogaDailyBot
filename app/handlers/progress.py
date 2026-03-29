@@ -3,7 +3,13 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from data.db import get_completed_count, get_user_days, get_user_rank, reset_user_progress
+from data.db import (
+    get_completed_count,
+    get_user_days,
+    get_user_rank,
+    reset_user_progress,
+    get_user_challenge_start_id,
+)
 
 
 def _rank_line(user_id: int) -> str:
@@ -20,6 +26,11 @@ def _progress_text(user_id: int) -> str:
     """Формирует текст прогресса «N из M»."""
     n = get_completed_count(user_id)
     m = get_user_days(user_id)
+    is_challenge = get_user_challenge_start_id(user_id) is not None
+
+    if is_challenge:
+        return f"*Твой прогресс📈*\n\nВыполнено практик: *{n}*"
+
     if m == 0:
         return "Ты еще не выполнил ни одной практики, все самое прекрасное впереди✨"
     return f"*Твой прогресс📈*\n\nВыполнено практик: *{n} из {m}*"
@@ -45,7 +56,12 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
     user_id = update.effective_user.id if update.effective_user else None
     if not user_id:
         return
-    text = _progress_text(user_id) + _rank_line(user_id)
+    base_text = _progress_text(user_id)
+    # Для сценария "не выполнено ни одной практики" не показываем место в рейтинге.
+    if base_text == "Ты еще не выполнил ни одной практики, все самое прекрасное впереди✨":
+        text = base_text
+    else:
+        text = base_text + _rank_line(user_id)
     await update.message.reply_text(text, reply_markup=_progress_keyboard(), parse_mode='Markdown')
 
 
