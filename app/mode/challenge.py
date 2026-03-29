@@ -38,24 +38,31 @@ def get_practice_for_daily_send(user_id: int, weekday: int, day_number: int):
 
 
 async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда челленджа: поддерживает /challenge <id> и /challenge<id>."""
+    """Команда челленджа: /challenge <id>."""
     user_id = update.effective_user.id
-    practice_id = None
+    if not context.args or len(context.args) != 1:
+        return
+    try:
+        practice_id = int(context.args[0].strip())
+    except ValueError:
+        await update.message.reply_text("Нужно указать число — id практики. Пример: /challenge 54")
+        return
+    await _start_challenge(update, user_id, practice_id)
 
-    if context.args and len(context.args) == 1:
-        try:
-            practice_id = int(context.args[0].strip())
-        except ValueError:
-            await update.message.reply_text("Нужно указать число — id практики. Пример: /challenge 54")
-            return
-    else:
-        text = (update.message.text or "").strip()
-        match = re.match(r"^/challenge(?:@[\w_]+)?(\d+)$", text)
-        if match:
-            practice_id = int(match.group(1))
-        else:
-            return
 
+async def challenge_compact_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда челленджа в формате /challenge<id>, например /challenge61."""
+    user_id = update.effective_user.id
+    text = (update.message.text or "").strip()
+    match = re.match(r"^/challenge(?:@[\w_]+)?(\d+)$", text)
+    if not match:
+        return
+    practice_id = int(match.group(1))
+    await _start_challenge(update, user_id, practice_id)
+
+
+async def _start_challenge(update: Update, user_id: int, practice_id: int):
+    """Единая бизнес-логика запуска челленджа для разных форматов команды."""
     if practice_id < 1:
         await update.message.reply_text("Id практики должен быть положительным числом.")
         return

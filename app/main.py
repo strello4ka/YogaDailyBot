@@ -39,7 +39,7 @@ from .handlers.secret import (
     handle_secret_edit_input,
 )
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
-from .mode.challenge import challenge_command, challenge_off_command
+from .mode.challenge import challenge_command, challenge_compact_command, challenge_off_command
 
 
 async def handle_text_input(update: Update, context):
@@ -170,6 +170,7 @@ def main():
     application.add_handler(CommandHandler("secret_edit", secret_edit_command))
     application.add_handler(CommandHandler("challenge", challenge_command))
     application.add_handler(CommandHandler("challenge_off", challenge_off_command))
+    application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/challenge(?:@[\w_]+)?\d+$"), challenge_compact_command))
     
     # Регистрируем обработчики callback-запросов (только для онбординга)
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))

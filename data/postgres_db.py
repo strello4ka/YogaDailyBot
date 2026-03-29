@@ -1991,8 +1991,8 @@ def reset_user_progress(user_id: int) -> bool:
 
 
 def update_all_users_rank() -> bool:
-    """Пересчитывает место (DENSE_RANK) по числу выполненных практик для всех пользователей с user_days > 0.
-    Вызывается раз в сутки (например в 5:00 МСК). У пользователей с user_days = 0 rank обнуляется."""
+    """Пересчитывает место (DENSE_RANK) по числу выполненных практик для всех незаблокированных пользователей.
+    Вызывается раз в сутки (например в 5:00 МСК)."""
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -2007,7 +2007,7 @@ def update_all_users_rank() -> bool:
                     SELECT user_id, COUNT(*) AS cnt
                     FROM practice_logs WHERE completed_at IS NOT NULL GROUP BY user_id
                 ) pl ON u.user_id = pl.user_id
-                WHERE u.user_days > 0
+                WHERE COALESCE(u.is_blocked, FALSE) = FALSE
             ),
             ranked AS (
                 SELECT user_id,
