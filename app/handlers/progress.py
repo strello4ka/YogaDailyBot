@@ -28,13 +28,15 @@ def _progress_text(user_id: int) -> str:
 
 def _similar_result_line(user_id: int) -> str:
     """Текст про долю пользователей с таким же результатом."""
+    if get_completed_count(user_id) == 0:
+        return ""
     m = get_user_days(user_id)
     if m < 5:
-        return "\n*Скоро посчитаю сколько таких, как ты*"
+        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
 
     similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_received=5)
     if similar_percent is None:
-        return "\n*Скоро посчитаю сколько таких, как ты*"
+        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
 
     if similar_percent < 1:
         return "\nМенее 1% пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"

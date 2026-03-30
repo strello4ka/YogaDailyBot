@@ -39,7 +39,7 @@ ACHIEVEMENT_MESSAGES = {
 def _similar_result_line(m: int, similar_percent) -> str:
     """Текст про долю пользователей с таким же результатом."""
     if m < 5 or similar_percent is None:
-        return "\n*Скоро посчитаю сколько таких, как ты*"
+        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
     if similar_percent < 1:
         return "\nМенее 1% пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
     return f"\nТакой же результат сейчас у {round(similar_percent)}% пользователей YogaDailyBot"
