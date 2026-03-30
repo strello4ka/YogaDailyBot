@@ -14,6 +14,7 @@ from data.db import (
     set_user_challenge,
     clear_user_challenge,
     get_user_notify_time,
+    is_user_onboarding_required,
     get_user_challenge_start_id,
     get_yoga_practice_by_challenge_order,
 )
@@ -68,7 +69,13 @@ async def _start_challenge(update: Update, user_id: int, practice_id: int):
         return
     practice = get_yoga_practice_by_id(practice_id)
     if not practice:
-        await update.message.reply_text(f"Практики с id {practice_id} нет в базе. Укажи существующий id.")
+        await update.message.reply_text(f"Упс, что-то не то. Попробуй другую команду")
+        return
+    if is_user_onboarding_required(user_id):
+        await update.message.reply_text(
+            "Сначала выбери время, в которое хочешь получать практики. "
+            "После этого можно будет запустить челлендж."
+        )
         return
     notify_time = get_user_notify_time(user_id)
     if notify_time is None:
