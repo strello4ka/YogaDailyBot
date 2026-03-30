@@ -1001,10 +1001,31 @@ def get_user_notify_time(user_id: int):
         return None
 
 
+def is_user_onboarding_required(user_id: int) -> bool:
+    """Возвращает True, если пользователь должен завершить/повторить онбординг (после /start)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT COALESCE(onboarding_required, FALSE) FROM users WHERE user_id = %s',
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row[0]) if row else False
+    except Exception as e:
+        print(f"Ошибка is_user_onboarding_required для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
 def set_user_onboarding_required(user_id: int) -> bool:
     """Помечает пользователя как требующего повторного онбординга после /start.
 
-    Сбрасывает зависящие от старого состояния поля: challenge_start_id, user_days, program_position.
+    Сбрасывает зависящие от старого состояния поля: challenge_start_id, user_days, program_position,
+    а также обнуляет отметки выполненных практик (completed_at) для полного "старта с нуля".
     Если пользователя нет в БД, возвращает True (он пройдёт стандартный онбординг как новый).
     """
     conn = None
@@ -1020,6 +1041,10 @@ def set_user_onboarding_required(user_id: int) -> bool:
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
         ''', (user_id,))
+        cursor.execute(
+            'UPDATE practice_logs SET completed_at = NULL WHERE user_id = %s',
+            (user_id,)
+        )
         conn.commit()
         conn.close()
         return True
