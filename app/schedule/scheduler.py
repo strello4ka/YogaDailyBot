@@ -196,7 +196,7 @@ def format_practice_message(day_number: int, my_description: str, time_practices
         message_parts.append(f"{my_description}")
     else:
         # Если нет my_description, формируем базовое описание
-        message_parts.append(f"Новая праткика ждет тебя!")
+        message_parts.append(f"Новая практика ждет тебя!")
     
     message_parts.append(f"\n🌀 *время:* {time_practices} мин")
     
