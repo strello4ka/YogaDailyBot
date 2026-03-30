@@ -7,14 +7,14 @@ from data.db import (
     mark_practice_completed_today,
     get_completed_count,
     get_user_days,
-    get_user_rank,
+    get_similar_result_percent,
     get_user_challenge_start_id,
 )
 
 
 ACHIEVEMENT_MESSAGES = {
     1: "Ура! Начало положено, заглядывай еще 🫂",
-    3: "Ого, ты набираешь обороты 🧡",
+    3: "Ого, ты набираешь обороты 🌀",
     5: "Давай дневник, ставлю 5️⃣",
     10: "Первая ДЕСЯТОЧКА! Очень горжусь твоей дисциплиной 🫂",
     15: "Легенда коврика, официально ✨",
@@ -36,20 +36,21 @@ ACHIEVEMENT_MESSAGES = {
 }
 
 
-def _rank_line(user_id: int) -> str:
-    """Строка «Твое место среди всех пользователей: X из Y» или пусто."""
-    rank, total = get_user_rank(user_id)
-    if rank is not None and total is not None:
-        return f"\nТвое место в YogaDailyBot: *{rank} из {total}*"
-    return ""
+def _similar_result_line(m: int, similar_percent) -> str:
+    """Текст про долю пользователей с таким же результатом."""
+    if m < 3 or similar_percent is None:
+        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
+    if similar_percent < 1:
+        return "\nМенее 1% пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
+    return f"\nТакой же результат сейчас у {round(similar_percent)}% пользователей YogaDailyBot"
 
 
-def _done_text(n: int, m: int, rank_line: str, is_challenge: bool) -> str:
+def _done_text(n: int, m: int, is_challenge: bool, similar_line: str) -> str:
     """Текст после отметки практики с ачивками на заданных порогах."""
     title = ACHIEVEMENT_MESSAGES.get(n, "Ты супер🧡")
     if is_challenge:
-        return f"{title}\n\nВыполнено практик: *{n}* {rank_line}"
-    return f"{title}\n\nВыполнено практик: *{n} из {m}* {rank_line}"
+        return f"{title}\n\nВыполнено практик: *{n}*"
+    return f"{title}\n\nВыполнено практик: *{n} из {m}*{similar_line}"
 
 
 async def handle_practice_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,8 +74,11 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
         n = get_completed_count(user_id)
         m = get_user_days(user_id)
         is_challenge = get_user_challenge_start_id(user_id) is not None
-        rank_line = _rank_line(user_id)
-        text = _done_text(n, m, rank_line, is_challenge)
+        similar_percent = None if is_challenge else get_similar_result_percent(
+            user_id, bucket_size=5, min_received=3
+        )
+        similar_line = "" if is_challenge else _similar_result_line(m, similar_percent)
+        text = _done_text(n, m, is_challenge, similar_line)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=text,

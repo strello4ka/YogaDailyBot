@@ -6,20 +6,10 @@ from telegram.ext import ContextTypes
 from data.db import (
     get_completed_count,
     get_user_days,
-    get_user_rank,
+    get_similar_result_percent,
     reset_user_progress,
     get_user_challenge_start_id,
 )
-
-
-def _rank_line(user_id: int) -> str:
-    """Строка «Твое место в YogaDailyBot: X из Y» или пусто, если ранг не посчитан или не выполнено ни одной практики."""
-    if get_completed_count(user_id) == 0:
-        return ""
-    rank, total = get_user_rank(user_id)
-    if rank is not None and total is not None:
-        return f"\nТвое место в YogaDailyBot: *{rank} из {total}*"
-    return ""
 
 
 def _progress_text(user_id: int) -> str:
@@ -33,7 +23,25 @@ def _progress_text(user_id: int) -> str:
 
     if m == 0:
         return "Ты еще не выполнил ни одной практики, все самое прекрасное впереди✨"
-    return f"*Твой прогресс📈*\n\nВыполнено практик: *{n} из {m}*"
+    return f"Выполнено практик: *{n} из {m}*"
+
+
+def _similar_result_line(user_id: int) -> str:
+    """Текст про долю пользователей с таким же результатом."""
+    if get_completed_count(user_id) == 0:
+        return ""
+    m = get_user_days(user_id)
+    if m < 3:
+        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
+
+    similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_received=3)
+    if similar_percent is None:
+        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
+
+    if similar_percent < 1:
+        return "\n*Менее 1%* пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
+
+    return f"\nТакой же результат сейчас у *{round(similar_percent)}%* пользователей YogaDailyBot"
 
 
 def _progress_keyboard() -> InlineKeyboardMarkup:
@@ -56,12 +64,9 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
     user_id = update.effective_user.id if update.effective_user else None
     if not user_id:
         return
-    base_text = _progress_text(user_id)
-    # Для сценария "не выполнено ни одной практики" не показываем место в рейтинге.
-    if base_text == "Ты еще не выполнил ни одной практики, все самое прекрасное впереди✨":
-        text = base_text
-    else:
-        text = base_text + _rank_line(user_id)
+    text = _progress_text(user_id)
+    if get_user_challenge_start_id(user_id) is None:
+        text += _similar_result_line(user_id)
     await update.message.reply_text(text, reply_markup=_progress_keyboard(), parse_mode='Markdown')
 
 

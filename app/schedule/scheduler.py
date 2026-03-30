@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import logging
-from datetime import datetime, time
+from datetime import datetime
 from zoneinfo import ZoneInfo  # Используем таймзону, чтобы сравнивать время корректно
 from telegram.ext import ContextTypes
 from app.keyboards import get_practice_done_keyboard
@@ -26,7 +26,6 @@ from data.db import (
     log_practice_sent,
     get_current_weekday,
     get_bonus_practices_by_parent,
-    update_all_users_rank,
     set_user_blocked,
 )
 from app.mode.challenge import get_practice_for_daily_send
@@ -197,7 +196,7 @@ def format_practice_message(day_number: int, my_description: str, time_practices
         message_parts.append(f"{my_description}")
     else:
         # Если нет my_description, формируем базовое описание
-        message_parts.append(f"Новая праткика ждет тебя!")
+        message_parts.append(f"Новая практика ждет тебя!")
     
     message_parts.append(f"\n🌀 *время:* {time_practices} мин")
     
@@ -235,14 +234,6 @@ def format_bonus_practice_message(my_description: str, video_url: str) -> str:
     ])
 
 
-async def _run_update_ranks(context: ContextTypes.DEFAULT_TYPE):
-    """Джоба: пересчёт мест среди пользователей (DENSE_RANK), запускается в 5:00 МСК."""
-    try:
-        update_all_users_rank()
-    except Exception as e:
-        logger.error(f"Ошибка обновления рангов: {e}")
-
-
 def schedule_daily_practices(application):
     """Планирует ежедневную отправку практик.
     
@@ -265,19 +256,7 @@ def schedule_daily_practices(application):
             name="daily_practice_sender"
         )
 
-        # Обновление мест среди пользователей раз в сутки в 5:00 МСК
-        job_queue.run_daily(
-            _run_update_ranks,
-            time=time(5, 0, tzinfo=MOSCOW_TZ),
-            name="daily_rank_update"
-        )
-        
-        logger.info("Ежедневная отправка практик и обновление рангов запланированы")
-        # Один раз при старте заполняем ранги, чтобы место отображалось до первого 5:00
-        try:
-            update_all_users_rank()
-        except Exception as e:
-            logger.warning(f"При старте не удалось обновить ранги: {e}")
+        logger.info("Ежедневная отправка практик запланирована")
         
     except Exception as e:
         logger.error(f"Ошибка планирования ежедневных практик: {e}")
