@@ -199,6 +199,19 @@ def init_database():
                 print("   ✅ Добавлен столбец is_blocked в таблицу users")
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца is_blocked: {e}")
+
+        # Миграция: флаг незавершенного онбординга
+        try:
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'onboarding_required'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE users ADD COLUMN onboarding_required BOOLEAN DEFAULT FALSE")
+                print("   ✅ Добавлен столбец onboarding_required в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца onboarding_required: {e}")
         
         # Создаем индексы для быстрого поиска
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_id ON users(user_id)')
@@ -408,6 +421,7 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                     user_phone = EXCLUDED.user_phone,
                     user_nickname = EXCLUDED.user_nickname,
                     user_days = 0,
+                    onboarding_required = FALSE,
                     updated_at = CURRENT_TIMESTAMP
             ''', (user_id, chat_id, notify_time, user_name, user_phone, user_nickname))
         else:
@@ -422,6 +436,7 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                     user_name = EXCLUDED.user_name,
                     user_phone = EXCLUDED.user_phone,
                     user_nickname = EXCLUDED.user_nickname,
+                    onboarding_required = FALSE,
                     updated_at = CURRENT_TIMESTAMP
             ''', (user_id, chat_id, notify_time, user_name, user_phone, user_nickname))
         
@@ -797,6 +812,7 @@ def get_users_by_time(notify_time: str) -> list:
             FROM users 
             WHERE notify_time = %s
               AND COALESCE(is_blocked, FALSE) = FALSE
+              AND COALESCE(onboarding_required, FALSE) = FALSE
         ''', (notify_time,))
         
         results = cursor.fetchall()
@@ -836,6 +852,7 @@ def get_users_pending_for_today(current_time: str) -> list:
             FROM users u
             WHERE u.notify_time <= %s
               AND COALESCE(u.is_blocked, FALSE) = FALSE
+              AND COALESCE(u.onboarding_required, FALSE) = FALSE
               AND NOT EXISTS (
                   SELECT 1
                   FROM practice_logs pl
@@ -966,15 +983,52 @@ def get_user_notify_time(user_id: int):
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT notify_time FROM users WHERE user_id = %s', (user_id,))
+        cursor.execute(
+            'SELECT notify_time, COALESCE(onboarding_required, FALSE) FROM users WHERE user_id = %s',
+            (user_id,)
+        )
         row = cursor.fetchone()
         conn.close()
-        return row[0] if row else None
+        if not row:
+            return None
+        if row[1]:
+            return None
+        return row[0]
     except Exception as e:
         print(f"Ошибка get_user_notify_time {user_id}: {e}")
         if conn:
             conn.close()
         return None
+
+
+def set_user_onboarding_required(user_id: int) -> bool:
+    """Помечает пользователя как требующего повторного онбординга после /start.
+
+    Сбрасывает зависящие от старого состояния поля: challenge_start_id, user_days, program_position.
+    Если пользователя нет в БД, возвращает True (он пройдёт стандартный онбординг как новый).
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users
+            SET onboarding_required = TRUE,
+                challenge_start_id = NULL,
+                user_days = 0,
+                program_position = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+        ''', (user_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка set_user_onboarding_required для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
 
 
 # Функции для работы с йога практиками

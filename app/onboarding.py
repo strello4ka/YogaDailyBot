@@ -214,6 +214,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
+
+    # Переводим существующего пользователя в режим повторного онбординга:
+    # до нового выбора времени рассылка и /challenge должны быть недоступны.
+    from data.db import set_user_onboarding_required
+    user_id = update.effective_user.id
+    set_user_onboarding_required(user_id)
     
     # Получаем информацию о пользователе
     user = update.effective_user

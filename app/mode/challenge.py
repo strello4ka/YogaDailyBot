@@ -82,7 +82,7 @@ async def _start_challenge(update: Update, user_id: int, practice_id: int):
         return
     await update.message.reply_text(
         f"Челлендж запущен!\n"
-        f"Завтра в {notify_time} придёт твоя первая практика.\n"
+        f"Завтра в {notify_time} придёт твоя практика.\n"
         "Удачи 🧡"
     )
     logger.info(f"Пользователь {user_id} включил челлендж с id={practice_id}")
