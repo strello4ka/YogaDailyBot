@@ -363,6 +363,19 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца completed_at: {e}")
 
+        # Cleanup-мigration: удаляем устаревшие столбцы рангов в users
+        # (логика рангов больше не используется в коде)
+        try:
+            cursor.execute('''
+                ALTER TABLE users
+                DROP COLUMN IF EXISTS rank,
+                DROP COLUMN IF EXISTS rank_total_users,
+                DROP COLUMN IF EXISTS rank_updated_at
+            ''')
+            print("   ✅ Удалены устаревшие столбцы rank/rank_total_users/rank_updated_at из users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при удалении устаревших столбцов ранга: {e}")
+
         conn.commit()
         conn.close()
         print("PostgreSQL база данных инициализирована успешно")
