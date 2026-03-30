@@ -38,7 +38,7 @@ ACHIEVEMENT_MESSAGES = {
 
 def _similar_result_line(m: int, similar_percent) -> str:
     """Текст про долю пользователей с таким же результатом."""
-    if m < 5 or similar_percent is None:
+    if m < 3 or similar_percent is None:
         return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
     if similar_percent < 1:
         return "\nМенее 1% пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
@@ -75,7 +75,7 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
         m = get_user_days(user_id)
         is_challenge = get_user_challenge_start_id(user_id) is not None
         similar_percent = None if is_challenge else get_similar_result_percent(
-            user_id, bucket_size=5, min_received=5
+            user_id, bucket_size=5, min_received=3
         )
         similar_line = "" if is_challenge else _similar_result_line(m, similar_percent)
         text = _done_text(n, m, is_challenge, similar_line)

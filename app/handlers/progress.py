@@ -31,17 +31,17 @@ def _similar_result_line(user_id: int) -> str:
     if get_completed_count(user_id) == 0:
         return ""
     m = get_user_days(user_id)
-    if m < 5:
+    if m < 3:
         return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
 
-    similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_received=5)
+    similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_received=3)
     if similar_percent is None:
         return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
 
     if similar_percent < 1:
-        return "\nМенее 1% пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
+        return "\n*Менее 1%* пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
 
-    return f"\nТакой же результат сейчас у {round(similar_percent)}% пользователей YogaDailyBot"
+    return f"\nТакой же результат сейчас у *{round(similar_percent)}%* пользователей YogaDailyBot"
 
 
 def _progress_keyboard() -> InlineKeyboardMarkup:
