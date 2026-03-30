@@ -83,7 +83,6 @@ def init_database():
                 chat_id BIGINT NOT NULL,
                 notify_time VARCHAR(5) NOT NULL,
                 user_name TEXT,
-                user_phone TEXT,
                 user_days INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -363,6 +362,18 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца completed_at: {e}")
 
+        # Cleanup-migration: удаляем устаревшие столбцы users, которые больше не используются
+        try:
+            cursor.execute('''
+                ALTER TABLE users
+                DROP COLUMN IF EXISTS user_phone,
+                DROP COLUMN IF EXISTS onboarding_weekly,
+                DROP COLUMN IF EXISTS onboarding_weeekly
+            ''')
+            print("   ✅ Удалены устаревшие столбцы user_phone/onboarding_weekly из users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при удалении устаревших столбцов users: {e}")
+
         # Cleanup-мigration: удаляем устаревшие столбцы рангов в users
         # (логика рангов больше не используется в коде)
         try:
@@ -384,7 +395,7 @@ def init_database():
         print(f"Ошибка инициализации PostgreSQL базы данных: {e}")
         conn = None
 
-def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_phone: str = None, user_nickname: str = None, reset_days: bool = True) -> bool:
+def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str = None, user_nickname: str = None, reset_days: bool = True) -> bool:
     """Сохраняет или обновляет время уведомлений пользователя.
     
     Args:
@@ -392,7 +403,6 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         chat_id: ID чата
         notify_time: время в формате HH:MM
         user_name: имя пользователя (опционально)
-        user_phone: телефон пользователя (опционально)
         user_nickname: никнейм пользователя из Telegram (опционально)
         reset_days: если True, обнуляет счетчик дней (для первого запуска); если False, сохраняет текущий счетчик (для изменения времени)
         
@@ -406,34 +416,32 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         if reset_days:
             # Первый запуск (/start) - обнуляем счетчик дней
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_nickname, user_days)
-                VALUES (%s, %s, %s, %s, %s, %s, 0)
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days)
+                VALUES (%s, %s, %s, %s, %s, 0)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET 
                     chat_id = EXCLUDED.chat_id,
                     notify_time = EXCLUDED.notify_time,
                     user_name = EXCLUDED.user_name,
-                    user_phone = EXCLUDED.user_phone,
                     user_nickname = EXCLUDED.user_nickname,
                     user_days = 0,
                     onboarding_required = FALSE,
                     updated_at = CURRENT_TIMESTAMP
-            ''', (user_id, chat_id, notify_time, user_name, user_phone, user_nickname))
+            ''', (user_id, chat_id, notify_time, user_name, user_nickname))
         else:
             # Изменение времени - НЕ обнуляем счетчик дней
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_phone, user_nickname, user_days)
-                VALUES (%s, %s, %s, %s, %s, %s, 0)
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days)
+                VALUES (%s, %s, %s, %s, %s, 0)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET 
                     chat_id = EXCLUDED.chat_id,
                     notify_time = EXCLUDED.notify_time,
                     user_name = EXCLUDED.user_name,
-                    user_phone = EXCLUDED.user_phone,
                     user_nickname = EXCLUDED.user_nickname,
                     onboarding_required = FALSE,
                     updated_at = CURRENT_TIMESTAMP
-            ''', (user_id, chat_id, notify_time, user_name, user_phone, user_nickname))
+            ''', (user_id, chat_id, notify_time, user_name, user_nickname))
         
         conn.commit()
         conn.close()
@@ -765,14 +773,14 @@ def get_all_users() -> list:
     """Получает список всех пользователей с их данными.
     
     Returns:
-        list: Список кортежей (user_id, chat_id, notify_time, user_name, user_phone, user_nickname, user_days)
+        list: Список кортежей (user_id, chat_id, notify_time, user_name, user_nickname, user_days)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT user_id, chat_id, notify_time, user_name, user_phone, user_nickname, user_days
+            SELECT user_id, chat_id, notify_time, user_name, user_nickname, user_days
             FROM users 
             ORDER BY user_id
         ''')

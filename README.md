@@ -89,7 +89,6 @@ python app/main.py
 - `chat_id` - ID чата
 - `notify_time` - время уведомлений (HH:MM)
 - `user_name` - имя пользователя
-- `user_phone` - телефон пользователя
 - `user_days` - количество дней практики
 - `created_at` - дата регистрации
 - `updated_at` - дата последнего обновления
