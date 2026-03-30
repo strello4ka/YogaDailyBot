@@ -363,24 +363,6 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца completed_at: {e}")
 
-        # Миграция: место среди пользователей (DENSE_RANK), обновляется раз в сутки
-        for col in ('rank', 'rank_total_users', 'rank_updated_at'):
-            try:
-                cursor.execute("""
-                    SELECT column_name FROM information_schema.columns
-                    WHERE table_name = 'users' AND column_name = %s
-                """, (col,))
-                if not cursor.fetchone():
-                    if col == 'rank':
-                        cursor.execute('ALTER TABLE users ADD COLUMN rank INTEGER')
-                    elif col == 'rank_total_users':
-                        cursor.execute('ALTER TABLE users ADD COLUMN rank_total_users INTEGER')
-                    else:
-                        cursor.execute('ALTER TABLE users ADD COLUMN rank_updated_at TIMESTAMP')
-                    print(f"   ✅ Добавлен столбец {col} в таблицу users")
-            except Exception as e:
-                print(f"⚠️ Ошибка при добавлении столбца {col}: {e}")
-        
         conn.commit()
         conn.close()
         print("PostgreSQL база данных инициализирована успешно")
@@ -2047,6 +2029,86 @@ def get_completed_count(user_id: int) -> int:
         return 0
 
 
+def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received: int = 5):
+    """Возвращает процент пользователей с таким же результатом по бакету процента выполнения.
+
+    Результат пользователя = completed / user_days * 100.
+    «Такие же» = пользователи с user_days >= min_received, чьи результаты попали в тот же
+    бакет шириной bucket_size (например, 50-54 для bucket_size=5).
+
+    Returns:
+        float | None: процент «таких же» пользователей (0..100) или None, если данных пока мало.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT COALESCE(user_days, 0) FROM users WHERE user_id = %s', (user_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+        user_days = int(row[0])
+        if user_days < min_received or user_days <= 0:
+            conn.close()
+            return None
+
+        cursor.execute('''
+            SELECT COUNT(*) FROM practice_logs
+            WHERE user_id = %s AND completed_at IS NOT NULL
+        ''', (user_id,))
+        completed_row = cursor.fetchone()
+        user_completed = int(completed_row[0]) if completed_row else 0
+        user_percent = (user_completed * 100.0) / user_days
+        user_bucket = int(user_percent // bucket_size)
+
+        cursor.execute('''
+            WITH completed_by_user AS (
+                SELECT user_id, COUNT(*) AS completed_cnt
+                FROM practice_logs
+                WHERE completed_at IS NOT NULL
+                GROUP BY user_id
+            ),
+            eligible AS (
+                SELECT u.user_id,
+                       u.user_days,
+                       COALESCE(c.completed_cnt, 0) AS completed_cnt
+                FROM users u
+                LEFT JOIN completed_by_user c ON c.user_id = u.user_id
+                WHERE COALESCE(u.is_blocked, FALSE) = FALSE
+                  AND COALESCE(u.user_days, 0) >= %s
+            ),
+            stats AS (
+                SELECT
+                    COUNT(*) AS total_cnt,
+                    SUM(
+                        CASE
+                            WHEN FLOOR((completed_cnt * 100.0 / user_days) / %s) = %s THEN 1
+                            ELSE 0
+                        END
+                    ) AS same_cnt
+                FROM eligible
+            )
+            SELECT total_cnt, same_cnt FROM stats
+        ''', (min_received, bucket_size, user_bucket))
+
+        totals = cursor.fetchone()
+        conn.close()
+        if not totals:
+            return None
+        total_cnt = int(totals[0] or 0)
+        same_cnt = int(totals[1] or 0)
+        if total_cnt == 0:
+            return None
+        return (same_cnt * 100.0) / total_cnt
+
+    except Exception as e:
+        logger.error(f"Ошибка get_similar_result_percent для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return None
+
+
 def reset_user_progress(user_id: int) -> bool:
     """Сбрасывает прогресс: user_days = 0, completed_at = NULL по всем логам пользователя. program_position не меняется."""
     try:
@@ -2067,68 +2129,6 @@ def reset_user_progress(user_id: int) -> bool:
             conn.rollback()
             conn.close()
         return False
-
-
-def update_all_users_rank() -> bool:
-    """Пересчитывает место (DENSE_RANK) по числу выполненных практик для всех незаблокированных пользователей.
-    Вызывается раз в сутки (например в 5:00 МСК)."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users SET rank = NULL, rank_total_users = NULL, rank_updated_at = NULL
-        ''')
-        cursor.execute('''
-            WITH user_completed AS (
-                SELECT u.user_id, COALESCE(pl.cnt, 0) AS completed
-                FROM users u
-                LEFT JOIN (
-                    SELECT user_id, COUNT(*) AS cnt
-                    FROM practice_logs WHERE completed_at IS NOT NULL GROUP BY user_id
-                ) pl ON u.user_id = pl.user_id
-                WHERE COALESCE(u.is_blocked, FALSE) = FALSE
-            ),
-            ranked AS (
-                SELECT user_id,
-                       DENSE_RANK() OVER (ORDER BY completed DESC) AS rnk,
-                       (SELECT COUNT(*) FROM user_completed) AS total
-                FROM user_completed
-            )
-            UPDATE users u
-            SET rank = r.rnk, rank_total_users = r.total, rank_updated_at = CURRENT_TIMESTAMP
-            FROM ranked r
-            WHERE u.user_id = r.user_id
-        ''')
-        conn.commit()
-        conn.close()
-        logger.info("Ранги пользователей обновлены")
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка update_all_users_rank: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
-        return False
-
-
-def get_user_rank(user_id: int):
-    """Возвращает (rank, total_users) для пользователя или (None, None) если место ещё не посчитано."""
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT rank, rank_total_users FROM users WHERE user_id = %s
-        ''', (user_id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row and row[0] is not None and row[1] is not None:
-            return (int(row[0]), int(row[1]))
-        return (None, None)
-    except Exception as e:
-        logger.error(f"Ошибка get_user_rank для {user_id}: {e}")
-        if conn:
-            conn.close()
-        return (None, None)
 
 
 def clear_all_yoga_practices() -> bool:
