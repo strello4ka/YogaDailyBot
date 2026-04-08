@@ -255,7 +255,6 @@ def schedule_daily_practices(application):
             first=1,  # через 1 секунду после запуска
             name="daily_practice_sender"
         )
-
         logger.info("Ежедневная отправка практик запланирована")
         
     except Exception as e:

@@ -350,6 +350,38 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца last_practice_message_id: {e}")
 
+        # Миграция: статус паузы рассылки и дата последнего напоминания о паузе
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'is_paused'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN is_paused BOOLEAN DEFAULT FALSE')
+                print("   ✅ Добавлен столбец is_paused в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца is_paused: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'paused_at'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN paused_at TIMESTAMP')
+                print("   ✅ Добавлен столбец paused_at в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца paused_at: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'last_pause_reminder_at'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN last_pause_reminder_at TIMESTAMP')
+                print("   ✅ Добавлен столбец last_pause_reminder_at в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца last_pause_reminder_at: {e}")
+
         # Миграция: completed_at в practice_logs для отметки «✔️Я сделал!»
         try:
             cursor.execute("""
@@ -855,6 +887,7 @@ def get_users_pending_for_today(current_time: str) -> list:
             FROM users u
             WHERE u.notify_time <= %s
               AND COALESCE(u.is_blocked, FALSE) = FALSE
+              AND COALESCE(u.is_paused, FALSE) = FALSE
               AND COALESCE(u.onboarding_required, FALSE) = FALSE
               AND NOT EXISTS (
                   SELECT 1
@@ -876,6 +909,127 @@ def get_users_pending_for_today(current_time: str) -> list:
         if conn:
             conn.close()
         return []
+
+
+def toggle_user_pause(user_id: int):
+    """Переключает паузу рассылки для пользователя.
+
+    Returns:
+        tuple: (success: bool, is_paused_now: bool, had_challenge_before_pause: bool)
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT COALESCE(is_paused, FALSE), challenge_start_id
+            FROM users
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return (False, False, False)
+
+        is_paused_now = bool(row[0])
+        had_challenge = row[1] is not None
+
+        if is_paused_now:
+            cursor.execute(
+                '''
+                UPDATE users
+                SET is_paused = FALSE,
+                    paused_at = NULL,
+                    last_pause_reminder_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = %s
+                ''',
+                (user_id,),
+            )
+            conn.commit()
+            conn.close()
+            return (True, False, False)
+
+        cursor.execute(
+            '''
+            UPDATE users
+            SET is_paused = TRUE,
+                paused_at = CURRENT_TIMESTAMP,
+                last_pause_reminder_at = NULL,
+                challenge_start_id = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        conn.commit()
+        conn.close()
+        return (True, True, had_challenge)
+    except Exception as e:
+        print(f"Ошибка toggle_user_pause {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return (False, False, False)
+
+
+def get_users_for_pause_reminder() -> list:
+    """Возвращает пользователей, которым пора отправить еженедельное напоминание в паузе."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT user_id, chat_id
+            FROM users
+            WHERE COALESCE(is_paused, FALSE) = TRUE
+              AND COALESCE(is_blocked, FALSE) = FALSE
+              AND COALESCE(onboarding_required, FALSE) = FALSE
+              AND paused_at <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
+              AND (
+                    last_pause_reminder_at IS NULL
+                    OR last_pause_reminder_at <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
+                  )
+            '''
+        )
+        result = cursor.fetchall()
+        conn.close()
+        return result
+    except Exception as e:
+        print(f"Ошибка get_users_for_pause_reminder: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
+def mark_pause_reminder_sent(user_id: int) -> bool:
+    """Отмечает время последнего напоминания о паузе."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET last_pause_reminder_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка mark_pause_reminder_sent для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
 
 
 def get_user_challenge_start_id(user_id: int):
@@ -1028,7 +1182,8 @@ def set_user_onboarding_required(user_id: int) -> bool:
     """Помечает пользователя как требующего повторного онбординга после /start.
 
     Сбрасывает зависящие от старого состояния поля: challenge_start_id, user_days, program_position,
-    а также обнуляет отметки выполненных практик (completed_at) для полного "старта с нуля".
+    is_paused (с датами паузы), а также обнуляет отметки выполненных практик (completed_at)
+    для полного "старта с нуля".
     Если пользователя нет в БД, возвращает True (он пройдёт стандартный онбординг как новый).
     """
     conn = None
@@ -1039,6 +1194,9 @@ def set_user_onboarding_required(user_id: int) -> bool:
             UPDATE users
             SET onboarding_required = TRUE,
                 challenge_start_id = NULL,
+                is_paused = FALSE,
+                paused_at = NULL,
+                last_pause_reminder_at = NULL,
                 user_days = 0,
                 program_position = 0,
                 updated_at = CURRENT_TIMESTAMP

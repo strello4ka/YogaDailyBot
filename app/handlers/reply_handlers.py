@@ -44,7 +44,7 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif message_text == "Мой прогресс":
         from .progress import handle_progress_callback
         await handle_progress_callback(update, context)
-        
+
     else:
         # Если текст не соответствует ни одной кнопке Reply-клавиатуры,
         # сбрасываем состояние ожидания предложения практики (на случай если оно было установлено)

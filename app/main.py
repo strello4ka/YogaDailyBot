@@ -26,6 +26,7 @@ from .handlers.donations import (
     handle_successful_payment
 )
 from .handlers.done import handle_practice_done_callback
+from .handlers.pause import pause_toggle_command, schedule_pause_reminders
 from .handlers.progress import (
     handle_progress_reset_callback,
     handle_progress_reset_yes_callback,
@@ -170,6 +171,7 @@ def main():
     application.add_handler(CommandHandler("secret_edit", secret_edit_command))
     application.add_handler(CommandHandler("challenge", challenge_command))
     application.add_handler(CommandHandler("challenge_off", challenge_off_command))
+    application.add_handler(CommandHandler("pause", pause_toggle_command))
     application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/challenge(?:@[\w_]+)?\d+$"), challenge_compact_command))
     
     # Регистрируем обработчики callback-запросов (только для онбординга)
@@ -222,6 +224,8 @@ def main():
     
     # Планируем ежедневную отправку практик
     schedule_daily_practices(application)
+    # Планируем напоминания пользователям в режиме паузы (логика паузы живет в handlers/pause.py)
+    schedule_pause_reminders(application)
     
     # Запускаем бота
     logger.info("Запускаем YogaDailyBot с JobQueue...")
