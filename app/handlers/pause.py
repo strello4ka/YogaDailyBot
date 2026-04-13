@@ -47,7 +47,7 @@ async def pause_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if is_paused_now:
         await message.reply_text(
-            "*Остановил ежедневную рассылку* 🧡\n"
+            "*Остановил ежедневную рассылку* 🪫\n"
             "Твой прогресс полностью сохранен и ждет тебя!\n"
             "Когда будешь готов(а) вернуться, просто жми по кнопке *Приостановить/Продолжить* в меню, и мы продолжим с того же места",
             parse_mode='Markdown'
@@ -56,9 +56,10 @@ async def pause_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     await message.reply_text(
-        f"*Рассылка снова активна ✔️*\n"
-        f"Продолжаем без потери прогресса — как будто паузы не было.\n"
-        f"Следующая практика придет по твоему времени: {notify_time}",
+        f"*Ураа! Я знал, что ты вернешься! Рассылка снова активна 🫂*\n"
+        f"Продолжаем без потери прогресса, как будто паузы не было\n"
+        f"Следующая практика придет по твоему времени: {notify_time}\n\n"
+        f"Изменить время и сбросить прогресс можно в любой момент по кнопкам на клавиатуре",
         parse_mode='Markdown'
     )
     logger.info(f"Пользователь {user_id} возобновил рассылку")
@@ -74,7 +75,11 @@ async def send_weekly_pause_reminders(context: ContextTypes.DEFAULT_TYPE):
         for user_id, chat_id, reminder_step in users:
             try:
                 text = PAUSE_REMINDER_TEXTS[reminder_step % len(PAUSE_REMINDER_TEXTS)]
-                await context.bot.send_message(chat_id=chat_id, text=text)
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode='Markdown'
+                )
                 mark_pause_reminder_sent(user_id)
                 logger.info(f"Отправлено напоминание о паузе пользователю {user_id}")
             except Exception as e:
