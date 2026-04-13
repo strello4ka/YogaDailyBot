@@ -49,7 +49,8 @@ async def pause_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await message.reply_text(
             "*Остановил ежедневную рассылку* 🧡\n"
             "Твой прогресс полностью сохранен и ждет тебя!\n"
-            "Когда будешь готов(а) вернуться, просто жми по кнопке *Приостановить/Продолжить* в меню, и мыпродолжим с того же места."
+            "Когда будешь готов(а) вернуться, просто жми по кнопке *Приостановить/Продолжить* в меню, и мы продолжим с того же места",
+            parse_mode='Markdown'
         )
         logger.info(f"Пользователь {user_id} поставил рассылку на паузу")
         return
@@ -57,7 +58,8 @@ async def pause_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await message.reply_text(
         f"*Рассылка снова активна ✔️*\n"
         f"Продолжаем без потери прогресса — как будто паузы не было.\n"
-        f"Следующая практика придет по твоему времени: {notify_time}."
+        f"Следующая практика придет по твоему времени: {notify_time}",
+        parse_mode='Markdown'
     )
     logger.info(f"Пользователь {user_id} возобновил рассылку")
 
