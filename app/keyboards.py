@@ -18,13 +18,13 @@ def get_welcome_keyboard():
 
 
 def get_practice_done_keyboard():
-    """Клавиатура с кнопкой «✔️Я сделал!» под сообщением с практикой.
+    """Клавиатура с кнопкой «✅ Я сделал!» под сообщением с практикой.
     
     Returns:
-        InlineKeyboardMarkup: Одна кнопка «✔️Я сделал!» (callback_data="practice_done")
+        InlineKeyboardMarkup: Одна кнопка «✅ Я сделал!» (callback_data="practice_done")
     """
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✔️Я сделал!", callback_data="practice_done")]
+        [InlineKeyboardButton("✅ Я сделал!", callback_data="practice_done")]
     ])
 
 

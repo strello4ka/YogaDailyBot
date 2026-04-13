@@ -1,4 +1,4 @@
-"""Обработчик кнопки «✔️Я сделал!» под сообщением с практикой."""
+"""Обработчик кнопки «✅ Я сделал!» под сообщением с практикой."""
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -54,7 +54,7 @@ def _done_text(n: int, m: int, is_challenge: bool, similar_line: str) -> str:
 
 
 async def handle_practice_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатия «✔️Я сделал!»: отмечает последнюю практику выполненной и показывает прогресс."""
+    """Обработчик нажатия «✅ Я сделал!»: отмечает последнюю практику выполненной и показывает прогресс."""
     query = update.callback_query
     if not query:
         return
