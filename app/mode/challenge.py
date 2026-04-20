@@ -101,7 +101,7 @@ async def challenge_off_command(update: Update, context: ContextTypes.DEFAULT_TY
     clear_user_challenge(user_id)
     await update.message.reply_text(
         "Режим челленджа завершен ✔️\n"
-        "Какой бы не был твой результат, ты супер!\n"
+        "Какой бы не был твой результат, ты мега крут!\n"
         "Практики снова будут приходить в обычном порядке. Изменить время всегда можно по кнопке в клавиатуре\n"
     )
     logger.info(f"Пользователь {user_id} выключил челлендж")

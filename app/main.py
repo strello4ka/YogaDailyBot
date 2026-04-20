@@ -196,7 +196,7 @@ def main():
     application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout_query))
     
     # Регистрируем обработчик Reply-кнопок (с высоким приоритетом)
-    reply_buttons = ["Изменить время", "Предложить практику", "Советы", "Начать сначала", "Донаты", "Мой прогресс"]
+    reply_buttons = ["Изменить время", "Предложить практику", "Советы", "Донаты", "Мой прогресс"]
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(f"^({'|'.join(reply_buttons)})$"),
         handle_reply_button
