@@ -4,7 +4,12 @@
 
 from telegram import Update
 from telegram.ext import ContextTypes
-from ..keyboards import get_main_reply_keyboard
+
+from data.db import get_user_bot_mode
+
+_BY_MOOD_LABELS = frozenset(
+    {"практика дня", "без коврика", "ленивые дни", "пятиминутка", "хард", "сам решу"}
+)
 
 
 async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -20,30 +25,34 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         update: Объект обновления от Telegram
         context: Контекст бота
     """
-    # Получаем текст сообщения
     message_text = update.message.text
-    
-    # Вызываем обработчики напрямую без имитации callback_query
+    user_id = update.effective_user.id if update.effective_user else None
+
+    if user_id and get_user_bot_mode(user_id) == "by_mood" and message_text in _BY_MOOD_LABELS:
+        await _dispatch_by_mood_button(update, context, message_text)
+        return
+
     if message_text == "Изменить время":
+        # Редко: старая reply-клавиатура в Telegram после смены режима.
+        mode = get_user_bot_mode(user_id) if user_id else "pending"
+        if mode == "by_mood":
+            await update.message.reply_text(
+                "В режиме *By mood* рассылки по времени нет. "
+                "Чтобы снова настроить время — выбери *Daily* через /change_mode.",
+                parse_mode="Markdown",
+            )
+            return
         from .set_time import handle_set_time_callback
         await handle_set_time_callback(update, context)
-        
-    elif message_text == "Предложить практику":
-        from .suggest_practice import handle_suggest_practice_callback
-        await handle_suggest_practice_callback(update, context)
-        
+
     elif message_text == "Советы":
         print("=== Обработка кнопки 'Советы' ===")
         from .tips import handle_tips_callback
         await handle_tips_callback(update, context)
-        
-    elif message_text == "Донаты":
-        from .donations import handle_donations_callback
-        await handle_donations_callback(update, context)
 
-    elif message_text == "Мой прогресс":
-        from .progress import handle_progress_callback
-        await handle_progress_callback(update, context)
+    elif message_text == "Пауза":
+        from .pause import pause_toggle_command
+        await pause_toggle_command(update, context)
 
     else:
         # Если текст не соответствует ни одной кнопке Reply-клавиатуры,
@@ -53,4 +62,23 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
 
+async def _dispatch_by_mood_button(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    if text == "практика дня":
+        from app.by_mood import practice_of_day
+        await practice_of_day.handle(update, context)
+    elif text == "без коврика":
+        from app.by_mood import no_mat
+        await no_mat.handle(update, context)
+    elif text == "ленивые дни":
+        from app.by_mood import lazy_days
+        await lazy_days.handle(update, context)
+    elif text == "пятиминутка":
+        from app.by_mood import five_min
+        await five_min.handle(update, context)
+    elif text == "хард":
+        from app.by_mood import hard
+        await hard.handle(update, context)
+    elif text == "сам решу":
+        from app.by_mood.self_decide import start_flow
+        await start_flow(update, context)
 

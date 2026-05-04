@@ -5,12 +5,19 @@ Contains all inline keyboards used in the bot interface.
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
 
+def get_mode_choice_keyboard():
+    """Inline: выбор режима после /start или /change_mode."""
+    keyboard = [
+        [
+            InlineKeyboardButton("Daily", callback_data="mode_pick_daily"),
+            InlineKeyboardButton("By mood", callback_data="mode_pick_by_mood"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_welcome_keyboard():
-    """Создает клавиатуру для приветственного сообщения.
-    
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопкой "Выбрать время"
-    """
+    """Клавиатура после выбора Daily: кнопка «Выбрать время»."""
     keyboard = [
         [InlineKeyboardButton("Выбрать время", callback_data="want_start")]
     ]
@@ -29,25 +36,36 @@ def get_practice_done_keyboard():
 
 
 def get_main_reply_keyboard():
-    """Создает главную Reply-клавиатуру с основными функциями бота.
-    
-    Кнопки:
-    - Изменить время
-    - Предложить практику
-    - Советы
-    - Донаты
-    - Мой прогресс
-    
-    Returns:
-        ReplyKeyboardMarkup: Reply-клавиатура с основными функциями
-    """
+    """Reply-клавиатура режима Daily: время, советы, пауза рассылки."""
     keyboard = [
-        [KeyboardButton("Изменить время"), KeyboardButton("Предложить практику")],
-        [KeyboardButton("Советы"), KeyboardButton("Донаты")],
-        [KeyboardButton("Мой прогресс")]
+        [KeyboardButton("Изменить время"), KeyboardButton("Советы")],
+        [KeyboardButton("Пауза")],
     ]
     return ReplyKeyboardMarkup(
-        keyboard, 
-        resize_keyboard=True,  # Автоматически подгоняет размер кнопок
-        one_time_keyboard=False  # Клавиатура остается после нажатия
+        keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
+def get_by_mood_reply_keyboard():
+    """Reply-клавиатура режима By mood: фильтры по запросу."""
+    keyboard = [
+        [
+            KeyboardButton("практика дня"),
+            KeyboardButton("без коврика"),
+        ],
+        [
+            KeyboardButton("ленивые дни"),
+            KeyboardButton("пятиминутка"),
+        ],
+        [
+            KeyboardButton("хард"),
+            KeyboardButton("сам решу"),
+        ],
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=False,
     )

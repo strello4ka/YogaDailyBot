@@ -17,6 +17,7 @@ from data.db import (
     is_user_onboarding_required,
     get_user_challenge_start_id,
     get_yoga_practice_by_challenge_order,
+    get_user_bot_mode,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,13 @@ async def _start_challenge(update: Update, user_id: int, practice_id: int):
     if practice_id < 1:
         await update.message.reply_text("Id практики должен быть положительным числом.")
         return
+    if get_user_bot_mode(user_id) != "daily":
+        await update.message.reply_text(
+            "Челлендж доступен только в режиме *Daily* с настроенной рассылкой. "
+            "Смени режим через /change_mode.",
+            parse_mode="Markdown",
+        )
+        return
     practice = get_yoga_practice_by_id(practice_id)
     if not practice:
         await update.message.reply_text(f"Упс, что-то не то. Попробуй другую команду")
@@ -102,6 +110,6 @@ async def challenge_off_command(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text(
         "Режим челленджа завершен ✔️\n"
         "Какой бы не был твой результат, ты мега крут!\n"
-        "Практики снова будут приходить в обычном порядке. Изменить время всегда можно по кнопке в клавиатуре\n"
+        "Практики снова будут приходить в обычном порядке. Изменить время всегда можно по кнопке на клавиатуре\n"
     )
     logger.info(f"Пользователь {user_id} выключил челлендж")

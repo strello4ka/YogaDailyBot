@@ -64,10 +64,13 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
     user_id = update.effective_user.id if update.effective_user else None
     if not user_id:
         return
+    msg = update.effective_message
+    if not msg:
+        return
     text = _progress_text(user_id)
     if get_user_challenge_start_id(user_id) is None:
         text += _similar_result_line(user_id)
-    await update.message.reply_text(text, reply_markup=_progress_keyboard(), parse_mode='Markdown')
+    await msg.reply_text(text, reply_markup=_progress_keyboard(), parse_mode='Markdown')
 
 
 async def handle_progress_reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

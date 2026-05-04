@@ -4,6 +4,7 @@ Main application file that initializes the bot and registers all handlers.
 
 import asyncio
 import logging
+import re
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, filters, ContextTypes
 from telegram import Update
 
@@ -12,7 +13,8 @@ from .onboarding import (
     start_command,
     want_start_callback,
     handle_time_input,
-    cancel_time_callback
+    mode_pick_daily_callback,
+    mode_pick_by_mood_callback,
 )
 from .handlers.set_time import handle_time_change_input
 from .handlers.reply_handlers import handle_reply_button
@@ -26,7 +28,8 @@ from .handlers.donations import (
     handle_successful_payment
 )
 from .handlers.done import handle_practice_done_callback
-from .handlers.pause import pause_toggle_command, schedule_pause_reminders
+from .handlers.pause import schedule_pause_reminders
+from .handlers.mode_switch import change_mode_command
 from .handlers.progress import (
     handle_progress_reset_callback,
     handle_progress_reset_yes_callback,
@@ -41,6 +44,28 @@ from .handlers.secret import (
 )
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
 from .mode.challenge import challenge_command, challenge_compact_command, challenge_off_command
+from .handlers.suggest_practice import handle_suggest_practice_callback
+from .handlers.donations import handle_donations_callback
+from .handlers.progress import handle_progress_callback
+from .handlers.tips import handle_tips_callback
+from .bot_commands import setup_bot_commands
+from app.by_mood.self_decide import handle_text_in_flow as by_mood_self_text_flow
+
+
+async def suggest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await handle_suggest_practice_callback(update, context)
+
+
+async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await handle_donations_callback(update, context)
+
+
+async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await handle_progress_callback(update, context)
+
+
+async def tips_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await handle_tips_callback(update, context)
 
 
 async def handle_text_input(update: Update, context):
@@ -51,7 +76,10 @@ async def handle_text_input(update: Update, context):
     print(f"=== DEBUG: handle_text_input вызвана ===")
     print(f"Message text: '{update.message.text}'")
     print(f"User data: {context.user_data}")
-    
+
+    if await by_mood_self_text_flow(update, context):
+        return
+
     # Проверяем состояние ожидания редактирования рассылки
     if context.user_data.get('waiting_for_secret_edit'):
         await handle_secret_edit_input(update, context)
@@ -142,13 +170,15 @@ async def help_command(update: Update, context):
     # Это нужно, чтобы пользователь мог взаимодействовать с другими функциями бота
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
-    
+    context.user_data.pop('by_mood_self_step', None)
+    context.user_data.pop('by_mood_self_time', None)
+
     chat_id = update.effective_chat.id
-    
+
     # Справка по использованию бота
     help_text = (
-        "*Мой проект только зарождается, поэтому так важен любой фидбек* 🧡\n\n" 
-        "Если хочешь сообщить об ошибке, предложить идею или просто общаться с другими пользователями бота, то заходи в [Чатик бота](https://t.me/+oqyK2IiKjfdkOWIy) или пиши @strello4ka.\n\n" 
+        "*Мой проект только зарождается, поэтому так важен любой фидбек* 🧡\n\n"
+        "Если хочешь сообщить об ошибке, предложить идею или просто общаться с другими пользователями бота, то заходи в [Чатик бота](https://t.me/+oqyK2IiKjfdkOWIy) или пиши @strello4ka.\n\n"
         "Благодаря тебе YogaDailyBot станет лучше!"
     )
     
@@ -159,10 +189,20 @@ async def help_command(update: Update, context):
 def main():
     """Основная функция запуска бота."""
     # Создаем приложение с JobQueue
-    application = Application.builder().token(BOT_TOKEN).build()
-    
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(setup_bot_commands)
+        .build()
+    )
+
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("change_mode", change_mode_command))
+    application.add_handler(CommandHandler("suggest", suggest_command))
+    application.add_handler(CommandHandler("donate", donate_command))
+    application.add_handler(CommandHandler("progress", progress_command))
+    application.add_handler(CommandHandler("tips", tips_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("test", test_practice_command))
     application.add_handler(CommandHandler("myid", myid_command))
@@ -171,13 +211,13 @@ def main():
     application.add_handler(CommandHandler("secret_edit", secret_edit_command))
     application.add_handler(CommandHandler("challenge", challenge_command))
     application.add_handler(CommandHandler("challenge_off", challenge_off_command))
-    application.add_handler(CommandHandler("pause", pause_toggle_command))
     application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/challenge(?:@[\w_]+)?\d+$"), challenge_compact_command))
     
-    # Регистрируем обработчики callback-запросов (только для онбординга)
+    # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
+    application.add_handler(CallbackQueryHandler(mode_pick_daily_callback, pattern="^mode_pick_daily$"))
+    application.add_handler(CallbackQueryHandler(mode_pick_by_mood_callback, pattern="^mode_pick_by_mood$"))
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
-    application.add_handler(CallbackQueryHandler(cancel_time_callback, pattern="^cancel_time$"))
-    
+
     # Регистрируем обработчики для донатов
     application.add_handler(CallbackQueryHandler(handle_donate_card_callback, pattern="^donate_card$"))
     application.add_handler(CallbackQueryHandler(handle_donate_stars_callback, pattern="^donate_stars$"))
@@ -195,12 +235,25 @@ def main():
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout_query))
     
-    # Регистрируем обработчик Reply-кнопок (с высоким приоритетом)
-    reply_buttons = ["Изменить время", "Предложить практику", "Советы", "Донаты", "Мой прогресс"]
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(f"^({'|'.join(reply_buttons)})$"),
-        handle_reply_button
-    ))
+    # Reply-кнопки Daily и By mood (один обработчик — внутри проверяется режим)
+    reply_buttons = [
+        "Изменить время",
+        "Советы",
+        "Пауза",
+        "практика дня",
+        "без коврика",
+        "ленивые дни",
+        "пятиминутка",
+        "хард",
+        "сам решу",
+    ]
+    escaped = [re.escape(b) for b in reply_buttons]
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & filters.Regex(f"^({'|'.join(escaped)})$"),
+            handle_reply_button,
+        )
+    )
     
     # Регистрируем обработчик фото для массовой рассылки (с высоким приоритетом)
     # Этот обработчик проверяет состояние waiting_for_secret и обрабатывает фото с подписью

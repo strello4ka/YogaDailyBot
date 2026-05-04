@@ -404,6 +404,61 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца completed_at: {e}")
 
+        # Миграция: режим бота (Daily / By mood), флаг активной ежедневной рассылки, признак «без коврика»
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'bot_mode'
+            """)
+            if not cursor.fetchone():
+                cursor.execute(
+                    "ALTER TABLE users ADD COLUMN bot_mode VARCHAR(20) NOT NULL DEFAULT 'daily'"
+                )
+                print("   ✅ Добавлен столбец bot_mode в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца bot_mode: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'daily_schedule_enabled'
+            """)
+            if not cursor.fetchone():
+                cursor.execute(
+                    "ALTER TABLE users ADD COLUMN daily_schedule_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+                print("   ✅ Добавлен столбец daily_schedule_enabled в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца daily_schedule_enabled: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'yoga_practices' AND column_name = 'without_mat'
+            """)
+            if not cursor.fetchone():
+                cursor.execute(
+                    "ALTER TABLE yoga_practices ADD COLUMN without_mat BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+                print("   ✅ Добавлен столбец without_mat в таблицу yoga_practices")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца without_mat: {e}")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS by_mood_seen (
+                    user_id BIGINT NOT NULL,
+                    filter_key TEXT NOT NULL,
+                    practice_id INTEGER NOT NULL,
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, filter_key, practice_id),
+                    FOREIGN KEY (practice_id) REFERENCES yoga_practices (practices_id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_by_mood_seen_user_filter ON by_mood_seen(user_id, filter_key)"
+            )
+            print("   ✅ Таблица by_mood_seen готова")
+        except Exception as e:
+            print(f"⚠️ Ошибка при создании by_mood_seen: {e}")
+
         # Cleanup-migration: удаляем устаревшие столбцы users, которые больше не используются
         try:
             cursor.execute('''
@@ -458,8 +513,9 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         if reset_days:
             # Первый запуск (/start) - обнуляем счетчик дней
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days)
-                VALUES (%s, %s, %s, %s, %s, 0)
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days,
+                    bot_mode, daily_schedule_enabled)
+                VALUES (%s, %s, %s, %s, %s, 0, 'daily', TRUE)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET 
                     chat_id = EXCLUDED.chat_id,
@@ -468,13 +524,16 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                     user_nickname = EXCLUDED.user_nickname,
                     user_days = 0,
                     onboarding_required = FALSE,
+                    bot_mode = 'daily',
+                    daily_schedule_enabled = TRUE,
                     updated_at = CURRENT_TIMESTAMP
             ''', (user_id, chat_id, notify_time, user_name, user_nickname))
         else:
             # Изменение времени - НЕ обнуляем счетчик дней
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days)
-                VALUES (%s, %s, %s, %s, %s, 0)
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days,
+                    bot_mode, daily_schedule_enabled)
+                VALUES (%s, %s, %s, %s, %s, 0, 'daily', TRUE)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET 
                     chat_id = EXCLUDED.chat_id,
@@ -482,6 +541,8 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                     user_name = EXCLUDED.user_name,
                     user_nickname = EXCLUDED.user_nickname,
                     onboarding_required = FALSE,
+                    bot_mode = 'daily',
+                    daily_schedule_enabled = TRUE,
                     updated_at = CURRENT_TIMESTAMP
             ''', (user_id, chat_id, notify_time, user_name, user_nickname))
         
@@ -858,6 +919,8 @@ def get_users_by_time(notify_time: str) -> list:
             WHERE notify_time = %s
               AND COALESCE(is_blocked, FALSE) = FALSE
               AND COALESCE(onboarding_required, FALSE) = FALSE
+              AND COALESCE(bot_mode, 'daily') = 'daily'
+              AND COALESCE(daily_schedule_enabled, TRUE) = TRUE
         ''', (notify_time,))
         
         results = cursor.fetchall()
@@ -899,11 +962,14 @@ def get_users_pending_for_today(current_time: str) -> list:
               AND COALESCE(u.is_blocked, FALSE) = FALSE
               AND COALESCE(u.is_paused, FALSE) = FALSE
               AND COALESCE(u.onboarding_required, FALSE) = FALSE
+              AND COALESCE(u.bot_mode, 'daily') = 'daily'
+              AND COALESCE(u.daily_schedule_enabled, TRUE) = TRUE
               AND NOT EXISTS (
                   SELECT 1
                   FROM practice_logs pl
                   WHERE pl.user_id = u.user_id
                     AND pl.sent_at::date = CURRENT_DATE
+                    AND pl.day_number >= 1
               )
             ''',
             (current_time,),
@@ -1001,6 +1067,8 @@ def get_users_for_pause_reminder() -> list:
             WHERE COALESCE(is_paused, FALSE) = TRUE
               AND COALESCE(is_blocked, FALSE) = FALSE
               AND COALESCE(onboarding_required, FALSE) = FALSE
+              AND COALESCE(bot_mode, 'daily') = 'daily'
+              AND COALESCE(daily_schedule_enabled, TRUE) = TRUE
               AND paused_at <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
               AND (
                     last_pause_reminder_at IS NULL
@@ -1154,7 +1222,13 @@ def get_user_notify_time(user_id: int):
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            'SELECT notify_time, COALESCE(onboarding_required, FALSE) FROM users WHERE user_id = %s',
+            '''
+            SELECT notify_time,
+                   COALESCE(onboarding_required, FALSE),
+                   COALESCE(bot_mode, 'daily'),
+                   COALESCE(daily_schedule_enabled, TRUE)
+            FROM users WHERE user_id = %s
+            ''',
             (user_id,)
         )
         row = cursor.fetchone()
@@ -1162,6 +1236,10 @@ def get_user_notify_time(user_id: int):
         if not row:
             return None
         if row[1]:
+            return None
+        if row[2] != 'daily':
+            return None
+        if not row[3]:
             return None
         return row[0]
     except Exception as e:
@@ -1213,9 +1291,12 @@ def set_user_onboarding_required(user_id: int) -> bool:
                 pause_reminder_step = 0,
                 user_days = 0,
                 program_position = 0,
+                bot_mode = 'pending',
+                daily_schedule_enabled = FALSE,
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
         ''', (user_id,))
+        cursor.execute('DELETE FROM by_mood_seen WHERE user_id = %s', (user_id,))
         cursor.execute(
             'UPDATE practice_logs SET completed_at = NULL WHERE user_id = %s',
             (user_id,)
@@ -1225,6 +1306,195 @@ def set_user_onboarding_required(user_id: int) -> bool:
         return True
     except Exception as e:
         print(f"Ошибка set_user_onboarding_required для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+# День «-1» в practice_logs — отправка из режима By mood (не блокирует и не считает ежедневной рассылкой)
+BY_MOOD_PRACTICE_LOG_DAY = -1
+
+
+def get_user_bot_mode(user_id: int) -> str:
+    """Режим бота: daily, by_mood, pending. Для отсутствующей строки — pending."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COALESCE(bot_mode, 'pending') FROM users WHERE user_id = %s",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else "pending"
+    except Exception as e:
+        print(f"Ошибка get_user_bot_mode {user_id}: {e}")
+        if conn:
+            conn.close()
+        return "pending"
+
+
+def activate_user_by_mood(
+    user_id: int, chat_id: int, user_name: str = None, user_nickname: str = None
+) -> bool:
+    """Режим By mood: рассылка по времени отключена, онбординг по времени не требуется."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days,
+                onboarding_required, bot_mode, daily_schedule_enabled)
+            VALUES (%s, %s, '00:00', %s, %s, 0, FALSE, 'by_mood', FALSE)
+            ON CONFLICT (user_id) DO UPDATE SET
+                chat_id = EXCLUDED.chat_id,
+                user_name = COALESCE(EXCLUDED.user_name, users.user_name),
+                user_nickname = COALESCE(EXCLUDED.user_nickname, users.user_nickname),
+                notify_time = '00:00',
+                onboarding_required = FALSE,
+                bot_mode = 'by_mood',
+                daily_schedule_enabled = FALSE,
+                challenge_start_id = NULL,
+                is_paused = FALSE,
+                paused_at = NULL,
+                last_pause_reminder_at = NULL,
+                pause_reminder_step = 0,
+                updated_at = CURRENT_TIMESTAMP
+            ''',
+            (user_id, chat_id, user_name, user_nickname),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка activate_user_by_mood {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def set_user_daily_pending(user_id: int) -> bool:
+    """Переход в Daily без времени: нужно заново выбрать время; рассылка выключена до сохранения."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users SET
+                bot_mode = 'daily',
+                daily_schedule_enabled = FALSE,
+                onboarding_required = TRUE,
+                challenge_start_id = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка set_user_daily_pending {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def clear_by_mood_seen_for_user(user_id: int) -> bool:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM by_mood_seen WHERE user_id = %s", (user_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка clear_by_mood_seen_for_user {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def _by_mood_reset_seen(user_id: int, filter_key: str) -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM by_mood_seen WHERE user_id = %s AND filter_key = %s",
+        (user_id, filter_key),
+    )
+    conn.commit()
+    conn.close()
+
+
+def pick_random_by_mood_practice(
+    user_id: int, filter_key: str, extra_where_sql: str, extra_params: tuple = ()
+) -> Optional[tuple]:
+    """Случайная практика по фильтру; исключает уже выданные в рамках filter_key, при исчерпании сбрасывает пул.
+
+    extra_where_sql — только внутренние фрагменты WHERE (без пользовательского ввода).
+    Возвращает полную строку yoga_practices как в других выборках.
+    """
+    try:
+        def _fetch():
+            c = get_connection()
+            cur = c.cursor()
+            base = """
+                SELECT practices_id, title, video_url, time_practices, channel_name,
+                       description, my_description, intensity, weekday, created_at, updated_at
+                FROM yoga_practices yp
+                WHERE 1=1
+            """
+            tail = """
+                AND NOT EXISTS (
+                  SELECT 1 FROM by_mood_seen b
+                  WHERE b.user_id = %s AND b.filter_key = %s AND b.practice_id = yp.practices_id
+                )
+                ORDER BY RANDOM() LIMIT 1
+            """
+            cur.execute(
+                base + extra_where_sql + tail,
+                extra_params + (user_id, filter_key),
+            )
+            r = cur.fetchone()
+            c.close()
+            return _decode_practice_row(r)
+
+        row = _fetch()
+        if row is None:
+            _by_mood_reset_seen(user_id, filter_key)
+            row = _fetch()
+        return row
+    except Exception as e:
+        print(f"Ошибка pick_random_by_mood_practice {user_id} {filter_key}: {e}")
+        return None
+
+
+def record_by_mood_seen(user_id: int, filter_key: str, practice_id: int) -> bool:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO by_mood_seen (user_id, filter_key, practice_id)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, filter_key, practice_id) DO NOTHING
+            ''',
+            (user_id, filter_key, practice_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка record_by_mood_seen {user_id}: {e}")
         if conn:
             conn.rollback()
             conn.close()

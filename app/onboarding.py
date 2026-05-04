@@ -7,7 +7,13 @@ import re
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes, CallbackContext
-from .keyboards import get_welcome_keyboard
+from data.db import activate_user_by_mood
+
+from .keyboards import (
+    get_by_mood_reply_keyboard,
+    get_mode_choice_keyboard,
+    get_welcome_keyboard,
+)
 
 
 def validate_time_format(time_str: str) -> tuple[bool, str]:
@@ -199,35 +205,60 @@ async def cancel_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start - приветствие пользователя.
-    
-    Отправляет два приветственных сообщения:
-    1. Описание бота и его возможностей
-    2. Пример практики с кнопкой "выбрать время"
-    
-    Args:
-        update: Объект обновления от Telegram
-        context: Контекст бота
-    """
-    # Очищаем все состояния пользователя при запуске бота
-    # Это нужно, чтобы сбросить состояние ожидания предложения практики или ввода времени
+    """Обработчик команды /start — сброс прогресса и выбор режима Daily / By mood."""
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
+    context.user_data.pop('by_mood_self_step', None)
+    context.user_data.pop('by_mood_self_time', None)
 
-    # Переводим существующего пользователя в режим повторного онбординга:
-    # до нового выбора времени рассылка и /challenge должны быть недоступны.
     from data.db import set_user_onboarding_required
     user_id = update.effective_user.id
     set_user_onboarding_required(user_id)
-    
-    # Получаем информацию о пользователе
+
     user = update.effective_user
     chat_id = update.effective_chat.id
-    
-    # Первое сообщение - описание бота
-    welcome_text_1 = (
+
+    intro = (
         f"Привет, *{user.first_name}* 🧡\n\n"
+        "*Daily* — практики по расписанию: выбираешь время по МСК, каждый день приходит ссылка на видео.\n\n"
+        "*By mood* — без расписания: нажимаешь фильтр (настроение, длина, интенсивность) и сразу получаешь практику.\n\n"
+        "Выбери режим ниже."
+    )
+
+    msg = update.effective_message
+    if not msg:
+        return
+    await msg.reply_text(
+        intro,
+        reply_markup=get_mode_choice_keyboard(),
+        parse_mode='Markdown',
+    )
+
+
+async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Пользователь выбрал Daily — показываем описание программы и кнопку «Выбрать время»."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+
+    from data.db import get_user_bot_mode, set_user_daily_pending
+
+    prev = get_user_bot_mode(user.id)
+    if prev == "daily":
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Ты уже в режиме *Daily*. Время рассылки можно поменять кнопкой «Изменить время».",
+            parse_mode="Markdown",
+        )
+        return
+    if prev == "by_mood":
+        set_user_daily_pending(user.id)
+    welcome_text_1 = (
+        f"Отлично, *{user.first_name}*, режим *Daily* 🧡\n\n"
         "Вот пример ежедневной практики:\n"
         "▶️ [Youtube](https://youtu.be/oTzetTgYpSU?si=_V8LNx3i3Iq5zeoH)\n"
         "(для просмотра потребуется vpn)\n\n"
@@ -236,15 +267,54 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🌀 одна на работу с осанкой, здоровье спины и шеи\n"
         "🌀 в выходные практики чуть длиннее (суббота - горячая активная, воскресенье - релакс растяжка)\n"
         "🌀 плюс всегда есть что-то необычное для развития кругозора и получения нового опыта\n\n"
-        "Если хочешь получать такие каждый день - *выбирай время* и погнали! Больше никакого скроллинга YouTube - просто открой сообщение и разомнись"
-    )
-    
-    # Отправляем первое сообщение
-    
-    await update.message.reply_text(
-        welcome_text_1,
+        "Если хочешь получать такие каждый день - *выбирай время* и погнали! Больше никакого скроллинга YouTube - просто открой сообщение и разомнись"    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=welcome_text_1,
         reply_markup=get_welcome_keyboard(),
-        parse_mode='Markdown'
+        parse_mode='Markdown',
+    )
+
+
+async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Режим By mood: без рассылки по времени, сразу клавиатура фильтров."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+
+    from data.db import get_user_bot_mode
+
+    if get_user_bot_mode(user.id) == "by_mood":
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Ты уже в режиме *By mood*. Выбирай фильтр на клавиатуре ниже.",
+            parse_mode="Markdown",
+            reply_markup=get_by_mood_reply_keyboard(),
+        )
+        return
+
+    activate_user_by_mood(
+        user.id,
+        chat_id,
+        user_name=user.first_name,
+        user_nickname=user.username,
+    )
+    context.user_data.pop('waiting_for_time', None)
+    context.user_data.pop('is_time_change', None)
+    text = (
+        "Режим *By mood* включён: расписание по времени сейчас выключено.\n\n"
+        "Нажимай кнопку — пришлю подходящую практику из базы. "
+        "Команда *изменить режим* — в меню команд (косая черта слева от поля ввода).\n\n"
+        "Пункт «сам решу» — пошагово: сначала длительность, потом интенсивность."
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode='Markdown',
+        reply_markup=get_by_mood_reply_keyboard(),
     )
 
 
@@ -380,12 +450,11 @@ async def handle_time_input(update: Update, context: CallbackContext):
     # Также показываем Reply-клавиатуру для удобства
     from .keyboards import get_main_reply_keyboard
     await update.message.reply_text(
-        "Внизу у тебя *появились кнопки*, теперь они всегда доступны:\n\n"
-        "🕓 *Изменить время* - жми, чтобы изменить время рассылки\n\n"
-        "🔗 *Предложить практику* - жми, если хочешь поделиться со мной ссылкой на практику, и она появится в боте\n\n"
-        "💡 *Советы* - жми обязательно\n\n"
-        "💰 *Донаты* - мой бот бесплатный, но если ты хочешь поддержать развитие проекта, жми\n\n"
-        "📈 *Мой прогресс* - жми, чтобы посмотреть количество выполненных практик\n\n"
+        "Внизу у тебя *появились кнопки* режима Daily:\n\n"
+        "🕓 *Изменить время* — жми, чтобы изменить время рассылки\n"
+        "💡 *Советы* — жми обязательно\n"
+        "⏸ *Пауза* — приостановить или возобновить ежедневную рассылку\n\n"
+        "Команды *предложить практику*, *донаты* и *мой прогресс* — в меню команд (список слева от поля ввода).\n\n"
         "Присоединяйся в [коммьюнити бота](https://t.me/+AH0Kv1b97Ak4Y2Zi), чтобы делиться результатами и рассказывать о проблемах\n\n"
         "Встретимся завтра! А пока можешь почитать советы и [выполнить практику из примера](https://youtu.be/oTzetTgYpSU?si=_V8LNx3i3Iq5zeoH) ",
         reply_markup=get_main_reply_keyboard(),
@@ -402,31 +471,4 @@ async def back_to_hours_callback(update: Update, context: CallbackContext):
     Оставлен для совместимости, но не вызывается.
     """
     pass
-
-
-async def cancel_time_callback(update: Update, context: CallbackContext):
-    """Обработчик отмены ввода времени.
-    
-    Отменяет напоминания и возвращает пользователя к началу онбординга.
-    
-    Args:
-        update: Объект обновления от Telegram
-        context: Контекст бота
-    """
-    query = update.callback_query
-    await query.answer()
-    
-    # Получаем ID пользователя для отмены напоминаний
-    user_id = update.effective_user.id
-    
-    # Отменяем запланированные напоминания
-    await cancel_reminders(context, user_id)
-    
-    # Убираем состояние ожидания ввода времени
-    context.user_data.pop('waiting_for_time', None)
-    
-    # Возвращаемся к приветствию
-    await start_command(update, context)
-
-
 
