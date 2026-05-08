@@ -8,10 +8,14 @@ from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes, CallbackContext
 from data.db import activate_user_by_mood
+from data.db import get_current_weekday, get_yoga_practice_by_weekday_order
+from app.schedule.scheduler import format_practice_message
 
 from .keyboards import (
     get_by_mood_reply_keyboard,
+    get_choose_mode_keyboard,
     get_mode_choice_keyboard,
+    get_start_onboarding_keyboard,
     get_welcome_keyboard,
 )
 
@@ -205,7 +209,7 @@ async def cancel_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start — сброс прогресса и выбор режима Daily / By mood."""
+    """Обработчик /start: сброс и первый экран онбординга."""
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
@@ -217,13 +221,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_onboarding_required(user_id)
 
     user = update.effective_user
-    chat_id = update.effective_chat.id
 
     intro = (
         f"Привет, *{user.first_name}* 🧡\n\n"
-        "*Daily* — практики по расписанию: выбираешь время по МСК, каждый день приходит ссылка на видео.\n\n"
-        "*By mood* — без расписания: нажимаешь фильтр (настроение, длина, интенсивность) и сразу получаешь практику.\n\n"
-        "Выбери режим ниже."
+        "Я, твой YogaDailyBot, помогу тебе чаще двигаться и не терять контакт с телом 🔋\n\n"
+        "Со мной тебе не нужно будет тратить время на поиск, ведь я храню большой каталог самых приятных практик от разных преподавателей, в том числе от владельца бота @strello4ka. "
+        "Каталог постоянно растет и обновляется. А практики подобраны сбалансировано и разнообразно: бодрящая разминка на все тело, изолированная на пресс, "
+        "здоровая спина, релакс вытяжение...перечислять можно долго, это все указывается в описании практики. "
+        "Ее можно открыть тут в Telegram или перейти по ссылке на Youtube.\n\n"
+        "У меня есть несколько режимов работы для выбора под твой запрос и образ жизни.\n\n"
+        "Далее ты можешь посмотреть пример практики или сразу перейти к выбору режима 👇"
     )
 
     msg = update.effective_message
@@ -231,8 +238,87 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await msg.reply_text(
         intro,
+        reply_markup=get_start_onboarding_keyboard(),
+        parse_mode='Markdown',
+    )
+
+
+async def onboarding_open_mode_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переход к выбору режима с экрана /start и после просмотра примера."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    chat_id = update.effective_chat.id
+    mode_text = (
+        "🌀 *Daily* — для тех, кто хочет мягко внедрить привычку заниматься ежедневно и не перегорать.\n"
+        "Выбираешь удобное время, и дальше каждый день бот присылает практику в это время.\n"
+        "Неделя содержит сбалансированный набор практик:\n"
+        "• 2-3 бодрые, короткие\n"
+        "• по вторникам всегда здоровая спина: работа с осанкой, спиной и шеей\n"
+        "• по пятницам что-то необычное для развития кругозора и получения нового опыта\n"
+        "• в выходные практики чуть длиннее (суббота - горячая активная, воскресенье - релакс растяжка)\n"
+        "• плюс бонус: приходит один раз в неделю в дополнение к основной практике. Это может быть дыхательная техника, техники для расслабления тела, отстройка асан, изучение балансов на руках.\n"
+        "Ты не заметишь напряга, но тело скажет \"спасибо\" и станет радовать тебя отражением в зеркале!\n\n"
+        "🌀 *By mood* — для тех, кто хочет делать зарядки и разминки по состоянию \"здесь и сейчас\", но без траты времени на поиск качественного контента.\n"
+        "Нажимаешь кнопку под настроение, и бот сразу подбирает подходящую практику под твой запрос: \"Ленивые дни\", \"Пятиминутка\", \"Практика дня\" и т.д. Также можно самому выбрать время и интенсивность.\n\n"
+        "Оба режима помогают практиковать регулярно, просто разным способом:\n"
+        "*Daily* — через привычку и стабильность, *By mood* — через гибкость и свободу выбора.\n\n"
+        "Выбирай то, что ближе тебе сейчас, изменить режим можно в любой момент в меню 🧡"
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=mode_text,
         reply_markup=get_mode_choice_keyboard(),
         parse_mode='Markdown',
+    )
+
+
+async def onboarding_show_example_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет пример практики без влияния на прогресс и расписание."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    chat_id = update.effective_chat.id
+
+    weekday = get_current_weekday()
+    sample = get_yoga_practice_by_weekday_order(weekday, 1)
+    if not sample:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Не смогла подобрать пример практики, но ты можешь сразу перейти к выбору режима 👇",
+            reply_markup=get_choose_mode_keyboard(),
+        )
+        return
+
+    (
+        _practice_id,
+        _title,
+        video_url,
+        time_practices,
+        channel_name,
+        _description,
+        my_description,
+        intensity,
+        _practice_weekday,
+        _created_at,
+        _updated_at,
+    ) = sample
+    text = format_practice_message(
+        day_number=1,
+        my_description=my_description,
+        time_practices=time_practices,
+        intensity=intensity,
+        channel_name=channel_name,
+        video_url=video_url,
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode='Markdown',
+        disable_web_page_preview=False,
+        reply_markup=get_choose_mode_keyboard(),
     )
 
 
@@ -258,16 +344,9 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     if prev == "by_mood":
         set_user_daily_pending(user.id)
     welcome_text_1 = (
-        f"Отлично, *{user.first_name}*, режим *Daily* 🧡\n\n"
-        "Вот пример ежедневной практики:\n"
-        "▶️ [Youtube](https://youtu.be/oTzetTgYpSU?si=_V8LNx3i3Iq5zeoH)\n"
-        "(для просмотра потребуется vpn)\n\n"
-        "Каждая неделя содержит сбалансированный набор практик:\n"
-        "🌀 2-3 бодрые, короткие\n"
-        "🌀 одна на работу с осанкой, здоровье спины и шеи\n"
-        "🌀 в выходные практики чуть длиннее (суббота - горячая активная, воскресенье - релакс растяжка)\n"
-        "🌀 плюс всегда есть что-то необычное для развития кругозора и получения нового опыта\n\n"
-        "Если хочешь получать такие каждый день - *выбирай время* и погнали! Больше никакого скроллинга YouTube - просто открой сообщение и разомнись"    )
+        f"Режим *Daily* - мой фаворит!🧡\n\n"
+        "Больше никакого скроллинга YouTube - просто открой сообщение и разомнись.\n"
+        "Осталось *выбрать время* и можно начинать наш YogaDaily путь!"    )
     await context.bot.send_message(
         chat_id=chat_id,
         text=welcome_text_1,

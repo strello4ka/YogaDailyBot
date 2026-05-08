@@ -13,6 +13,8 @@ from .onboarding import (
     start_command,
     want_start_callback,
     handle_time_input,
+    onboarding_open_mode_choice_callback,
+    onboarding_show_example_callback,
     mode_pick_daily_callback,
     mode_pick_by_mood_callback,
 )
@@ -214,6 +216,8 @@ def main():
     application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/challenge(?:@[\w_]+)?\d+$"), challenge_compact_command))
     
     # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
+    application.add_handler(CallbackQueryHandler(onboarding_show_example_callback, pattern="^onboarding_show_example$"))
+    application.add_handler(CallbackQueryHandler(onboarding_open_mode_choice_callback, pattern="^onboarding_open_mode_choice$"))
     application.add_handler(CallbackQueryHandler(mode_pick_daily_callback, pattern="^mode_pick_daily$"))
     application.add_handler(CallbackQueryHandler(mode_pick_by_mood_callback, pattern="^mode_pick_by_mood$"))
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))

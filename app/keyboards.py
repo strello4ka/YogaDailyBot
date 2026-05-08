@@ -16,6 +16,22 @@ def get_mode_choice_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_start_onboarding_keyboard():
+    """Первый экран /start: пример практики или переход к выбору режима."""
+    keyboard = [
+        [InlineKeyboardButton("Посмотреть пример", callback_data="onboarding_show_example")],
+        [InlineKeyboardButton("Выбрать режим", callback_data="onboarding_open_mode_choice")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_choose_mode_keyboard():
+    """Кнопка под примером практики для перехода к выбору режима."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Выбрать режим", callback_data="onboarding_open_mode_choice")]]
+    )
+
+
 def get_welcome_keyboard():
     """Клавиатура после выбора Daily: кнопка «Выбрать время»."""
     keyboard = [
