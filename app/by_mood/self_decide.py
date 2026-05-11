@@ -1,24 +1,24 @@
-"""Сценарий «сам решу»: время → интенсивность → случайная практика."""
+"""Сценарий «Сам решу»: время → интенсивность → случайная практика."""
 
-from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.keyboards import get_by_mood_reply_keyboard
 from data.db import pick_random_by_mood_practice
 
 from .send_utils import deliver_by_mood_practice
 
-TIME_LABELS = ["до 15 мин", "до 30 мин", "до 45 мин", "до 60 мин", "больше 60 мин", "любое время"]
+TIME_LABELS = ["до 10", "10 - 15", "15 - 20", "20 - 25", "больше 25", "любое"]
 INTENSITY_LABELS = ["низкая", "средняя", "высокая", "любая"]
 
 TIME_TO_KEY = {
-    "до 15 мин": "t15",
-    "до 30 мин": "t30",
-    "до 45 мин": "t45",
-    "до 60 мин": "t60",
-    "больше 60 мин": "t60p",
-    "любое время": "tany",
+    "до 10": "t10",
+    "10 - 15": "t10_15",
+    "15 - 20": "t15_20",
+    "20 - 25": "t20_25",
+    "больше 25": "t25p",
+    "любое": "tany",
 }
+KEY_TO_TIME = {value: key for key, value in TIME_TO_KEY.items()}
 
 INTENSITY_TO_KEY = {
     "низкая": "ilow",
@@ -26,31 +26,54 @@ INTENSITY_TO_KEY = {
     "высокая": "ihigh",
     "любая": "iany",
 }
+KEY_TO_INTENSITY = {value: key for key, value in INTENSITY_TO_KEY.items()}
 
 
-def time_keyboard() -> ReplyKeyboardMarkup:
-    rows = [[KeyboardButton(l)] for l in TIME_LABELS]
-    rows.append([KeyboardButton("Отмена")])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
+def time_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("до 10", callback_data="self_time:t10"),
+                InlineKeyboardButton("10 - 15", callback_data="self_time:t10_15"),
+            ],
+            [
+                InlineKeyboardButton("15 - 20", callback_data="self_time:t15_20"),
+                InlineKeyboardButton("20 - 25", callback_data="self_time:t20_25"),
+            ],
+            [
+                InlineKeyboardButton("больше 25", callback_data="self_time:t25p"),
+                InlineKeyboardButton("любое", callback_data="self_time:tany"),
+            ],
+        ]
+    )
 
 
-def intensity_keyboard() -> ReplyKeyboardMarkup:
-    rows = [[KeyboardButton(l)] for l in INTENSITY_LABELS]
-    rows.append([KeyboardButton("Отмена")])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
+def intensity_keyboard(time_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("низкая", callback_data=f"self_intensity:{time_key}:ilow"),
+                InlineKeyboardButton("средняя", callback_data=f"self_intensity:{time_key}:imed"),
+            ],
+            [
+                InlineKeyboardButton("высокая", callback_data=f"self_intensity:{time_key}:ihigh"),
+                InlineKeyboardButton("любая", callback_data=f"self_intensity:{time_key}:iany"),
+            ],
+        ]
+    )
 
 
 def _sql_for_time_choice(label: str) -> tuple[str, tuple]:
-    if label == "до 15 мин":
-        return " AND yp.time_practices <= 15 AND yp.time_practices > 0 ", ()
-    if label == "до 30 мин":
-        return " AND yp.time_practices <= 30 AND yp.time_practices > 0 ", ()
-    if label == "до 45 мин":
-        return " AND yp.time_practices <= 45 AND yp.time_practices > 0 ", ()
-    if label == "до 60 мин":
-        return " AND yp.time_practices <= 60 AND yp.time_practices > 0 ", ()
-    if label == "больше 60 мин":
-        return " AND yp.time_practices > 60 ", ()
+    if label == "до 10":
+        return " AND yp.time_practices <= 10 AND yp.time_practices > 0 ", ()
+    if label == "10 - 15":
+        return " AND yp.time_practices > 10 AND yp.time_practices <= 15 ", ()
+    if label == "15 - 20":
+        return " AND yp.time_practices > 15 AND yp.time_practices <= 20 ", ()
+    if label == "20 - 25":
+        return " AND yp.time_practices > 20 AND yp.time_practices <= 25 ", ()
+    if label == "больше 25":
+        return " AND yp.time_practices > 25 ", ()
     return "", ()
 
 
@@ -67,90 +90,68 @@ def _sql_for_intensity_choice(label: str) -> tuple[str, tuple]:
     return "", ()
 
 
-def clear_self_state(context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data.pop("by_mood_self_step", None)
-    context.user_data.pop("by_mood_self_time", None)
-
-
 async def start_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data["by_mood_self_step"] = "time"
-    context.user_data.pop("by_mood_self_time", None)
     await update.message.reply_text(
-        "Ок, соберём практику под тебя.\n\n*Шаг 1.* Выбери длительность (примерное время видео):",
-        parse_mode="Markdown",
+        "Настрой свою практику *сам*:\nсначала выбери время (в минутах)👇",
         reply_markup=time_keyboard(),
     )
 
 
-async def handle_text_in_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Обрабатывает ответы сценария «сам решу». Возвращает True, если сообщение обработано."""
-    step = context.user_data.get("by_mood_self_step")
-    if not step:
-        return False
+async def handle_time_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
 
-    text = (update.message.text or "").strip()
-    if text == "Отмена":
-        clear_self_state(context)
-        await update.message.reply_text(
-            "Ок, отменила подбор. Выбирай готовый фильтр с клавиатуры.",
-            reply_markup=get_by_mood_reply_keyboard(),
-        )
-        return True
+    time_key = (query.data or "").split(":", 1)[1]
+    if time_key not in KEY_TO_TIME:
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("Что-то пошло не так. Нажми «Сам решу» ещё раз.")
+        return
+
+    await query.edit_message_text(
+        "Время выбрано ✔️\nТеперь выбери интенсивность 👇",
+        reply_markup=intensity_keyboard(time_key),
+    )
+
+
+async def handle_intensity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    try:
+        _prefix, time_key, intensity_key = (query.data or "").split(":", 2)
+    except ValueError:
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("Что-то пошло не так. Нажми «Сам решу» ещё раз.")
+        return
+
+    time_label = KEY_TO_TIME.get(time_key)
+    intensity_label = KEY_TO_INTENSITY.get(intensity_key)
+    if not time_label or not intensity_label:
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("Что-то пошло не так. Нажми «Сам решу» ещё раз.")
+        return
+
+    await query.edit_message_reply_markup(reply_markup=None)
 
     user = update.effective_user
     chat = update.effective_chat
     if not user or not chat:
-        return False
+        return
 
-    if step == "time":
-        if text not in TIME_LABELS:
-            await update.message.reply_text("Выбери один из вариантов на кнопках ниже или «Отмена».")
-            return True
-        context.user_data["by_mood_self_time"] = text
-        context.user_data["by_mood_self_step"] = "intensity"
-        await update.message.reply_text(
-            "*Шаг 2.* Какая интенсивность?",
-            parse_mode="Markdown",
-            reply_markup=intensity_keyboard(),
+    filter_key = f"self_{time_key}_{intensity_key}"
+    wh_time, par_time = _sql_for_time_choice(time_label)
+    wh_int, par_int = _sql_for_intensity_choice(intensity_label)
+    row = pick_random_by_mood_practice(user.id, filter_key, wh_time + wh_int, par_time + par_int)
+    if not row:
+        await query.message.reply_text(
+            "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое» и «любая» интенсивность)."
         )
-        return True
+        return
 
-    if step == "intensity":
-        if text not in INTENSITY_LABELS:
-            await update.message.reply_text("Выбери интенсивность на кнопках или «Отмена».")
-            return True
-        time_label = context.user_data.get("by_mood_self_time")
-        if not time_label or time_label not in TIME_TO_KEY:
-            clear_self_state(context)
-            await update.message.reply_text("Что-то пошло не так. Нажми «сам решу» ещё раз.")
-            return True
-
-        tkey = TIME_TO_KEY[time_label]
-        ikey = INTENSITY_TO_KEY[text]
-        filter_key = f"self_{tkey}_{ikey}"
-
-        wh_time, par_time = _sql_for_time_choice(time_label)
-        wh_int, par_int = _sql_for_intensity_choice(text)
-        extra_where = wh_time + wh_int
-        extra_params = par_time + par_int
-
-        clear_self_state(context)
-
-        row = pick_random_by_mood_practice(user.id, filter_key, extra_where, extra_params)
-        if not row:
-            await update.message.reply_text(
-                "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое время» и «любая» интенсивность).",
-                reply_markup=get_by_mood_reply_keyboard(),
-            )
-            return True
-
-        await update.message.reply_text(
-            "Лови подходящую практику 🧡",
-            reply_markup=get_by_mood_reply_keyboard(),
-        )
-        ok = await deliver_by_mood_practice(context, chat.id, user.id, filter_key, row)
-        if not ok:
-            await update.message.reply_text("Не удалось отправить практику. Попробуй ещё раз.")
-        return True
-
-    return False
+    ok = await deliver_by_mood_practice(context, chat.id, user.id, filter_key, row)
+    if not ok:
+        await query.message.reply_text("Не удалось отправить практику. Попробуй ещё раз.")

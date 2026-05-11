@@ -31,7 +31,7 @@ from .handlers.donations import (
 )
 from .handlers.done import handle_practice_done_callback
 from .handlers.pause import schedule_pause_reminders
-from .handlers.mode_switch import change_mode_command
+from .handlers.change_mode import change_mode_command
 from .handlers.progress import (
     handle_progress_reset_callback,
     handle_progress_reset_yes_callback,
@@ -51,7 +51,8 @@ from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
 from .handlers.tips import handle_tips_callback
 from .bot_commands import setup_bot_commands
-from app.by_mood.self_decide import handle_text_in_flow as by_mood_self_text_flow
+from app.by_mood.self_decide import handle_intensity_callback as by_mood_self_intensity_callback
+from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
 
 
 async def suggest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -78,9 +79,6 @@ async def handle_text_input(update: Update, context):
     print(f"=== DEBUG: handle_text_input вызвана ===")
     print(f"Message text: '{update.message.text}'")
     print(f"User data: {context.user_data}")
-
-    if await by_mood_self_text_flow(update, context):
-        return
 
     # Проверяем состояние ожидания редактирования рассылки
     if context.user_data.get('waiting_for_secret_edit'):
@@ -172,8 +170,6 @@ async def help_command(update: Update, context):
     # Это нужно, чтобы пользователь мог взаимодействовать с другими функциями бота
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
-    context.user_data.pop('by_mood_self_step', None)
-    context.user_data.pop('by_mood_self_time', None)
 
     chat_id = update.effective_chat.id
 
@@ -221,6 +217,8 @@ def main():
     application.add_handler(CallbackQueryHandler(mode_pick_daily_callback, pattern="^mode_pick_daily$"))
     application.add_handler(CallbackQueryHandler(mode_pick_by_mood_callback, pattern="^mode_pick_by_mood$"))
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
+    application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
+    application.add_handler(CallbackQueryHandler(by_mood_self_intensity_callback, pattern="^self_intensity:"))
 
     # Регистрируем обработчики для донатов
     application.add_handler(CallbackQueryHandler(handle_donate_card_callback, pattern="^donate_card$"))
@@ -244,12 +242,12 @@ def main():
         "Изменить время",
         "Советы",
         "Пауза",
-        "практика дня",
-        "без коврика",
-        "ленивые дни",
-        "пятиминутка",
-        "хард",
-        "сам решу",
+        "Практика дня",
+        "Без коврика",
+        "Ленивые дни",
+        "Пятиминутка",
+        "Хард",
+        "Сам решу",
     ]
     escaped = [re.escape(b) for b in reply_buttons]
     application.add_handler(

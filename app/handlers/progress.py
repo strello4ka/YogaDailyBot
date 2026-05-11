@@ -70,7 +70,8 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
     text = _progress_text(user_id)
     if get_user_challenge_start_id(user_id) is None:
         text += _similar_result_line(user_id)
-    await msg.reply_text(text, reply_markup=_progress_keyboard(), parse_mode='Markdown')
+    reply_markup = None if get_completed_count(user_id) == 0 else _progress_keyboard()
+    await msg.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
 
 async def handle_progress_reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

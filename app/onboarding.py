@@ -221,8 +221,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
-    context.user_data.pop('by_mood_self_step', None)
-    context.user_data.pop('by_mood_self_time', None)
 
     user = update.effective_user
     chat_id = update.effective_chat.id
@@ -265,22 +263,24 @@ async def onboarding_open_mode_choice_callback(update: Update, context: ContextT
     await remove_callback_keyboard(query)
     chat_id = update.effective_chat.id
     mode_text = (
+        "*Выбери режим работы бота:*\n\n"
         "🌀 Режим *Daily* — для тех, кто хочет мягко внедрить привычку заниматься ежедневно и не перегорать.\n"
         "*Выбираешь удобное время, и бот присылает практику в это время каждый день.*\n"
         "Неделя содержит сбалансированный набор практик:\n"
         "• 2-3 бодрые, 5-15 минут\n"
-        "• по вторникам всегда работа с осанкой, спиной и шеей\n"
-        "• по пятницам что-то необычное для развития кругозора и получения нового опыта\n"
+        "• по вторникам - всегда работа с осанкой, спиной и шеей\n"
+        "• по пятницам - что-то необычное для развития кругозора и получения нового опыта\n"
         "• по субботам - горячая активная, 20-25 минут\n" 
         "• по воскресеньям - релакс, 20-25 минут\n"
         "• плюс бонус - приходит один раз в неделю в дополнение к основной практике: дыхательная техника, медитация, отстройка асан, изучение балансов на руках.\n"
         "*Ты не заметишь напряга, но тело скажет \"спасибо\" и отблагодарит отражением в зеркале!*\n\n"
         "🌀 Режим *By mood* — для тех, кто хочет делать зарядки и разминки по состоянию \"здесь и сейчас\", но без траты времени на поиск качественного контента.\n"
-        "*Нажимаешь кнопку под настроение, и бот сразу подбирает подходящую практику под твой запрос*: \"Ленивые дни\", \"Пятиминутка\", \"Практика дня\" и т.д. Также можно самому выбрать время и интенсивность.\n\n"
+        "*Нажимаешь кнопку по настроению, и бот сразу подбирает подходящую практику под твой запрос*: \"Ленивые дни\", \"Пятиминутка\", \"Практика дня\" и т.д. Также можно самому настроить время и интенсивность.\n\n"
         "Оба режима помогают практиковать регулярно, просто разным способом:\n"
         "*Daily* — через привычку и стабильность\n" 
         "*By mood* — через гибкость и свободу выбора.\n\n"
-        "Выбирай то, что ближе тебе сейчас, и *жми кнопку* 👇, изменить режим можно в любой момент в меню"
+        "Выбирай то, что ближе тебе сейчас, и *жми кнопку* 👇 \n"
+        "(изменить режим можно в любой момент в меню)"
     )
     await context.bot.send_message(
         chat_id=chat_id,
@@ -304,7 +304,7 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
     if not sample:
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Не смогла подобрать пример практики, но ты можешь сразу перейти к выбору режима 👇",
+            text="Не смог подобрать пример практики, но ты можешь сразу перейти к выбору режима 👇",
             reply_markup=get_choose_mode_keyboard(),
         )
         return
@@ -355,22 +355,24 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     if prev == "daily":
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Ты уже в режиме *Daily*. Время рассылки можно поменять кнопкой «Изменить время».",
+            text="Ты уже в режиме *Daily*. Время рассылки можно поменять по кнопке «Изменить время» на клавиатуре.",
             parse_mode="Markdown",
         )
         return
     if prev == "by_mood":
         set_user_daily_pending(user.id)
     welcome_text_1 = (
-        f"Ты выбрал мой любимый режим - *Daily* 🧡\n\n"
+        f"Ты выбрал мой любимый режим - *Daily*🧡\n\n"
         "Больше никакого скроллинга YouTube - просто открой сообщение и разомнись.\n\n"
         "Осталось *выбрать время* и можно начинать наш YogaDaily путь!"    )
-    await context.bot.send_message(
+    time_choice_message = await context.bot.send_message(
         chat_id=chat_id,
         text=welcome_text_1,
         reply_markup=get_welcome_keyboard(),
         parse_mode='Markdown',
     )
+    context.user_data["daily_time_choice_chat_id"] = chat_id
+    context.user_data["daily_time_choice_message_id"] = time_choice_message.message_id
 
 
 async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -388,7 +390,7 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     if get_user_bot_mode(user.id) == "by_mood":
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Ты уже в режиме *By mood*. Выбирай фильтр на клавиатуре ниже.",
+            text="Ты уже в режиме *By mood*. Выбирай практику по настроению с помощью кнопок на клавиатуре.",
             parse_mode="Markdown",
             reply_markup=get_by_mood_reply_keyboard(),
         )
@@ -403,10 +405,16 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
     text = (
-        "Режим *By mood* включён: расписание по времени сейчас выключено.\n\n"
-        "Нажимай кнопку — пришлю подходящую практику из базы. "
-        "Команда *изменить режим* — в меню команд (косая черта слева от поля ввода).\n\n"
-        "Пункт «сам решу» — пошагово: сначала длительность, потом интенсивность."
+        "Ты выбрал режим - *By mood*🧡 \n\n"
+        "Внизу у тебя *появились кнопки* для выбора практики по настроению:\n"
+        "🌀 *Практика дня* — рандом из каталога, доверься мне, я выберу что-то хорошее\n"
+        "🌀 *Без коврика* — где бы ты ни был, движение всегда рядом\n"
+        "🌀 *Ленивые дни* — когда ты почти овощ, но очень осознанный овощ\n"
+        "🌀 *Пятиминутка* — отсутствие времени больше не проблема\n"
+        "🌀 *Хард* — когда хочется почувствовать свою мощь\n"
+        "🌀 *Сам решу* — выбираешь время, потом интенсивность, а я подбираю практику\n\n"
+        "Также есть *Меню*, где можно посмотреть свой прогресс, задонатить и найти другую полезную инфу.\n\n"
+        "Присоединяйся в [коммьюнити бота](https://t.me/+AH0Kv1b97Ak4Y2Zi), чтобы делиться фитбеком и общаться с другими пользователями бота\n\n"
     )
     await context.bot.send_message(
         chat_id=chat_id,
@@ -436,6 +444,8 @@ async def want_start_callback(update: Update, context: CallbackContext):
     # Отвечаем на callback, чтобы убрать "часики" у кнопки
     await query.answer()
     await remove_callback_keyboard(query)
+    context.user_data.pop("daily_time_choice_chat_id", None)
+    context.user_data.pop("daily_time_choice_message_id", None)
     
     # Получаем данные пользователя
     user_id = update.effective_user.id
@@ -452,8 +462,8 @@ async def want_start_callback(update: Update, context: CallbackContext):
     
     # Сообщение о вводе времени
     time_input_text = (
-        "Супер!\n\n"
-        "Давай выберем время, в которое ты хочешь получать сообщения, рассылка начнется с завтрашнего дня.\n"
+        "*Последний шаг!*\n\n"
+        "Давай выберем время, в которое ты хочешь получать ежедневные практики.\n\n"
         "*Введи время в формате ЧЧ.ММ (например, 09.30)*\n\n"
         "PS. Время учитывается по МСК"
     )
@@ -533,10 +543,10 @@ async def handle_time_input(update: Update, context: CallbackContext):
     # Сообщение для онбординга (первый ввод времени)
     success_text = (
         f"Готово ✔️\n\n"
-        f"Твое время для практики *{selected_time}*\n"
-        "Начиная *с завтрашнего дня*, я буду присылать тебе ссылку на видео в это время автоматически.\n" 
+        f"Твое время *{selected_time}*.\n"
+        "Первая практика придет тебе в течение нескольких минут, а начиная с завтрашнего дня - ежедневно в выбранное тобой время автоматически.\n" 
         "*Главное - не отключай мой звук, а то пропустишь!*\n\n"
-        "Изменить время можно в любой момент."
+        "Изменить время можно в любой момент"
     )
     
     # Отправляем сообщение об успешной настройке (без кнопок)
@@ -552,10 +562,10 @@ async def handle_time_input(update: Update, context: CallbackContext):
         "Внизу у тебя *появились кнопки* режима Daily:\n\n"
         "🕓 *Изменить время* — жми, чтобы изменить время рассылки\n"
         "💡 *Советы* — жми обязательно\n"
-        "⏸ *Пауза* — приостановить или возобновить ежедневную рассылку\n\n"
-        "Команды *предложить практику*, *донаты* и *мой прогресс* — в меню команд (список слева от поля ввода).\n\n"
+        "🪫 *Пауза* — приостановить или возобновить ежедневную рассылку\n\n"
+        "Также есть *Меню*, где можно посмотреть свой прогресс, задонатить и найти другую полезную инфу.\n\n"
         "Присоединяйся в [коммьюнити бота](https://t.me/+AH0Kv1b97Ak4Y2Zi), чтобы делиться результатами и рассказывать о проблемах\n\n"
-        "Встретимся завтра! А пока можешь почитать советы и [выполнить практику из примера](https://youtu.be/oTzetTgYpSU?si=_V8LNx3i3Iq5zeoH) ",
+        "Лови первую практику!",
         reply_markup=get_main_reply_keyboard(),
         parse_mode='Markdown',
         disable_web_page_preview=True  # Отключаем предпросмотр видео
