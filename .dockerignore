@@ -8,6 +8,7 @@ __pycache__
 *.pyo
 *.pyd
 .Python
+.venv/
 env
 pip-log.txt
 pip-delete-this-directory.txt
@@ -26,8 +27,15 @@ coverage.xml
 
 # Virtual environments
 venv/
+.venv/
 env/
 ENV/
+
+# Secrets and local configs
+.env
+.env.*
+!.env.example
+test/.env.test
 
 # IDE
 .vscode/
@@ -39,18 +47,8 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Kubernetes
-k8s/
-
-# Documentation
-README.md
-DEPLOYMENT_README.md
-SCHEDULER_README.md
-*.md
-
-# Scripts
-deploy.sh
-
 # Temporary files
 *.tmp
 *.temp
+*.dump
+*.sql

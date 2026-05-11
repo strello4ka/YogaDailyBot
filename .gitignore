@@ -33,6 +33,7 @@ wheels/
 
 # Логи
 *.log
+broadcast_reports/
 
 # Конфигурационные файлы с секретами
 config.py
@@ -45,6 +46,8 @@ test/.env.test
 *.db
 *.sqlite
 *.sqlite3
+*.dump
+*.sql
 
 # Временные файлы
 .DS_Store

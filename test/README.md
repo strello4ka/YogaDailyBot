@@ -101,13 +101,13 @@ psql postgres -c "CREATE DATABASE yogadaily_test;"
 ## 4. Продовый бот
 
 - Ветка: **`main`**
-- Конфиг: **`.env`** (в корне проекта)
-- Запуск:  
-  `python app/main.py`  
-  (или как указано в основном README).  
+- Конфиг: **Railway Variables**
+- Запуск в Railway:  
+  `python -m app.main`  
+  (команда задана в корневом `Dockerfile`).  
 Продовый бот не использует скрипт `test/run_test.sh` и не читает `test/.env.test`.
 
-**Важно:** в прод-окружении (k8s, deploy) не устанавливай переменную `ENV_FILE`.
+**Важно:** в прод-окружении Railway не устанавливай переменную `ENV_FILE`.
 
 ---
 

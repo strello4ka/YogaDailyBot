@@ -7,7 +7,7 @@
 - логируется отправка в practice_logs;
 - отправляются бонусные практики.
 
-Использование (в проде через kubectl exec, пример):
+Использование (локально или через одноразовый Railway job/shell):
     python -m app.schedule.resend_missed_practices
 """
 
