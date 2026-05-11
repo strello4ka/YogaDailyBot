@@ -208,6 +208,14 @@ async def cancel_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
         print(f"=== DEBUG: Критическая ошибка при отмене напоминаний для user_id={user_id}: {e} ===")
 
 
+async def remove_callback_keyboard(query):
+    """Убирает inline-кнопки с сообщения, по которому пользователь уже сделал выбор."""
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception as e:
+        print(f"Не удалось убрать inline-кнопки после callback {query.data}: {e}")
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /start: сброс и первый экран онбординга."""
     context.user_data.pop('waiting_for_practice_suggestion', None)
@@ -216,21 +224,26 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('by_mood_self_step', None)
     context.user_data.pop('by_mood_self_time', None)
 
-    from data.db import set_user_onboarding_required
-    user_id = update.effective_user.id
-    set_user_onboarding_required(user_id)
-
     user = update.effective_user
+    chat_id = update.effective_chat.id
+
+    from data.db import set_user_onboarding_required
+    set_user_onboarding_required(
+        user.id,
+        chat_id,
+        user_name=user.first_name,
+        user_nickname=user.username,
+    )
 
     intro = (
         f"Привет, *{user.first_name}* 🧡\n\n"
         "Я, твой YogaDailyBot, помогу тебе чаще двигаться и не терять контакт с телом 🔋\n\n"
-        "Со мной тебе не нужно будет тратить время на поиск, ведь я храню большой каталог самых приятных практик от разных преподавателей, в том числе от владельца бота @strello4ka. "
-        "Каталог постоянно растет и обновляется. А практики подобраны сбалансировано и разнообразно: бодрящая разминка на все тело, изолированная на пресс, "
+        "Со мной тебе не нужно будет тратить время на поиск, ведь я храню *большой каталог самых приятных практик* от разных преподавателей, в том числе от владельца бота @strello4ka.\n"
+        "Каталог постоянно растет и обновляется, а *практики подобраны разнообразно:* бодрящая разминка на все тело, изолированная на пресс, "
         "здоровая спина, релакс вытяжение...перечислять можно долго, это все указывается в описании практики. "
         "Ее можно открыть тут в Telegram или перейти по ссылке на Youtube.\n\n"
-        "У меня есть несколько режимов работы для выбора под твой запрос и образ жизни.\n\n"
-        "Далее ты можешь посмотреть пример практики или сразу перейти к выбору режима 👇"
+        "У меня *есть несколько режимов работы* для выбора под твой запрос и образ жизни.\n\n"
+        "Далее ты можешь посмотреть пример практики или сразу *перейти к выбору режима* 👇"
     )
 
     msg = update.effective_message
@@ -249,22 +262,25 @@ async def onboarding_open_mode_choice_callback(update: Update, context: ContextT
     if not query:
         return
     await query.answer()
+    await remove_callback_keyboard(query)
     chat_id = update.effective_chat.id
     mode_text = (
-        "🌀 *Daily* — для тех, кто хочет мягко внедрить привычку заниматься ежедневно и не перегорать.\n"
-        "Выбираешь удобное время, и дальше каждый день бот присылает практику в это время.\n"
+        "🌀 Режим *Daily* — для тех, кто хочет мягко внедрить привычку заниматься ежедневно и не перегорать.\n"
+        "*Выбираешь удобное время, и бот присылает практику в это время каждый день.*\n"
         "Неделя содержит сбалансированный набор практик:\n"
-        "• 2-3 бодрые, короткие\n"
-        "• по вторникам всегда здоровая спина: работа с осанкой, спиной и шеей\n"
+        "• 2-3 бодрые, 5-15 минут\n"
+        "• по вторникам всегда работа с осанкой, спиной и шеей\n"
         "• по пятницам что-то необычное для развития кругозора и получения нового опыта\n"
-        "• в выходные практики чуть длиннее (суббота - горячая активная, воскресенье - релакс растяжка)\n"
-        "• плюс бонус: приходит один раз в неделю в дополнение к основной практике. Это может быть дыхательная техника, техники для расслабления тела, отстройка асан, изучение балансов на руках.\n"
-        "Ты не заметишь напряга, но тело скажет \"спасибо\" и станет радовать тебя отражением в зеркале!\n\n"
-        "🌀 *By mood* — для тех, кто хочет делать зарядки и разминки по состоянию \"здесь и сейчас\", но без траты времени на поиск качественного контента.\n"
-        "Нажимаешь кнопку под настроение, и бот сразу подбирает подходящую практику под твой запрос: \"Ленивые дни\", \"Пятиминутка\", \"Практика дня\" и т.д. Также можно самому выбрать время и интенсивность.\n\n"
+        "• по субботам - горячая активная, 20-25 минут\n" 
+        "• по воскресеньям - релакс, 20-25 минут\n"
+        "• плюс бонус - приходит один раз в неделю в дополнение к основной практике: дыхательная техника, медитация, отстройка асан, изучение балансов на руках.\n"
+        "*Ты не заметишь напряга, но тело скажет \"спасибо\" и отблагодарит отражением в зеркале!*\n\n"
+        "🌀 Режим *By mood* — для тех, кто хочет делать зарядки и разминки по состоянию \"здесь и сейчас\", но без траты времени на поиск качественного контента.\n"
+        "*Нажимаешь кнопку под настроение, и бот сразу подбирает подходящую практику под твой запрос*: \"Ленивые дни\", \"Пятиминутка\", \"Практика дня\" и т.д. Также можно самому выбрать время и интенсивность.\n\n"
         "Оба режима помогают практиковать регулярно, просто разным способом:\n"
-        "*Daily* — через привычку и стабильность, *By mood* — через гибкость и свободу выбора.\n\n"
-        "Выбирай то, что ближе тебе сейчас, изменить режим можно в любой момент в меню 🧡"
+        "*Daily* — через привычку и стабильность\n" 
+        "*By mood* — через гибкость и свободу выбора.\n\n"
+        "Выбирай то, что ближе тебе сейчас, и *жми кнопку* 👇, изменить режим можно в любой момент в меню"
     )
     await context.bot.send_message(
         chat_id=chat_id,
@@ -280,6 +296,7 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
     if not query:
         return
     await query.answer()
+    await remove_callback_keyboard(query)
     chat_id = update.effective_chat.id
 
     weekday = get_current_weekday()
@@ -328,6 +345,7 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     if not query:
         return
     await query.answer()
+    await remove_callback_keyboard(query)
     user = update.effective_user
     chat_id = update.effective_chat.id
 
@@ -344,8 +362,8 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     if prev == "by_mood":
         set_user_daily_pending(user.id)
     welcome_text_1 = (
-        f"Режим *Daily* - мой фаворит!🧡\n\n"
-        "Больше никакого скроллинга YouTube - просто открой сообщение и разомнись.\n"
+        f"Ты выбрал мой любимый режим - *Daily* 🧡\n\n"
+        "Больше никакого скроллинга YouTube - просто открой сообщение и разомнись.\n\n"
         "Осталось *выбрать время* и можно начинать наш YogaDaily путь!"    )
     await context.bot.send_message(
         chat_id=chat_id,
@@ -361,6 +379,7 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     if not query:
         return
     await query.answer()
+    await remove_callback_keyboard(query)
     user = update.effective_user
     chat_id = update.effective_chat.id
 
@@ -416,6 +435,7 @@ async def want_start_callback(update: Update, context: CallbackContext):
     
     # Отвечаем на callback, чтобы убрать "часики" у кнопки
     await query.answer()
+    await remove_callback_keyboard(query)
     
     # Получаем данные пользователя
     user_id = update.effective_user.id

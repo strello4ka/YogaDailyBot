@@ -1269,33 +1269,63 @@ def is_user_onboarding_required(user_id: int) -> bool:
         return False
 
 
-def set_user_onboarding_required(user_id: int) -> bool:
-    """Помечает пользователя как требующего повторного онбординга после /start.
+def set_user_onboarding_required(
+    user_id: int,
+    chat_id: int = None,
+    user_name: str = None,
+    user_nickname: str = None,
+) -> bool:
+    """Создает/помечает пользователя как требующего выбора режима после /start.
 
     Сбрасывает зависящие от старого состояния поля: challenge_start_id, user_days, program_position,
     is_paused (с датами/шагом напоминаний о паузе), а также обнуляет отметки выполненных практик (completed_at)
     для полного "старта с нуля".
-    Если пользователя нет в БД, возвращает True (он пройдёт стандартный онбординг как новый).
     """
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users
-            SET onboarding_required = TRUE,
-                challenge_start_id = NULL,
-                is_paused = FALSE,
-                paused_at = NULL,
-                last_pause_reminder_at = NULL,
-                pause_reminder_step = 0,
-                user_days = 0,
-                program_position = 0,
-                bot_mode = 'pending',
-                daily_schedule_enabled = FALSE,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = %s
-        ''', (user_id,))
+        if chat_id is not None:
+            cursor.execute('''
+                INSERT INTO users (
+                    user_id, chat_id, notify_time, user_name, user_nickname, user_days,
+                    onboarding_required, bot_mode, daily_schedule_enabled,
+                    challenge_start_id, is_paused, paused_at, last_pause_reminder_at,
+                    pause_reminder_step, program_position
+                )
+                VALUES (%s, %s, '00:00', %s, %s, 0, TRUE, 'pending', FALSE, NULL, FALSE, NULL, NULL, 0, 0)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    chat_id = EXCLUDED.chat_id,
+                    user_name = COALESCE(EXCLUDED.user_name, users.user_name),
+                    user_nickname = COALESCE(EXCLUDED.user_nickname, users.user_nickname),
+                    onboarding_required = TRUE,
+                    challenge_start_id = NULL,
+                    is_paused = FALSE,
+                    paused_at = NULL,
+                    last_pause_reminder_at = NULL,
+                    pause_reminder_step = 0,
+                    user_days = 0,
+                    program_position = 0,
+                    bot_mode = 'pending',
+                    daily_schedule_enabled = FALSE,
+                    updated_at = CURRENT_TIMESTAMP
+            ''', (user_id, chat_id, user_name, user_nickname))
+        else:
+            cursor.execute('''
+                UPDATE users
+                SET onboarding_required = TRUE,
+                    challenge_start_id = NULL,
+                    is_paused = FALSE,
+                    paused_at = NULL,
+                    last_pause_reminder_at = NULL,
+                    pause_reminder_step = 0,
+                    user_days = 0,
+                    program_position = 0,
+                    bot_mode = 'pending',
+                    daily_schedule_enabled = FALSE,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = %s
+            ''', (user_id,))
         cursor.execute('DELETE FROM by_mood_seen WHERE user_id = %s', (user_id,))
         cursor.execute(
             'UPDATE practice_logs SET completed_at = NULL WHERE user_id = %s',

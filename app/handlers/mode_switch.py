@@ -8,6 +8,12 @@ from app.keyboards import get_mode_choice_keyboard
 
 async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает выбор режима. Прогресс не трогаем — полный сброс только по /start."""
+    user_id = update.effective_user.id if update.effective_user else None
+    if user_id and context.user_data.get("waiting_for_time"):
+        from app.onboarding import cancel_reminders
+
+        await cancel_reminders(context, user_id)
+
     context.user_data.pop("waiting_for_practice_suggestion", None)
     context.user_data.pop("waiting_for_time", None)
     context.user_data.pop("is_time_change", None)
