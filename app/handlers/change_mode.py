@@ -3,7 +3,8 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.keyboards import get_mode_choice_keyboard
+from app.keyboards import MODE_CHOICE_INTRO_MARKDOWN, get_mode_choice_keyboard
+from app.mode.challenge import PENDING_CHALLENGE_PRACTICE_KEY
 
 
 async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -29,26 +30,10 @@ async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.pop("waiting_for_practice_suggestion", None)
     context.user_data.pop("waiting_for_time", None)
     context.user_data.pop("is_time_change", None)
+    context.user_data.pop(PENDING_CHALLENGE_PRACTICE_KEY, None)
 
     await update.message.reply_text(
-        "*Выбери режим работы бота:*\n\n"
-        "🌀 Режим *Daily* — для тех, кто хочет мягко внедрить привычку заниматься ежедневно и не перегорать.\n"
-        "*Выбираешь удобное время, и бот присылает практику в это время каждый день.*\n"
-        "Неделя содержит сбалансированный набор практик:\n"
-        "• 2-3 бодрые, 5-15 минут\n"
-        "• по вторникам - всегда работа с осанкой, спиной и шеей\n"
-        "• по пятницам - что-то необычное для развития кругозора и получения нового опыта\n"
-        "• по субботам - горячая активная, 20-25 минут\n"
-        "• по воскресеньям - релакс, 20-25 минут\n"
-        "• плюс бонус - приходит один раз в неделю в дополнение к основной практике: дыхательная техника, медитация, отстройка асан, изучение балансов на руках.\n"
-        "*Ты не заметишь напряга, но тело скажет \"спасибо\" и отблагодарит отражением в зеркале!*\n\n"
-        "🌀 Режим *By mood* — для тех, кто хочет делать зарядки и разминки по состоянию \"здесь и сейчас\", но без траты времени на поиск качественного контента.\n"
-        "*Нажимаешь кнопку по настроению, и бот сразу подбирает подходящую практику под твой запрос*: \"Ленивые дни\", \"Пятиминутка\", \"Практика дня\" и т.д. Также можно самому настроить время и интенсивность.\n\n"
-        "Оба режима помогают практиковать регулярно, просто разным способом:\n"
-        "*Daily* — через привычку и стабильность\n"
-        "*By mood* — через гибкость и свободу выбора.\n\n"
-        "Выбирай то, что ближе тебе сейчас, и *жми кнопку* 👇 \n"
-        "(изменить режим можно в любой момент в меню)",
+        MODE_CHOICE_INTRO_MARKDOWN,
         reply_markup=get_mode_choice_keyboard(),
         parse_mode="Markdown",
     )

@@ -93,6 +93,7 @@ def _sql_for_intensity_choice(label: str) -> tuple[str, tuple]:
 async def start_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Настрой свою практику *сам*:\nсначала выбери время (в минутах)👇",
+        parse_mode="Markdown",
         reply_markup=time_keyboard(),
     )
 
@@ -148,7 +149,7 @@ async def handle_intensity_callback(update: Update, context: ContextTypes.DEFAUL
     row = pick_random_by_mood_practice(user.id, filter_key, wh_time + wh_int, par_time + par_int)
     if not row:
         await query.message.reply_text(
-            "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое» и «любая» интенсивность)."
+            "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое» время или «любая» интенсивность)."
         )
         return
 

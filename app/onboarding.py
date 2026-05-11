@@ -536,18 +536,44 @@ async def handle_time_input(update: Update, context: CallbackContext):
     
     if not save_success:
         print(f"Ошибка сохранения времени пользователя {user_id} в БД")
-    
+
+    from app.mode.challenge import PENDING_CHALLENGE_PRACTICE_KEY
+    pending_challenge_id = context.user_data.get(PENDING_CHALLENGE_PRACTICE_KEY)
+    challenge_started = False
+    if save_success and pending_challenge_id is not None:
+        from data.db import set_user_challenge
+        if set_user_challenge(user_id, pending_challenge_id):
+            context.user_data.pop(PENDING_CHALLENGE_PRACTICE_KEY, None)
+            challenge_started = True
+        else:
+            await update.message.reply_text(
+                "Время сохранено, но включить челлендж не получилось. "
+                "Попробуй ещё раз команду /challenge с нужным id практики."
+            )
+
     # TODO: Настроить расписание для отправки
     # await schedule_daily_message(user_id, selected_time)
-    
-    # Сообщение для онбординга (первый ввод времени)
-    success_text = (
-        f"Готово ✔️\n\n"
-        f"Твое время *{selected_time}*.\n"
-        "Первая практика придет тебе в течение нескольких минут, а начиная с завтрашнего дня - ежедневно в выбранное тобой время автоматически.\n" 
-        "*Главное - не отключай мой звук, а то пропустишь!*\n\n"
-        "Изменить время можно в любой момент"
-    )
+
+    if challenge_started:
+        success_text = (
+            f"Готово ✔️\n\n"
+            f"Твое время *{selected_time}*.\n"
+            "Челлендж запущен: практики будут приходить по цепочке от выбранной, "
+            "каждый день в это время.\n"
+            "Первая практика придёт в течение нескольких минут, дальше — автоматически.\n"
+            f"Завтра в *{selected_time}* жди следующую по программе.\n\n"
+            "*Главное — не отключай мой звук, а то пропустишь!*\n\n"
+            "Изменить время можно в любой момент"
+        )
+    else:
+        # Сообщение для онбординга (первый ввод времени)
+        success_text = (
+            f"Готово ✔️\n\n"
+            f"Твое время *{selected_time}*.\n"
+            "Первая практика придет тебе в течение нескольких минут, а начиная с завтрашнего дня - ежедневно в выбранное тобой время автоматически.\n"
+            "*Главное - не отключай мой звук, а то пропустишь!*\n\n"
+            "Изменить время можно в любой момент"
+        )
     
     # Отправляем сообщение об успешной настройке (без кнопок)
     await update.message.reply_text(

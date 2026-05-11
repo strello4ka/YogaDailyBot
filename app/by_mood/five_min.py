@@ -1,4 +1,4 @@
-"""Кнопка «пятиминутка»: до 7 минут."""
+"""Кнопка «Пятиминутка»: до 8 минут включительно."""
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -8,7 +8,7 @@ from data.db import pick_random_by_mood_practice
 from .send_utils import deliver_by_mood_practice
 
 FILTER_KEY = "five"
-WHERE = " AND yp.time_practices < 7 AND yp.time_practices > 0 "
+WHERE = " AND yp.time_practices <= 8 AND yp.time_practices > 0 "
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -19,7 +19,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     row = pick_random_by_mood_practice(user.id, FILTER_KEY, WHERE, ())
     if not row:
         await update.message.reply_text(
-            "Не нашлось коротких практик до 7 минут. Попробуй другой фильтр."
+            "Не нашлось коротких практик до 8 минут включительно. Попробуй другой фильтр."
         )
         return
     ok = await deliver_by_mood_practice(context, chat.id, user.id, FILTER_KEY, row)
