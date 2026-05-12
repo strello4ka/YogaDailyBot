@@ -17,10 +17,12 @@ from data.db import (
     get_users_by_time,
     get_users_pending_for_today,
     get_yoga_practice_by_weekday_order,
-    increment_user_days,
-    get_user_days,
+    increment_total_practices,
+    get_total_practices,
     get_program_position,
     increment_program_position,
+    get_user_challenge_day,
+    increment_challenge_day,
     set_last_practice_message_id,
     get_last_practice_message_id,
     log_practice_sent,
@@ -92,19 +94,20 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             except Exception as edit_err:
                 logger.debug(f"Не удалось снять кнопку с сообщения {last_message_id}: {edit_err}")
 
-        # Вычисляем "плановую" позицию и день, но подтверждаем их только после успешной отправки.
+        # Вычисляем плановые счётчики, но подтверждаем их только после успешной отправки.
         # Это защищает от скачков прогресса при сетевых таймаутах Telegram API.
         program_position = get_program_position(user_id)
         next_position = program_position + 1
-        user_days = get_user_days(user_id) + 1
+        total_practices = get_total_practices(user_id) + 1
+        challenge_day = get_user_challenge_day(user_id) + 1
 
-        # Режим челленджа или обычный: практика по челленджу (если включён) или по дню недели
-        practice, is_challenge = get_practice_for_daily_send(user_id, weekday, next_position)
+        # Daily выбирается по program_position; Challenge — по отдельному challenge_day.
+        practice, is_challenge = get_practice_for_daily_send(user_id, weekday, challenge_day)
         if not is_challenge:
             practice = get_yoga_practice_by_weekday_order(weekday, next_position)
         if not practice:
             if is_challenge:
-                logger.error(f"Не найдена практика челленджа для пользователя {user_id}, день {next_position}")
+                logger.error(f"Не найдена практика челленджа для пользователя {user_id}, день {challenge_day}")
             else:
                 logger.error(f"Не найдена практика для дня недели {weekday}, день {next_position}")
             return
@@ -113,8 +116,8 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         (practice_id, title, video_url, time_practices, channel_name,
          description, my_description, intensity, practice_weekday, created_at, updated_at) = practice
 
-        # Формируем сообщение (номер дня для пользователя = user_days)
-        message_text = format_practice_message(user_days, my_description, time_practices, intensity, channel_name, video_url)
+        title = f"{challenge_day} день челленджа" if is_challenge else "Практика дня"
+        message_text = format_practice_message(title, my_description, time_practices, intensity, channel_name, video_url)
 
         # Отправляем сообщение с кнопкой «✅ Я сделал!»
         done_keyboard = get_practice_done_keyboard()
@@ -133,13 +136,16 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         set_user_blocked(user_id, False)
 
         # Подтверждаем прогресс только после успешной отправки пользователю.
-        increment_program_position(user_id)
-        increment_user_days(user_id)
+        if is_challenge:
+            increment_challenge_day(user_id)
+        else:
+            increment_program_position(user_id)
+        increment_total_practices(user_id)
 
         # Логируем отправку основной практики
-        log_practice_sent(user_id, practice_id, user_days)
+        log_practice_sent(user_id, practice_id, total_practices)
         
-        logger.info(f"Практика {practice_id} отправлена пользователю {user_id}, день {user_days}")
+        logger.info(f"Практика {practice_id} отправлена пользователю {user_id}, всего практик {total_practices}")
         
         # Получаем бонусные практики, если они есть
         bonus_practices = get_bonus_practices_by_parent(practice_id)
@@ -172,12 +178,12 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             logger.error(f"Ошибка отправки практики пользователю {user_id}: {e}")
 
 
-def format_practice_message(day_number: int, my_description: str, time_practices: int, 
+def format_practice_message(title: str, my_description: str, time_practices: int,
                           intensity: str, channel_name: str, video_url: str) -> str:
     """Форматирует сообщение с практикой.
     
     Args:
-        day_number: номер дня пользователя
+        title: заголовок сообщения (например, «Практика дня» или «1 день челленджа»)
         my_description: описание практики
         time_practices: длительность в минутах
         intensity: интенсивность
@@ -189,7 +195,7 @@ def format_practice_message(day_number: int, my_description: str, time_practices
     """
     # Формируем сообщение согласно требованиям
     message_parts = [
-        f"*{day_number} день*\n"
+        f"*{title}*\n"
     ]
     
     if my_description:
@@ -283,7 +289,7 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
 
         program_position = get_program_position(user_id)
         next_position = program_position + 1
-        user_days = get_user_days(user_id) + 1
+        total_practices = get_total_practices(user_id) + 1
 
         current_weekday = get_current_weekday()
         practice = get_yoga_practice_by_weekday_order(current_weekday, next_position)
@@ -296,7 +302,7 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
         (practice_id, title, video_url, time_practices, channel_name,
          description, my_description, intensity, practice_weekday, created_at, updated_at) = practice
 
-        message_text = format_practice_message(user_days, my_description, time_practices, intensity, channel_name, video_url)
+        message_text = format_practice_message("Практика дня", my_description, time_practices, intensity, channel_name, video_url)
         done_keyboard = get_practice_done_keyboard()
 
         message = await context.bot.send_message(
@@ -309,10 +315,10 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
         set_last_practice_message_id(user_id, message.message_id)
 
         increment_program_position(user_id)
-        increment_user_days(user_id)
+        increment_total_practices(user_id)
 
-        log_practice_sent(user_id, practice_id, user_days)
-        logger.info(f"Тестовая практика {practice_id} отправлена пользователю {user_id}, день {user_days}")
+        log_practice_sent(user_id, practice_id, total_practices)
+        logger.info(f"Тестовая практика {practice_id} отправлена пользователю {user_id}, всего практик {total_practices}")
         
         # Получаем бонусные практики, если они есть
         bonus_practices = get_bonus_practices_by_parent(practice_id)

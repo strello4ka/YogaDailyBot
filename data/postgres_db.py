@@ -83,7 +83,7 @@ def init_database():
                 chat_id BIGINT NOT NULL,
                 notify_time VARCHAR(5) NOT NULL,
                 user_name TEXT,
-                user_days INTEGER DEFAULT 0,
+                total_practices INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -327,6 +327,27 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца challenge_start_id: {e}")
 
+        # Миграция: user_days переименован в total_practices; challenge_day — отдельный счётчик челленджа
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name IN ('user_days', 'total_practices', 'challenge_day')
+            """)
+            user_columns = {row[0] for row in cursor.fetchall()}
+            if 'total_practices' not in user_columns and 'user_days' in user_columns:
+                cursor.execute('ALTER TABLE users RENAME COLUMN user_days TO total_practices')
+                user_columns.discard('user_days')
+                user_columns.add('total_practices')
+                print("   ✅ user_days переименован в total_practices")
+            if 'total_practices' not in user_columns:
+                cursor.execute('ALTER TABLE users ADD COLUMN total_practices INTEGER DEFAULT 0')
+                print("   ✅ Добавлен столбец total_practices в таблицу users")
+            if 'challenge_day' not in user_columns:
+                cursor.execute('ALTER TABLE users ADD COLUMN challenge_day INTEGER DEFAULT 0')
+                print("   ✅ Добавлен столбец challenge_day в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка миграции total_practices/challenge_day: {e}")
+
         # Миграция: program_position и last_practice_message_id для трекера прогресса
         try:
             cursor.execute("""
@@ -335,7 +356,7 @@ def init_database():
             """)
             if not cursor.fetchone():
                 cursor.execute('ALTER TABLE users ADD COLUMN program_position INTEGER DEFAULT 0')
-                cursor.execute('UPDATE users SET program_position = user_days WHERE program_position = 0 OR program_position IS NULL')
+                cursor.execute('UPDATE users SET program_position = total_practices WHERE program_position = 0 OR program_position IS NULL')
                 print("   ✅ Добавлен столбец program_position в таблицу users")
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца program_position: {e}")
@@ -501,7 +522,7 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         notify_time: время в формате HH:MM
         user_name: имя пользователя (опционально)
         user_nickname: никнейм пользователя из Telegram (опционально)
-        reset_days: если True, обнуляет счетчик дней (для первого запуска); если False, сохраняет текущий счетчик (для изменения времени)
+        reset_days: если True, обнуляет счётчик отправленных практик (для первого запуска); если False, сохраняет текущий счётчик (для изменения времени)
         
     Returns:
         bool: True если операция успешна, False в случае ошибки
@@ -511,9 +532,9 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         cursor = conn.cursor()
         
         if reset_days:
-            # Первый запуск (/start) - обнуляем счетчик дней
+            # Первый запуск (/start) - обнуляем счётчик отправленных практик
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days,
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, total_practices,
                     bot_mode, daily_schedule_enabled)
                 VALUES (%s, %s, %s, %s, %s, 0, 'daily', TRUE)
                 ON CONFLICT (user_id) 
@@ -522,16 +543,18 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                     notify_time = EXCLUDED.notify_time,
                     user_name = EXCLUDED.user_name,
                     user_nickname = EXCLUDED.user_nickname,
-                    user_days = 0,
+                    total_practices = 0,
                     onboarding_required = FALSE,
                     bot_mode = 'daily',
                     daily_schedule_enabled = TRUE,
+                    challenge_start_id = NULL,
+                    challenge_day = 0,
                     updated_at = CURRENT_TIMESTAMP
             ''', (user_id, chat_id, notify_time, user_name, user_nickname))
         else:
-            # Изменение времени - НЕ обнуляем счетчик дней
+            # Изменение времени - НЕ обнуляем счётчик отправленных практик
             cursor.execute('''
-                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days,
+                INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, total_practices,
                     bot_mode, daily_schedule_enabled)
                 VALUES (%s, %s, %s, %s, %s, 0, 'daily', TRUE)
                 ON CONFLICT (user_id) 
@@ -541,7 +564,10 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                     user_name = EXCLUDED.user_name,
                     user_nickname = EXCLUDED.user_nickname,
                     onboarding_required = FALSE,
-                    bot_mode = 'daily',
+                    bot_mode = CASE
+                        WHEN users.bot_mode = 'challenge' THEN 'challenge'
+                        ELSE 'daily'
+                    END,
                     daily_schedule_enabled = TRUE,
                     updated_at = CURRENT_TIMESTAMP
             ''', (user_id, chat_id, notify_time, user_name, user_nickname))
@@ -550,9 +576,9 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         conn.close()
         
         if reset_days:
-            print(f"Время пользователя {user_id} сохранено: {notify_time} (счетчик дней обнулен)")
+            print(f"Время пользователя {user_id} сохранено: {notify_time} (счётчик практик обнулен)")
         else:
-            print(f"Время пользователя {user_id} изменено на: {notify_time} (счетчик дней сохранен)")
+            print(f"Время пользователя {user_id} изменено на: {notify_time} (счётчик практик сохранен)")
         
         return True
         
@@ -668,8 +694,8 @@ def get_all_user_suggestions(limit: int = 100) -> list:
             conn.close()
         return []
 
-def increment_user_days(user_id: int) -> bool:
-    """Увеличивает счетчик дней пользователя на 1.
+def increment_total_practices(user_id: int) -> bool:
+    """Увеличивает общий счётчик отправленных практик пользователя на 1.
     
     Args:
         user_id: ID пользователя
@@ -682,8 +708,8 @@ def increment_user_days(user_id: int) -> bool:
         cursor = conn.cursor()
         
         cursor.execute('''
-            UPDATE users 
-            SET user_days = user_days + 1, updated_at = CURRENT_TIMESTAMP
+            UPDATE users
+            SET total_practices = COALESCE(total_practices, 0) + 1, updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
         ''', (user_id,))
         
@@ -693,32 +719,32 @@ def increment_user_days(user_id: int) -> bool:
         
         conn.commit()
         conn.close()
-        print(f"Дни пользователя {user_id} увеличены")
+        print(f"Счётчик отправленных практик пользователя {user_id} увеличен")
         return True
         
     except Exception as e:
-        print(f"Ошибка увеличения дней пользователя {user_id}: {e}")
+        print(f"Ошибка увеличения счётчика отправленных практик пользователя {user_id}: {e}")
         if conn:
             conn.rollback()
             conn.close()
         return False
 
-def get_user_days(user_id: int) -> int:
-    """Получает количество дней пользователя.
+def get_total_practices(user_id: int) -> int:
+    """Получает общее количество отправленных практик пользователя.
     
     Args:
         user_id: ID пользователя
         
     Returns:
-        int: Количество дней или 0 если пользователь не найден
+        int: Количество отправленных практик или 0 если пользователь не найден
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT user_days
-            FROM users 
+            SELECT COALESCE(total_practices, 0)
+            FROM users
             WHERE user_id = %s
         ''', (user_id,))
         
@@ -731,13 +757,13 @@ def get_user_days(user_id: int) -> int:
             return 0
             
     except Exception as e:
-        print(f"Ошибка получения дней пользователя {user_id}: {e}")
+        print(f"Ошибка получения счётчика отправленных практик пользователя {user_id}: {e}")
         if conn:
             conn.close()
         return 0
 
-def reset_user_days(user_id: int) -> bool:
-    """Сбрасывает счетчик дней пользователя к 0.
+def reset_total_practices(user_id: int) -> bool:
+    """Сбрасывает общий счётчик отправленных практик пользователя к 0.
     
     Args:
         user_id: ID пользователя
@@ -750,8 +776,8 @@ def reset_user_days(user_id: int) -> bool:
         cursor = conn.cursor()
         
         cursor.execute('''
-            UPDATE users 
-            SET user_days = 0, updated_at = CURRENT_TIMESTAMP
+            UPDATE users
+            SET total_practices = 0, updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
         ''', (user_id,))
         
@@ -761,11 +787,11 @@ def reset_user_days(user_id: int) -> bool:
         
         conn.commit()
         conn.close()
-        print(f"Счетчик дней пользователя {user_id} сброшен к 0")
+        print(f"Счётчик отправленных практик пользователя {user_id} сброшен к 0")
         return True
         
     except Exception as e:
-        print(f"Ошибка сброса дней пользователя {user_id}: {e}")
+        print(f"Ошибка сброса счётчика отправленных практик пользователя {user_id}: {e}")
         if conn:
             conn.rollback()
             conn.close()
@@ -876,15 +902,15 @@ def get_all_users() -> list:
     """Получает список всех пользователей с их данными.
     
     Returns:
-        list: Список кортежей (user_id, chat_id, notify_time, user_name, user_nickname, user_days)
+        list: Список кортежей (user_id, chat_id, notify_time, user_name, user_nickname, total_practices)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT user_id, chat_id, notify_time, user_name, user_nickname, user_days
-            FROM users 
+            SELECT user_id, chat_id, notify_time, user_name, user_nickname, total_practices
+            FROM users
             ORDER BY user_id
         ''')
         
@@ -919,7 +945,7 @@ def get_users_by_time(notify_time: str) -> list:
             WHERE notify_time = %s
               AND COALESCE(is_blocked, FALSE) = FALSE
               AND COALESCE(onboarding_required, FALSE) = FALSE
-              AND COALESCE(bot_mode, 'daily') = 'daily'
+              AND COALESCE(bot_mode, 'daily') IN ('daily', 'challenge')
               AND COALESCE(daily_schedule_enabled, TRUE) = TRUE
         ''', (notify_time,))
         
@@ -962,7 +988,7 @@ def get_users_pending_for_today(current_time: str) -> list:
               AND COALESCE(u.is_blocked, FALSE) = FALSE
               AND COALESCE(u.is_paused, FALSE) = FALSE
               AND COALESCE(u.onboarding_required, FALSE) = FALSE
-              AND COALESCE(u.bot_mode, 'daily') = 'daily'
+              AND COALESCE(u.bot_mode, 'daily') IN ('daily', 'challenge')
               AND COALESCE(u.daily_schedule_enabled, TRUE) = TRUE
               AND NOT EXISTS (
                   SELECT 1
@@ -1067,7 +1093,7 @@ def get_users_for_pause_reminder() -> list:
             WHERE COALESCE(is_paused, FALSE) = TRUE
               AND COALESCE(is_blocked, FALSE) = FALSE
               AND COALESCE(onboarding_required, FALSE) = FALSE
-              AND COALESCE(bot_mode, 'daily') = 'daily'
+              AND COALESCE(bot_mode, 'daily') IN ('daily', 'challenge')
               AND COALESCE(daily_schedule_enabled, TRUE) = TRUE
               AND paused_at <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
               AND (
@@ -1134,19 +1160,165 @@ def get_user_challenge_start_id(user_id: int):
         return None
 
 
+def get_user_challenge_day(user_id: int) -> int:
+    """Возвращает текущий день челленджа пользователя."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT COALESCE(challenge_day, 0) FROM users WHERE user_id = %s',
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return int(row[0]) if row else 0
+    except Exception as e:
+        print(f"Ошибка get_user_challenge_day {user_id}: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+
+def increment_challenge_day(user_id: int) -> bool:
+    """Увеличивает день челленджа на 1 после успешной отправки практики."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET challenge_day = COALESCE(challenge_day, 0) + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        ok = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception as e:
+        print(f"Ошибка increment_challenge_day {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def start_user_challenge_setup(
+    user_id: int,
+    chat_id: int,
+    challenge_start_id: int,
+    user_name: str = None,
+    user_nickname: str = None,
+) -> bool:
+    """Начинает сценарий челленджа: пользователь уже выбрал стартовую практику, но ещё выбирает время."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET chat_id = %s,
+                user_name = COALESCE(%s, user_name),
+                user_nickname = COALESCE(%s, user_nickname),
+                challenge_start_id = %s,
+                challenge_day = 0,
+                onboarding_required = TRUE,
+                bot_mode = 'challenge',
+                daily_schedule_enabled = FALSE,
+                is_paused = FALSE,
+                paused_at = NULL,
+                last_pause_reminder_at = NULL,
+                pause_reminder_step = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (chat_id, user_name, user_nickname, challenge_start_id, user_id),
+        )
+        if cursor.rowcount == 0:
+            conn.close()
+            return False
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка start_user_challenge_setup {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def complete_user_challenge_setup(
+    user_id: int,
+    chat_id: int,
+    notify_time: str,
+    user_name: str = None,
+    user_nickname: str = None,
+) -> bool:
+    """Завершает сценарий челленджа: сохраняет время и включает ежедневную рассылку challenge."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET chat_id = %s,
+                notify_time = %s,
+                user_name = COALESCE(%s, user_name),
+                user_nickname = COALESCE(%s, user_nickname),
+                challenge_day = 0,
+                onboarding_required = FALSE,
+                bot_mode = 'challenge',
+                daily_schedule_enabled = TRUE,
+                is_paused = FALSE,
+                paused_at = NULL,
+                last_pause_reminder_at = NULL,
+                pause_reminder_step = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+              AND challenge_start_id IS NOT NULL
+            ''',
+            (chat_id, notify_time, user_name, user_nickname, user_id),
+        )
+        if cursor.rowcount == 0:
+            conn.close()
+            return False
+        conn.commit()
+        conn.close()
+        print(f"Пользователь {user_id}: режим челленджа включен на {notify_time}")
+        return True
+    except Exception as e:
+        print(f"Ошибка complete_user_challenge_setup {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
 def set_user_challenge(user_id: int, challenge_start_id: int) -> bool:
-    """Включает режим челленджа: задаёт стартовый id, обнуляет счётчик дней и позицию в программе.
-    program_position обнуляется, чтобы первая отправка в челлендже была «день 1» (практика с challenge_start_id).
+    """Включает режим челленджа: задаёт стартовый id и обнуляет только день челленджа.
     
     Returns:
         bool: True при успехе
     """
+    conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE users 
-            SET challenge_start_id = %s, user_days = 0, program_position = 0, updated_at = CURRENT_TIMESTAMP
+            SET challenge_start_id = %s,
+                challenge_day = 0,
+                bot_mode = 'challenge',
+                daily_schedule_enabled = TRUE,
+                onboarding_required = FALSE,
+                updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
         ''', (challenge_start_id, user_id))
         if cursor.rowcount == 0:
@@ -1154,7 +1326,7 @@ def set_user_challenge(user_id: int, challenge_start_id: int) -> bool:
             return False
         conn.commit()
         conn.close()
-        print(f"Пользователь {user_id}: режим челленджа с id={challenge_start_id}, дни обнулены")
+        print(f"Пользователь {user_id}: режим челленджа с id={challenge_start_id}, день челленджа обнулён")
         return True
     except Exception as e:
         print(f"Ошибка set_user_challenge {user_id}: {e}")
@@ -1165,17 +1337,27 @@ def set_user_challenge(user_id: int, challenge_start_id: int) -> bool:
 
 
 def clear_user_challenge(user_id: int) -> bool:
-    """Выключает режим челленджа (challenge_start_id = NULL).
+    """Выключает режим челленджа и возвращает пользователя к выбору режима.
     
     Returns:
         bool: True при успехе
     """
+    conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE users 
-            SET challenge_start_id = NULL, updated_at = CURRENT_TIMESTAMP
+            SET challenge_start_id = NULL,
+                challenge_day = 0,
+                bot_mode = 'pending',
+                daily_schedule_enabled = FALSE,
+                onboarding_required = TRUE,
+                is_paused = FALSE,
+                paused_at = NULL,
+                last_pause_reminder_at = NULL,
+                pause_reminder_step = 0,
+                updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
         ''', (user_id,))
         conn.commit()
@@ -1237,7 +1419,7 @@ def get_user_notify_time(user_id: int):
             return None
         if row[1]:
             return None
-        if row[2] != 'daily':
+        if row[2] not in ('daily', 'challenge'):
             return None
         if not row[3]:
             return None
@@ -1277,7 +1459,7 @@ def set_user_onboarding_required(
 ) -> bool:
     """Создает/помечает пользователя как требующего выбора режима после /start.
 
-    Сбрасывает зависящие от старого состояния поля: challenge_start_id, user_days, program_position,
+    Сбрасывает зависящие от старого состояния поля: challenge_start_id, challenge_day, total_practices, program_position,
     is_paused (с датами/шагом напоминаний о паузе), а также обнуляет отметки выполненных практик (completed_at)
     для полного "старта с нуля".
     """
@@ -1288,23 +1470,24 @@ def set_user_onboarding_required(
         if chat_id is not None:
             cursor.execute('''
                 INSERT INTO users (
-                    user_id, chat_id, notify_time, user_name, user_nickname, user_days,
+                    user_id, chat_id, notify_time, user_name, user_nickname, total_practices,
                     onboarding_required, bot_mode, daily_schedule_enabled,
-                    challenge_start_id, is_paused, paused_at, last_pause_reminder_at,
+                    challenge_start_id, challenge_day, is_paused, paused_at, last_pause_reminder_at,
                     pause_reminder_step, program_position
                 )
-                VALUES (%s, %s, '00:00', %s, %s, 0, TRUE, 'pending', FALSE, NULL, FALSE, NULL, NULL, 0, 0)
+                VALUES (%s, %s, '00:00', %s, %s, 0, TRUE, 'pending', FALSE, NULL, 0, FALSE, NULL, NULL, 0, 0)
                 ON CONFLICT (user_id) DO UPDATE SET
                     chat_id = EXCLUDED.chat_id,
                     user_name = COALESCE(EXCLUDED.user_name, users.user_name),
                     user_nickname = COALESCE(EXCLUDED.user_nickname, users.user_nickname),
                     onboarding_required = TRUE,
                     challenge_start_id = NULL,
+                    challenge_day = 0,
                     is_paused = FALSE,
                     paused_at = NULL,
                     last_pause_reminder_at = NULL,
                     pause_reminder_step = 0,
-                    user_days = 0,
+                    total_practices = 0,
                     program_position = 0,
                     bot_mode = 'pending',
                     daily_schedule_enabled = FALSE,
@@ -1315,11 +1498,12 @@ def set_user_onboarding_required(
                 UPDATE users
                 SET onboarding_required = TRUE,
                     challenge_start_id = NULL,
+                    challenge_day = 0,
                     is_paused = FALSE,
                     paused_at = NULL,
                     last_pause_reminder_at = NULL,
                     pause_reminder_step = 0,
-                    user_days = 0,
+                    total_practices = 0,
                     program_position = 0,
                     bot_mode = 'pending',
                     daily_schedule_enabled = FALSE,
@@ -1347,7 +1531,7 @@ BY_MOOD_PRACTICE_LOG_DAY = -1
 
 
 def get_user_bot_mode(user_id: int) -> str:
-    """Режим бота: daily, by_mood, pending. Для отсутствующей строки — pending."""
+    """Режим бота: daily, by_mood, challenge, pending. Для отсутствующей строки — pending."""
     conn = None
     try:
         conn = get_connection()
@@ -1376,7 +1560,7 @@ def activate_user_by_mood(
         cursor = conn.cursor()
         cursor.execute(
             '''
-            INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, user_days,
+            INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, total_practices,
                 onboarding_required, bot_mode, daily_schedule_enabled)
             VALUES (%s, %s, '00:00', %s, %s, 0, FALSE, 'by_mood', FALSE)
             ON CONFLICT (user_id) DO UPDATE SET
@@ -1388,6 +1572,7 @@ def activate_user_by_mood(
                 bot_mode = 'by_mood',
                 daily_schedule_enabled = FALSE,
                 challenge_start_id = NULL,
+                challenge_day = 0,
                 is_paused = FALSE,
                 paused_at = NULL,
                 last_pause_reminder_at = NULL,
@@ -1420,6 +1605,7 @@ def set_user_daily_pending(user_id: int) -> bool:
                 daily_schedule_enabled = FALSE,
                 onboarding_required = TRUE,
                 challenge_start_id = NULL,
+                challenge_day = 0,
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
             ''',
@@ -2525,8 +2711,8 @@ def get_completed_count(user_id: int) -> int:
 def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received: int = 5):
     """Возвращает процент пользователей с таким же результатом по бакету процента выполнения.
 
-    Результат пользователя = completed / user_days * 100.
-    «Такие же» = пользователи с user_days >= min_received, чьи результаты попали в тот же
+    Результат пользователя = completed / total_practices * 100.
+    «Такие же» = пользователи с total_practices >= min_received, чьи результаты попали в тот же
     бакет шириной bucket_size (например, 50-54 для bucket_size=5).
 
     Returns:
@@ -2536,13 +2722,13 @@ def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received:
         conn = get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('SELECT COALESCE(user_days, 0) FROM users WHERE user_id = %s', (user_id,))
+        cursor.execute('SELECT COALESCE(total_practices, 0) FROM users WHERE user_id = %s', (user_id,))
         row = cursor.fetchone()
         if not row:
             conn.close()
             return None
-        user_days = int(row[0])
-        if user_days < min_received or user_days <= 0:
+        total_practices = int(row[0])
+        if total_practices < min_received or total_practices <= 0:
             conn.close()
             return None
 
@@ -2552,7 +2738,7 @@ def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received:
         ''', (user_id,))
         completed_row = cursor.fetchone()
         user_completed = int(completed_row[0]) if completed_row else 0
-        user_percent = (user_completed * 100.0) / user_days
+        user_percent = (user_completed * 100.0) / total_practices
         user_bucket = int(user_percent // bucket_size)
 
         cursor.execute('''
@@ -2564,19 +2750,19 @@ def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received:
             ),
             eligible AS (
                 SELECT u.user_id,
-                       u.user_days,
+                       u.total_practices,
                        COALESCE(c.completed_cnt, 0) AS completed_cnt
                 FROM users u
                 LEFT JOIN completed_by_user c ON c.user_id = u.user_id
                 WHERE COALESCE(u.is_blocked, FALSE) = FALSE
-                  AND COALESCE(u.user_days, 0) >= %s
+                  AND COALESCE(u.total_practices, 0) >= %s
             ),
             stats AS (
                 SELECT
                     COUNT(*) AS total_cnt,
                     SUM(
                         CASE
-                            WHEN FLOOR((completed_cnt * 100.0 / user_days) / %s) = %s THEN 1
+                            WHEN FLOOR((completed_cnt * 100.0 / total_practices) / %s) = %s THEN 1
                             ELSE 0
                         END
                     ) AS same_cnt
@@ -2603,11 +2789,11 @@ def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received:
 
 
 def reset_user_progress(user_id: int) -> bool:
-    """Сбрасывает прогресс: user_days = 0, completed_at = NULL по всем логам пользователя. program_position не меняется."""
+    """Сбрасывает прогресс: total_practices = 0, completed_at = NULL по всем логам пользователя. program_position не меняется."""
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute('UPDATE users SET user_days = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s', (user_id,))
+        cursor.execute('UPDATE users SET total_practices = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s', (user_id,))
         if cursor.rowcount == 0:
             conn.close()
             return False

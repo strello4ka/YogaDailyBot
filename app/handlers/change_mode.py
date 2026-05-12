@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.keyboards import MODE_CHOICE_INTRO_MARKDOWN, get_mode_choice_keyboard
-from app.mode.challenge import PENDING_CHALLENGE_PRACTICE_KEY
+from app.mode.challenge import CHALLENGE_TIME_FLOW_KEY, PENDING_CHALLENGE_PRACTICE_KEY
 
 
 async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -30,6 +30,7 @@ async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.pop("waiting_for_practice_suggestion", None)
     context.user_data.pop("waiting_for_time", None)
     context.user_data.pop("is_time_change", None)
+    context.user_data.pop(CHALLENGE_TIME_FLOW_KEY, None)
     context.user_data.pop(PENDING_CHALLENGE_PRACTICE_KEY, None)
 
     await update.message.reply_text(

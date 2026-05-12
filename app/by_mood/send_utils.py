@@ -8,6 +8,7 @@ from app.keyboards import get_practice_done_keyboard
 from data.db import (
     BY_MOOD_PRACTICE_LOG_DAY,
     get_last_practice_message_id,
+    increment_total_practices,
     log_practice_sent,
     record_by_mood_seen,
     set_last_practice_message_id,
@@ -87,6 +88,7 @@ async def deliver_by_mood_practice(
         )
         set_last_practice_message_id(user_id, msg.message_id)
         set_user_blocked(user_id, False)
+        increment_total_practices(user_id)
         log_practice_sent(user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY)
         return True
     except Exception as e:

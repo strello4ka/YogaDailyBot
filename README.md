@@ -162,8 +162,10 @@ python tools/broadcast_old_bot_migration.py --send --confirm SEND
 - `notify_time` - время уведомлений (HH:MM)
 - `user_name` - имя пользователя
 - `user_nickname` - username пользователя
-- `user_days` - количество дней практики
-- `bot_mode` - режим (`pending`, `daily`, `by_mood`)
+- `total_practices` - всего отправлено практик во всех режимах
+- `program_position` - техническая позиция в Daily-программе
+- `challenge_day` - текущий день челленджа
+- `bot_mode` - режим (`pending`, `daily`, `by_mood`, `challenge`)
 - `daily_schedule_enabled` - включена ли ежедневная рассылка
 - `is_paused` - пауза Daily-рассылки
 - `created_at` - дата регистрации
@@ -187,7 +189,7 @@ python tools/broadcast_old_bot_migration.py --send --confirm SEND
 - `user_id` - ID пользователя
 - `practice_id` - ID практики
 - `sent_at` - время отправки
-- `day_number` - номер дня пользователя
+- `day_number` - номер отправки в общем счётчике (`total_practices`), для By mood используется служебное значение `-1`
 - `completed_at` - дата отметки выполнения
 
 ### Таблица `by_mood_seen`

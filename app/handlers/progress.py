@@ -5,21 +5,16 @@ from telegram.ext import ContextTypes
 
 from data.db import (
     get_completed_count,
-    get_user_days,
+    get_total_practices,
     get_similar_result_percent,
     reset_user_progress,
-    get_user_challenge_start_id,
 )
 
 
 def _progress_text(user_id: int) -> str:
     """Формирует текст прогресса «N из M»."""
     n = get_completed_count(user_id)
-    m = get_user_days(user_id)
-    is_challenge = get_user_challenge_start_id(user_id) is not None
-
-    if is_challenge:
-        return f"*Твой прогресс📈*\n\nВыполнено практик: *{n}*"
+    m = get_total_practices(user_id)
 
     if m == 0:
         return "Ты еще не выполнил ни одной практики, все самое прекрасное впереди✨"
@@ -30,7 +25,7 @@ def _similar_result_line(user_id: int) -> str:
     """Текст про долю пользователей с таким же результатом."""
     if get_completed_count(user_id) == 0:
         return ""
-    m = get_user_days(user_id)
+    m = get_total_practices(user_id)
     if m < 3:
         return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
 
@@ -68,8 +63,7 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
     if not msg:
         return
     text = _progress_text(user_id)
-    if get_user_challenge_start_id(user_id) is None:
-        text += _similar_result_line(user_id)
+    text += _similar_result_line(user_id)
     reply_markup = None if get_completed_count(user_id) == 0 else _progress_keyboard()
     await msg.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 

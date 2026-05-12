@@ -34,10 +34,10 @@ async def pause_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     user_id = user.id
-    # Кнопка «Пауза» только в Daily; вызов из другого режима не ожидается.
-    if get_user_bot_mode(user_id) != "daily":
+    # Кнопка «Пауза» относится к ежедневной рассылке: обычный Daily или активный challenge.
+    if get_user_bot_mode(user_id) not in ("daily", "challenge"):
         await message.reply_text(
-            "Пауза относится только к ежедневной рассылке в режиме *Daily*.",
+            "Пауза относится только к ежедневной рассылке в режимах *Daily* и *Challenge*.",
             parse_mode="Markdown",
         )
         return

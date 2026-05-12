@@ -221,6 +221,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
+    context.user_data.pop('waiting_for_challenge_time', None)
+    context.user_data.pop('pending_challenge_practice_id', None)
 
     user = update.effective_user
     chat_id = update.effective_chat.id
@@ -323,7 +325,7 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
         _updated_at,
     ) = sample
     text = format_practice_message(
-        day_number=1,
+        title="Практика дня",
         my_description=my_description,
         time_practices=time_practices,
         intensity=intensity,
@@ -359,7 +361,7 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
             parse_mode="Markdown",
         )
         return
-    if prev == "by_mood":
+    if prev in ("by_mood", "challenge"):
         set_user_daily_pending(user.id)
     welcome_text_1 = (
         f"Ты выбрал мой любимый режим - *Daily*🧡\n\n"
@@ -440,6 +442,23 @@ async def want_start_callback(update: Update, context: CallbackContext):
     # Получаем callback query (нажатие кнопки)
     query = update.callback_query
     print(f"Callback data: {query.data}")
+
+    user_id = update.effective_user.id
+    from app.mode.challenge import (
+        PENDING_CHALLENGE_PRACTICE_KEY,
+        handle_challenge_time_choice_callback,
+    )
+    from data.db import get_user_bot_mode, is_user_onboarding_required
+
+    if (
+        context.user_data.get(PENDING_CHALLENGE_PRACTICE_KEY)
+        or (
+            get_user_bot_mode(user_id) == "challenge"
+            and is_user_onboarding_required(user_id)
+        )
+    ):
+        await handle_challenge_time_choice_callback(update, context)
+        return
     
     # Отвечаем на callback, чтобы убрать "часики" у кнопки
     await query.answer()
@@ -448,7 +467,6 @@ async def want_start_callback(update: Update, context: CallbackContext):
     context.user_data.pop("daily_time_choice_message_id", None)
     
     # Получаем данные пользователя
-    user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     
     # Очищаем другие состояния перед установкой нового
@@ -537,43 +555,17 @@ async def handle_time_input(update: Update, context: CallbackContext):
     if not save_success:
         print(f"Ошибка сохранения времени пользователя {user_id} в БД")
 
-    from app.mode.challenge import PENDING_CHALLENGE_PRACTICE_KEY
-    pending_challenge_id = context.user_data.get(PENDING_CHALLENGE_PRACTICE_KEY)
-    challenge_started = False
-    if save_success and pending_challenge_id is not None:
-        from data.db import set_user_challenge
-        if set_user_challenge(user_id, pending_challenge_id):
-            context.user_data.pop(PENDING_CHALLENGE_PRACTICE_KEY, None)
-            challenge_started = True
-        else:
-            await update.message.reply_text(
-                "Время сохранено, но включить челлендж не получилось. "
-                "Попробуй ещё раз команду /challenge с нужным id практики."
-            )
-
     # TODO: Настроить расписание для отправки
     # await schedule_daily_message(user_id, selected_time)
 
-    if challenge_started:
-        success_text = (
-            f"Готово ✔️\n\n"
-            f"Твое время *{selected_time}*.\n"
-            "Челлендж запущен: практики будут приходить по цепочке от выбранной, "
-            "каждый день в это время.\n"
-            "Первая практика придёт в течение нескольких минут, дальше — автоматически.\n"
-            f"Завтра в *{selected_time}* жди следующую по программе.\n\n"
-            "*Главное — не отключай мой звук, а то пропустишь!*\n\n"
-            "Изменить время можно в любой момент"
-        )
-    else:
-        # Сообщение для онбординга (первый ввод времени)
-        success_text = (
-            f"Готово ✔️\n\n"
-            f"Твое время *{selected_time}*.\n"
-            "Первая практика придет тебе в течение нескольких минут, а начиная с завтрашнего дня - ежедневно в выбранное тобой время автоматически.\n"
-            "*Главное - не отключай мой звук, а то пропустишь!*\n\n"
-            "Изменить время можно в любой момент"
-        )
+    # Сообщение для онбординга (первый ввод времени)
+    success_text = (
+        f"Готово ✔️\n\n"
+        f"Твое время *{selected_time}*.\n"
+        "Первая практика придет тебе в течение нескольких минут, а начиная с завтрашнего дня - ежедневно в выбранное тобой время автоматически.\n"
+        "*Главное - не отключай мой звук, а то пропустишь!*\n\n"
+        "Изменить время можно в любой момент"
+    )
     
     # Отправляем сообщение об успешной настройке (без кнопок)
     await update.message.reply_text(

@@ -45,7 +45,13 @@ from .handlers.secret import (
     handle_secret_edit_input,
 )
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
-from .mode.challenge import challenge_command, challenge_compact_command, challenge_off_command
+from .mode.challenge import (
+    CHALLENGE_TIME_FLOW_KEY,
+    challenge_command,
+    challenge_compact_command,
+    challenge_off_command,
+    handle_challenge_time_input,
+)
 from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
@@ -98,6 +104,10 @@ async def handle_text_input(update: Update, context):
     
     # Проверяем состояние ожидания ввода времени
     if context.user_data.get('waiting_for_time'):
+        if context.user_data.get(CHALLENGE_TIME_FLOW_KEY):
+            print("=== DEBUG: Переадресация на handle_challenge_time_input ===")
+            await handle_challenge_time_input(update, context)
+            return
         # Проверяем, это изменение времени или онбординг
         if context.user_data.get('is_time_change'):
             print("=== DEBUG: Переадресация на handle_time_change_input (изменение времени) ===")
@@ -105,6 +115,17 @@ async def handle_text_input(update: Update, context):
         else:
             print("=== DEBUG: Переадресация на handle_time_input (онбординг) ===")
             await handle_time_input(update, context)
+        return
+
+    from data.db import get_user_bot_mode, is_user_onboarding_required
+
+    if (
+        update.effective_user
+        and get_user_bot_mode(update.effective_user.id) == "challenge"
+        and is_user_onboarding_required(update.effective_user.id)
+    ):
+        print("=== DEBUG: Переадресация на handle_challenge_time_input (challenge из БД) ===")
+        await handle_challenge_time_input(update, context)
         return
     
     print("=== DEBUG: Никакое состояние не установлено, сообщение игнорируется ===")
