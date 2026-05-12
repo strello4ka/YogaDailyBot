@@ -363,6 +363,9 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
         return
     if prev in ("by_mood", "challenge"):
         set_user_daily_pending(user.id)
+        from app.mode.extra_practices import strip_extra_practices_inline_keyboards
+
+        await strip_extra_practices_inline_keyboards(context.bot, user.id)
     welcome_text_1 = (
         f"Ты выбрал мой любимый режим - *Daily*🧡\n\n"
         "Больше никакого скроллинга YouTube - просто открой сообщение и разомнись.\n\n"
@@ -426,6 +429,7 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
         text=text,
         parse_mode='Markdown',
         reply_markup=get_by_mood_reply_keyboard(),
+        disable_web_page_preview=True,
     )
 
 
@@ -565,9 +569,8 @@ async def handle_time_input(update: Update, context: CallbackContext):
     success_text = (
         f"Готово ✔️\n\n"
         f"Твое время *{selected_time}*.\n"
-        "Первая практика придет тебе в течение нескольких минут, а начиная с завтрашнего дня - ежедневно в выбранное тобой время автоматически.\n"
-        "*Главное - не отключай мой звук, а то пропустишь!*\n\n"
-        "Изменить время можно в любой момент"
+        "Начиная с *завтрашнего дня*, практики будут приходить ежедневно в выбранное тобой время автоматически.\n\n"
+        "А сейчас ознакомься с новыми кнопками 👇"
     )
     
     # Отправляем сообщение об успешной настройке (без кнопок)
@@ -584,10 +587,9 @@ async def handle_time_input(update: Update, context: CallbackContext):
         "🕓 *Изменить время* — жми, чтобы изменить время рассылки\n"
         "💡 *Советы* — жми обязательно\n"
         "🪫 *Пауза* — приостановить или возобновить ежедневную рассылку\n"
-        "✨ *Еще практики* — дополнительные практики по настроению (как в By mood), без смены режима\n\n"
-        "Также есть *Меню*, где можно посмотреть свой прогресс, задонатить и найти другую полезную инфу.\n\n"
-        "Присоединяйся в [коммьюнити бота](https://t.me/+AH0Kv1b97Ak4Y2Zi), чтобы делиться результатами и рассказывать о проблемах\n\n"
-        "Лови первую практику!",
+        "✨ *Еще практики* — дополнительные практики по настроению (как в режиме By mood, но без отключения ежедневной рассылки)\n\n"
+        "Также есть *Меню*, где можно посмотреть свой прогресс, задонатить и найти другую полезную инфу\n\n"
+        "Присоединяйся в [коммьюнити бота](https://t.me/+AH0Kv1b97Ak4Y2Zi), чтобы делиться результатами и рассказывать о проблемах",
         reply_markup=get_main_reply_keyboard(),
         parse_mode='Markdown',
         disable_web_page_preview=True  # Отключаем предпросмотр видео

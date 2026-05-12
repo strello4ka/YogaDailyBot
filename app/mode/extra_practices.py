@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 EXTRA_PRACTICES_INTRO = (
     "Тут ты можешь получить дополнительные практики отдельно от ежедневной рассылки.\n"
     "Выбери, что тебе хочется сейчас, по кнопкам ниже.\n\n"
-    "Если хочешь полностью отменить ежедневную рассылку и получать только практики по кнопкам, "
-    "измени режим в меню"
+    "Если хочешь отменить ежедневную рассылку и получать только практики по кнопкам, "
+    "измени режим в меню на By mood"
 )
 
 EXTRA_MOOD_PREFIX = "extra_mood:"
@@ -150,7 +150,8 @@ async def handle_extra_mood_callback(update: Update, context: ContextTypes.DEFAU
     chat = update.effective_chat
     if not user or not chat or not user_may_use_extra_practices(user.id):
         await query.edit_message_reply_markup(reply_markup=None)
-        remove_extra_practices_inline_message(user.id, chat.id, query.message.message_id)
+        if user and chat and query.message:
+            remove_extra_practices_inline_message(user.id, chat.id, query.message.message_id)
         await query.message.reply_text(_STALE_EXTRA_MSG)
         return
 
@@ -160,11 +161,12 @@ async def handle_extra_mood_callback(update: Update, context: ContextTypes.DEFAU
     slug = data[len(EXTRA_MOOD_PREFIX) :]
 
     if slug == "self_start":
-        await query.edit_message_text(
+        msg = await query.message.reply_text(
             "Настрой свою практику *сам*:\nсначала выбери время (в минутах)👇",
             parse_mode="Markdown",
             reply_markup=time_keyboard(callback_prefix=EXTRA_SELF_TIME_PREFIX),
         )
+        append_extra_practices_inline_message(user.id, chat.id, msg.message_id)
         return
 
     spec = _EXTRA_SLUG_MAP.get(slug)
@@ -178,8 +180,6 @@ async def handle_extra_mood_callback(update: Update, context: ContextTypes.DEFAU
         await query.message.reply_text(empty_msg)
         return
 
-    await query.edit_message_reply_markup(reply_markup=None)
-    remove_extra_practices_inline_message(user.id, chat.id, query.message.message_id)
     ok = await deliver_by_mood_practice(context, chat.id, user.id, filter_key, row)
     if not ok:
         await query.message.reply_text("Не удалось отправить практику. Попробуй ещё раз.")
@@ -192,9 +192,10 @@ async def handle_extra_self_time_callback(update: Update, context: ContextTypes.
         if query:
             await query.answer()
             await query.edit_message_reply_markup(reply_markup=None)
-            remove_extra_practices_inline_message(
-                user.id, update.effective_chat.id, query.message.message_id
-            )
+            if user and update.effective_chat and query.message:
+                remove_extra_practices_inline_message(
+                    user.id, update.effective_chat.id, query.message.message_id
+                )
             await query.message.reply_text(_STALE_EXTRA_MSG)
         return
     await self_handle_time(
@@ -214,9 +215,10 @@ async def handle_extra_self_intensity_callback(
         if query:
             await query.answer()
             await query.edit_message_reply_markup(reply_markup=None)
-            remove_extra_practices_inline_message(
-                user.id, update.effective_chat.id, query.message.message_id
-            )
+            if user and update.effective_chat and query.message:
+                remove_extra_practices_inline_message(
+                    user.id, update.effective_chat.id, query.message.message_id
+                )
             await query.message.reply_text(_STALE_EXTRA_MSG)
         return
     await self_handle_intensity(
