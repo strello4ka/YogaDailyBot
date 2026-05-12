@@ -404,6 +404,9 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
         user_name=user.first_name,
         user_nickname=user.username,
     )
+    from app.mode.extra_practices import strip_extra_practices_inline_keyboards
+
+    await strip_extra_practices_inline_keyboards(context.bot, user.id)
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
     text = (
@@ -580,7 +583,8 @@ async def handle_time_input(update: Update, context: CallbackContext):
         "Внизу у тебя *появились кнопки* режима Daily:\n\n"
         "🕓 *Изменить время* — жми, чтобы изменить время рассылки\n"
         "💡 *Советы* — жми обязательно\n"
-        "🪫 *Пауза* — приостановить или возобновить ежедневную рассылку\n\n"
+        "🪫 *Пауза* — приостановить или возобновить ежедневную рассылку\n"
+        "✨ *Еще практики* — дополнительные практики по настроению (как в By mood), без смены режима\n\n"
         "Также есть *Меню*, где можно посмотреть свой прогресс, задонатить и найти другую полезную инфу.\n\n"
         "Присоединяйся в [коммьюнити бота](https://t.me/+AH0Kv1b97Ak4Y2Zi), чтобы делиться результатами и рассказывать о проблемах\n\n"
         "Лови первую практику!",

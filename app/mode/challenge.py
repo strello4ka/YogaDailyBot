@@ -160,7 +160,8 @@ async def handle_challenge_time_input(update: Update, context: ContextTypes.DEFA
             "Внизу у тебя появились кнопки:\n\n"
             "🕓 Изменить время — жми, чтобы изменить время рассылки\n"
             "💡 Советы — жми обязательно\n"
-            "🪫 Пауза — приостановить или возобновить ежедневную рассылку\n\n"
+            "🪫 Пауза — приостановить или возобновить ежедневную рассылку\n"
+            "✨ Еще практики — дополнительные подборки по настроению (как в By mood), без смены режима\n\n"
             "Также есть *Меню*, где можно посмотреть свой прогресс, задонатить и найти другую полезную инфу"
         ),
         reply_markup=get_main_reply_keyboard(),
@@ -233,6 +234,9 @@ async def challenge_off_command(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop(CHALLENGE_TIME_FLOW_KEY, None)
     context.user_data.pop("waiting_for_time", None)
     clear_user_challenge(user_id)
+    from app.mode.extra_practices import strip_extra_practices_inline_keyboards
+
+    await strip_extra_practices_inline_keyboards(context.bot, user_id)
     await update.message.reply_text(
         "Режим челленджа завершен ✔️\n"
         "Какой бы ни был твой результат, ты супер!\n"

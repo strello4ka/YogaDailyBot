@@ -1,5 +1,6 @@
 import psycopg2
 import psycopg2.extras
+import json
 import os
 import logging
 from datetime import datetime
@@ -412,6 +413,20 @@ def init_database():
                 print("   ✅ Добавлен столбец pause_reminder_step в таблицу users")
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца pause_reminder_step: {e}")
+
+        # Миграция: id сообщений с inline «Еще практики» (снять клавиатуру при смене режима)
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'extra_practices_inline_messages'
+            """)
+            if not cursor.fetchone():
+                cursor.execute(
+                    "ALTER TABLE users ADD COLUMN extra_practices_inline_messages JSONB DEFAULT '[]'::jsonb NOT NULL"
+                )
+                print("   ✅ Добавлен столбец extra_practices_inline_messages в users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца extra_practices_inline_messages: {e}")
 
         # Миграция: completed_at в practice_logs для отметки «✅ Я сделал!»
         try:
@@ -1548,6 +1563,152 @@ def get_user_bot_mode(user_id: int) -> str:
         if conn:
             conn.close()
         return "pending"
+
+
+MAX_EXTRA_PRACTICES_INLINE_TRACKED = 40
+
+
+def _extra_inline_messages_as_lists(raw) -> list:
+    """Нормализует JSONB в список пар [chat_id, message_id]."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            try:
+                out.append([int(item[0]), int(item[1])])
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def append_extra_practices_inline_message(user_id: int, chat_id: int, message_id: int) -> bool:
+    """Запоминает сообщение с inline «Еще практики», чтобы снять клавиатуру при смене режима."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT COALESCE(extra_practices_inline_messages, '[]'::jsonb)
+            FROM users WHERE user_id = %s FOR UPDATE
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.rollback()
+            conn.close()
+            return False
+        lst = _extra_inline_messages_as_lists(row[0])
+        pair = [chat_id, message_id]
+        if pair not in lst:
+            lst.append(pair)
+        if len(lst) > MAX_EXTRA_PRACTICES_INLINE_TRACKED:
+            lst = lst[-MAX_EXTRA_PRACTICES_INLINE_TRACKED:]
+        cursor.execute(
+            """
+            UPDATE users SET extra_practices_inline_messages = %s::jsonb, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            """,
+            (json.dumps(lst), user_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка append_extra_practices_inline_message {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def remove_extra_practices_inline_message(user_id: int, chat_id: int, message_id: int) -> bool:
+    """Убирает пару из учёта (сообщение уже без inline или устарело)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT COALESCE(extra_practices_inline_messages, '[]'::jsonb)
+            FROM users WHERE user_id = %s FOR UPDATE
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.rollback()
+            conn.close()
+            return False
+        lst = _extra_inline_messages_as_lists(row[0])
+        pair = [chat_id, message_id]
+        if pair not in lst:
+            conn.commit()
+            conn.close()
+            return True
+        lst = [p for p in lst if p != pair]
+        cursor.execute(
+            """
+            UPDATE users SET extra_practices_inline_messages = %s::jsonb, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            """,
+            (json.dumps(lst), user_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка remove_extra_practices_inline_message {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def take_and_clear_extra_practices_inline_messages(user_id: int) -> list:
+    """Атомарно забирает список [[chat_id, message_id], ...] и очищает поле в БД."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT COALESCE(extra_practices_inline_messages, '[]'::jsonb)
+            FROM users WHERE user_id = %s FOR UPDATE
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.rollback()
+            conn.close()
+            return []
+        lst = _extra_inline_messages_as_lists(row[0])
+        cursor.execute(
+            """
+            UPDATE users SET extra_practices_inline_messages = '[]'::jsonb, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        )
+        conn.commit()
+        conn.close()
+        return lst
+    except Exception as e:
+        print(f"Ошибка take_and_clear_extra_practices_inline_messages {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return []
 
 
 def activate_user_by_mood(

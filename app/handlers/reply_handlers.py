@@ -28,6 +28,19 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     message_text = update.message.text
     user_id = update.effective_user.id if update.effective_user else None
 
+    if message_text == "Еще практики":
+        from app.mode.extra_practices import send_extra_practices_intro, user_may_use_extra_practices
+
+        if user_id and user_may_use_extra_practices(user_id):
+            await send_extra_practices_intro(update, context)
+        elif user_id:
+            await update.message.reply_text(
+                "Кнопка «Еще практики» работает в режимах *Daily* и *Challenge*. "
+                "Сейчас у тебя другой режим — переключись через /change_mode, если нужно.",
+                parse_mode="Markdown",
+            )
+        return
+
     if user_id and get_user_bot_mode(user_id) == "by_mood" and message_text in _BY_MOOD_LABELS:
         await _dispatch_by_mood_button(update, context, message_text)
         return

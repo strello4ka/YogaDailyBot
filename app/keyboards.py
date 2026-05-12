@@ -74,10 +74,11 @@ def get_practice_done_keyboard():
 
 
 def get_main_reply_keyboard():
-    """Reply-клавиатура режима Daily: время, советы, пауза рассылки."""
+    """Reply-клавиатура режима Daily и Challenge: время, советы, пауза, доп. практики."""
     keyboard = [
         [KeyboardButton("Изменить время"), KeyboardButton("Советы")],
         [KeyboardButton("Пауза")],
+        [KeyboardButton("Еще практики")],
     ]
     return ReplyKeyboardMarkup(
         keyboard,

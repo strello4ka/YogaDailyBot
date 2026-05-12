@@ -59,6 +59,11 @@ from .handlers.tips import handle_tips_callback
 from .bot_commands import setup_bot_commands
 from app.by_mood.self_decide import handle_intensity_callback as by_mood_self_intensity_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
+from app.mode.extra_practices import (
+    handle_extra_mood_callback,
+    handle_extra_self_intensity_callback,
+    handle_extra_self_time_callback,
+)
 
 
 async def suggest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -240,6 +245,11 @@ def main():
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
     application.add_handler(CallbackQueryHandler(by_mood_self_intensity_callback, pattern="^self_intensity:"))
+    application.add_handler(CallbackQueryHandler(handle_extra_mood_callback, pattern="^extra_mood:"))
+    application.add_handler(CallbackQueryHandler(handle_extra_self_time_callback, pattern="^extra_self_time:"))
+    application.add_handler(
+        CallbackQueryHandler(handle_extra_self_intensity_callback, pattern="^extra_self_intensity:")
+    )
 
     # Регистрируем обработчики для донатов
     application.add_handler(CallbackQueryHandler(handle_donate_card_callback, pattern="^donate_card$"))
@@ -263,6 +273,7 @@ def main():
         "Изменить время",
         "Советы",
         "Пауза",
+        "Еще практики",
         "Практика дня",
         "Без коврика",
         "Ленивые дни",
