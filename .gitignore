@@ -40,6 +40,7 @@ config.py
 .env
 .env.test
 test/.env.test
+tools/.env.broadcast
 !app/config.py
 
 # База данных

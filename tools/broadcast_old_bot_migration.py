@@ -2,16 +2,25 @@
 
 This script is intentionally manual. It does not run during Railway deploys.
 Use dry-run first, then send with an explicit confirmation flag.
+
+Подготовка без ручных export:
+  1) Скопируйте tools/broadcast.env.example -> tools/.env.broadcast
+  2) Заполните DATABASE_URL и (для отправки) OLD_BOT_TOKEN
+  3) При необходимости задайте ARCHIVE_SUFFIX — иначе суффикс берётся из archive.migration_log
+  4) Запуск: python3 tools/broadcast_old_bot_migration.py
+     затем: python3 tools/broadcast_old_bot_migration.py --send --confirm SEND
 """
 
 import argparse
 import csv
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 import psycopg2
@@ -19,13 +28,45 @@ from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
 
+def _load_env_files() -> None:
+    """Подхватывает .env из корня проекта и tools/.env.broadcast (не перетирает уже выставленные export)."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    here = Path(__file__).resolve().parent
+    root = here.parent
+    for path in (root / ".env", here / ".env.broadcast", root / ".env.broadcast"):
+        if path.is_file():
+            load_dotenv(path, override=False)
+
+
+_ARCHIVE_SUFFIX_RE = re.compile(r"^[\w-]+$")
+
+
+def _validate_archive_suffix(suffix: str) -> str:
+    if not _ARCHIVE_SUFFIX_RE.match(suffix):
+        raise ValueError(
+            "Недопустимый --archive-suffix: допустимы только буквы, цифры, подчёркивание и дефис."
+        )
+    return suffix
+
+
 DEFAULT_MESSAGE = """Привет!
+Я переехал заграницу и стал стабильнее.
+*Вот мой новый адрес:* @YogaDailyBot
+Переходи и жми start, очень жду тебя!
 
-YogaDailyBot переехал заграницу и стал стабильнее.
-Вот мой новый адрес @YogaDailyBot
-Приходи скорее и жми /start, очень жду тебя
+А еще у меня *появился новый режим By mood*, который многие хотели: теперь практики можно получать по настроению в моменте.
+Выбираешь нужную кнопку: «Ленивые дни», «Без коврика», «Практика дня»...и я сразу скидываю видео под твой запрос. Также можно самому настроить время и интенсивность.
+Идем скорее тестировать!
 
-Спасибо, что остаешься со мной, впереди много интересного"""
+И это еще не все новости..У нас *стартует 4-ый поток челленджа*, который все уже заждались!
+*18 мая старт*
+[Подробное описание правил тут](https://t.me/yogastrello4ka/575)
+Если готов присоединиться, пиши @helentajj
+
+Спасибо, что остаешься со мной 🧡"""
 
 
 def get_database_url() -> str:
@@ -52,6 +93,44 @@ def get_database_url() -> str:
         f"@{required['POSTGRESQL_HOST']}:{required['POSTGRESQL_PORT']}"
         f"/{required['POSTGRESQL_DBNAME']}?sslmode=require"
     )
+
+
+def assert_database_url_not_placeholder(database_url: str) -> None:
+    """Если в .env остался текст из примера (USER, HOST, DBNAME) — сразу понятная ошибка."""
+    parsed = urlparse(database_url)
+    host = (parsed.hostname or "").lower()
+    user = (parsed.username or "").lower()
+    password = (parsed.password or "").lower()
+    db_tail = (parsed.path or "").strip("/").lower()
+
+    if host == "host":
+        raise RuntimeError(
+            "В DATABASE_URL указан заглушечный хост «HOST» (как в файле-примере).\n"
+            "Нужно вставить реальную строку целиком из Railway:\n"
+            "  Postgres-сервис → вкладка Variables (или Connect) → скопировать DATABASE_URL.\n"
+            "Это длинная строка вида postgresql://…@что-то.railway.app:порт/railway"
+        )
+    if user == "user" and password == "password":
+        raise RuntimeError(
+            "В DATABASE_URL остались заглушки user:password из примера.\n"
+            "Скопируйте настоящий DATABASE_URL из Railway (см. выше)."
+        )
+    if db_tail == "dbname":
+        raise RuntimeError(
+            "В DATABASE_URL осталось имя базы «dbname» из примера.\n"
+            "Скопируйте настоящий DATABASE_URL из Railway целиком."
+        )
+    if host.endswith(".railway.internal") or ".railway.internal" in (database_url or "").lower():
+        raise RuntimeError(
+            "В DATABASE_URL указан внутренний адрес Railway (*.railway.internal).\n"
+            "С вашего Mac он не подключается — такую строку видит только сервис внутри Railway.\n\n"
+            "Что сделать: Railway → ваш сервис PostgreSQL → вкладка Variables → скопировать "
+            "DATABASE_PUBLIC_URL (внешнее подключение через TCP Proxy) и вставить в tools/.env.broadcast "
+            "вместо текущей строки как DATABASE_URL=...\n\n"
+            "Если переменной DATABASE_PUBLIC_URL нет: в настройках Postgres включите публичный доступ / TCP Proxy "
+            "(в документации Railway это отдельный внешний хост и порт).\n\n"
+            "Обходной путь: один раз запустить этот скрипт на Railway (там внутренний DATABASE_URL сработает)."
+        )
 
 
 def get_latest_archive_suffix(conn) -> str:
@@ -99,14 +178,24 @@ def load_recipients(conn, suffix: str, user_id: Optional[int], limit: Optional[i
         return [dict(row) for row in cursor.fetchall()]
 
 
-def send_message(client: httpx.Client, token: str, chat_id: int, text: str) -> tuple[bool, str]:
+def send_message(
+    client: httpx.Client,
+    token: str,
+    chat_id: int,
+    text: str,
+    *,
+    parse_mode: Optional[str] = "Markdown",
+) -> tuple[bool, str]:
+    payload: dict = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     response = client.post(
         f"https://api.telegram.org/bot{token}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": True,
-        },
+        json=payload,
         timeout=20,
     )
     if response.status_code == 200:
@@ -138,7 +227,11 @@ def write_report(rows: list[dict], report_path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Broadcast migration notice to archived users via old bot token."
+        description="Broadcast migration notice to archived users via old bot token.",
+        epilog="Пример: python3 tools/broadcast_old_bot_migration.py\n"
+        "Отправка: python3 tools/broadcast_old_bot_migration.py --send --confirm SEND\n"
+        "Переменные: см. tools/broadcast.env.example (файл tools/.env.broadcast).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--send", action="store_true", help="Actually send messages.")
     parser.add_argument(
@@ -165,19 +258,39 @@ def parse_args() -> argparse.Namespace:
         default=0.05,
         help="Delay between Telegram requests in seconds.",
     )
+    parser.add_argument(
+        "--token",
+        default="",
+        help="Токен старого бота (иначе переменная OLD_BOT_TOKEN из окружения / .env).",
+    )
+    parser.add_argument(
+        "--archive-suffix",
+        default="",
+        help="Суффикс таблицы archive.users_<suffix>. Если не задан — последний из archive.migration_log.",
+    )
+    parser.add_argument(
+        "--plain-text",
+        action="store_true",
+        help="Отключить Markdown (для своего текста из --message-file без разметки).",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
+    _load_env_files()
     args = parse_args()
 
     if args.send and args.confirm != "SEND":
         print('Refusing to send: pass --confirm SEND together with --send.', file=sys.stderr)
         return 2
 
-    token = os.getenv("OLD_BOT_TOKEN")
+    token = (args.token or "").strip() or os.getenv("OLD_BOT_TOKEN")
     if args.send and not token:
-        print("Refusing to send: OLD_BOT_TOKEN is not set.", file=sys.stderr)
+        print(
+            "Refusing to send: задайте токен — переменная OLD_BOT_TOKEN в tools/.env.broadcast "
+            "или флаг --token ...",
+            file=sys.stderr,
+        )
         return 2
 
     message = (
@@ -186,9 +299,33 @@ def main() -> int:
         else DEFAULT_MESSAGE
     )
 
-    conn = psycopg2.connect(get_database_url(), connect_timeout=10)
+    parse_mode: Optional[str] = None if args.plain_text else "Markdown"
+
+    dsn = get_database_url()
+    assert_database_url_not_placeholder(dsn)
+
     try:
-        suffix = get_latest_archive_suffix(conn)
+        conn = psycopg2.connect(dsn, connect_timeout=10)
+    except psycopg2.OperationalError as e:
+        err = str(e).lower()
+        if "could not translate host name" in err and (
+            "host" in err or "railway.internal" in err
+        ):
+            print(
+                "Не удалось подключиться к базе: имя сервера из DATABASE_URL не находится в интернете.\n"
+                "Часто так бывает, если в строке осталась заглушка HOST или внутренний адрес *.railway.internal "
+                "при запуске скрипта с вашего компьютера.\n"
+                "В Railway у Postgres возьмите переменную DATABASE_PUBLIC_URL (внешнее подключение) "
+                "и подставьте её в tools/.env.broadcast как DATABASE_URL.\n",
+                file=sys.stderr,
+            )
+        raise
+    try:
+        if (args.archive_suffix or "").strip():
+            suffix = _validate_archive_suffix((args.archive_suffix or "").strip())
+        else:
+            env_suffix = (os.getenv("ARCHIVE_SUFFIX") or "").strip()
+            suffix = _validate_archive_suffix(env_suffix) if env_suffix else get_latest_archive_suffix(conn)
         recipients = load_recipients(conn, suffix, args.user_id, args.limit)
     finally:
         conn.close()
@@ -207,7 +344,9 @@ def main() -> int:
     assert token is not None
     with httpx.Client() as client:
         for recipient in recipients:
-            ok, details = send_message(client, token, recipient["chat_id"], message)
+            ok, details = send_message(
+                client, token, recipient["chat_id"], message, parse_mode=parse_mode
+            )
             status = "sent" if ok else "failed"
             report_rows.append({**recipient, "status": status, "details": details})
             print(f"{recipient['user_id']}: {status} ({details})")

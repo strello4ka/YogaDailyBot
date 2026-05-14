@@ -92,7 +92,7 @@ def get_extra_practices_inline_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton("Ленивые дни", callback_data=f"{EXTRA_MOOD_PREFIX}lazy"),
-                InlineKeyboardButton("Пятиминутка", callback_data=f"{EXTRA_MOOD_PREFIX}five"),
+                InlineKeyboardButton("Мини", callback_data=f"{EXTRA_MOOD_PREFIX}five"),
             ],
             [
                 InlineKeyboardButton("Хард", callback_data=f"{EXTRA_MOOD_PREFIX}hard"),

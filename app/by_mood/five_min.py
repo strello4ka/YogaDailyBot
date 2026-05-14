@@ -1,4 +1,4 @@
-"""Кнопка «Пятиминутка»: до 8 минут включительно."""
+"""Кнопка «Мини» (короткие практики): до 8 минут включительно."""
 
 from telegram import Update
 from telegram.ext import ContextTypes
