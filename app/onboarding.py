@@ -57,6 +57,120 @@ def validate_time_format(time_str: str) -> tuple[bool, str]:
     return True, formatted_time
 
 
+def _is_mode_choice_pending(user_id: int) -> bool:
+    """True, если пользователь ещё не выбрал режим (застрял после /start)."""
+    from data.db import get_user_bot_mode
+
+    return get_user_bot_mode(user_id) == "pending"
+
+
+async def send_mode_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
+    """Напоминание через 1 час: выбрать режим после /start."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+
+    if not _is_mode_choice_pending(user_id):
+        return
+
+    reminder_text = (
+        "Чтобы бот начал работать, тебе нужно выбрать режим. \n\n"
+        "Жми *Выбрать режим*: Daily или By mood — и погнали 🧡"
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id,
+            reminder_text,
+            reply_markup=get_start_onboarding_keyboard(),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        print(f"Ошибка отправки напоминания о выборе режима (1ч): {e}")
+
+
+async def send_mode_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
+    """Напоминание через 24 часа: выбрать режим после /start."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+
+    if not _is_mode_choice_pending(user_id):
+        return
+
+    reminder_text = (
+        "Ты все еще не выбрал режим...\n\n"
+        "Нажми *Daily* или *By mood* — это займёт один миг"
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id,
+            reminder_text,
+            reply_markup=get_mode_choice_keyboard(),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        print(f"Ошибка отправки напоминания о выборе режима (24ч): {e}")
+
+
+async def schedule_mode_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
+    """Планирует напоминания о выборе режима через 1 и 24 часа после /start."""
+    if not hasattr(context, "job_queue") or context.job_queue is None:
+        print("JobQueue недоступен — напоминания о выборе режима не будут отправлены")
+        return
+
+    await cancel_mode_reminders(context, user_id)
+
+    job_data = {"chat_id": chat_id, "user_id": user_id}
+
+    try:
+        context.job_queue.run_once(
+            send_mode_reminder_1h,
+            when=timedelta(hours=1),
+            data=job_data,
+            name=f"mode_reminder_1h_{user_id}",
+        )
+        context.job_queue.run_once(
+            send_mode_reminder_24h,
+            when=timedelta(hours=24),
+            data=job_data,
+            name=f"mode_reminder_24h_{user_id}",
+        )
+    except Exception as e:
+        print(f"Ошибка планирования напоминаний о выборе режима: {e}")
+
+
+async def cancel_mode_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Отменяет запланированные напоминания о выборе режима."""
+    if not hasattr(context, "job_queue") or context.job_queue is None:
+        return
+
+    job_names = [f"mode_reminder_1h_{user_id}", f"mode_reminder_24h_{user_id}"]
+
+    try:
+        job_queue = context.job_queue
+        for job_name in job_names:
+            try:
+                for job in job_queue.get_jobs_by_name(job_name):
+                    job.schedule_removal()
+            except Exception as e:
+                print(f"Ошибка отмены задачи '{job_name}': {e}")
+
+        try:
+            scheduler = job_queue.scheduler
+            for job_name in job_names:
+                try:
+                    if scheduler.get_job(job_name):
+                        scheduler.remove_job(job_name)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Ошибка доступа к scheduler при отмене напоминаний о режиме: {e}")
+    except Exception as e:
+        print(f"Ошибка cancel_mode_reminders для user_id={user_id}: {e}")
+
+
 async def send_reminder_4h(context: ContextTypes.DEFAULT_TYPE):
     """Отправляет напоминание через 4 часа после выбора времени.
     
@@ -255,6 +369,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown',
     )
 
+    await schedule_mode_reminders(context, chat_id, user.id)
+
 
 async def onboarding_open_mode_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Переход к выбору режима с экрана /start и после просмотра примера."""
@@ -351,6 +467,8 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     user = update.effective_user
     chat_id = update.effective_chat.id
 
+    await cancel_mode_reminders(context, user.id)
+
     from data.db import get_user_bot_mode, set_user_daily_pending
 
     prev = get_user_bot_mode(user.id)
@@ -389,6 +507,8 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     await remove_callback_keyboard(query)
     user = update.effective_user
     chat_id = update.effective_chat.id
+
+    await cancel_mode_reminders(context, user.id)
 
     from data.db import get_user_bot_mode
 
