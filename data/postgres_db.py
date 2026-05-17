@@ -978,11 +978,13 @@ def get_users_by_time(notify_time: str) -> list:
 
 def get_users_pending_for_today(current_time: str) -> list:
     """Возвращает пользователей, которым ещё не отправляли практику сегодня,
-    и чьё время уведомлений уже наступило (notify_time <= current_time).
+    и чьё время уведомлений уже наступило.
 
-    Используется для повторных попыток: если в слоте не удалось отправить практику,
-    пользователь останется без записи в practice_logs за сегодня и будет выбран
-    при следующем тике до конца дня.
+    Для тех, кто уже получал запланированные практики (day_number >= 1 в логах),
+    используется notify_time <= current_time — чтобы дослать при сбое в тот же день.
+
+    Для новичка после выбора времени (ещё нет таких логов) первая рассылка только
+    начиная со следующего календарного дня (день настройки времени не считается).
 
     Args:
         current_time: текущее время в формате HH:MM (в базовой таймзоне бота)
@@ -999,8 +1001,7 @@ def get_users_pending_for_today(current_time: str) -> list:
             '''
             SELECT u.user_id, u.chat_id
             FROM users u
-            WHERE u.notify_time <= %s
-              AND COALESCE(u.is_blocked, FALSE) = FALSE
+            WHERE COALESCE(u.is_blocked, FALSE) = FALSE
               AND COALESCE(u.is_paused, FALSE) = FALSE
               AND COALESCE(u.onboarding_required, FALSE) = FALSE
               AND COALESCE(u.bot_mode, 'daily') IN ('daily', 'challenge')
@@ -1009,11 +1010,31 @@ def get_users_pending_for_today(current_time: str) -> list:
                   SELECT 1
                   FROM practice_logs pl
                   WHERE pl.user_id = u.user_id
-                    AND pl.sent_at::date = CURRENT_DATE
+                    AND pl.sent_at::date = (NOW() AT TIME ZONE %s)::date
                     AND pl.day_number >= 1
               )
+              AND (
+                  EXISTS (
+                      SELECT 1
+                      FROM practice_logs pl
+                      WHERE pl.user_id = u.user_id
+                        AND pl.day_number >= 1
+                  )
+                  AND u.notify_time <= %s
+                  OR (
+                      NOT EXISTS (
+                          SELECT 1
+                          FROM practice_logs pl
+                          WHERE pl.user_id = u.user_id
+                            AND pl.day_number >= 1
+                      )
+                      AND u.notify_time <= %s
+                      AND (u.updated_at AT TIME ZONE %s)::date
+                          < (NOW() AT TIME ZONE %s)::date
+                  )
+              )
             ''',
-            (current_time,),
+            (DEFAULT_TZ, current_time, current_time, DEFAULT_TZ, DEFAULT_TZ),
         )
 
         results = cursor.fetchall()
