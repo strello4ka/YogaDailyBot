@@ -143,8 +143,12 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         increment_total_practices(user_id)
 
         # Логируем отправку основной практики
-        log_practice_sent(user_id, practice_id, total_practices)
-        
+        log_id = log_practice_sent(user_id, practice_id, total_practices)
+        if log_id:
+            from app.handlers.done import schedule_done_reminders
+
+            await schedule_done_reminders(context, chat_id, user_id, log_id)
+
         logger.info(f"Практика {practice_id} отправлена пользователю {user_id}, всего практик {total_practices}")
         
         # Получаем бонусные практики, если они есть
@@ -317,7 +321,11 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
         increment_program_position(user_id)
         increment_total_practices(user_id)
 
-        log_practice_sent(user_id, practice_id, total_practices)
+        log_id = log_practice_sent(user_id, practice_id, total_practices)
+        if log_id:
+            from app.handlers.done import schedule_done_reminders
+
+            await schedule_done_reminders(context, chat_id, user_id, log_id)
         logger.info(f"Тестовая практика {practice_id} отправлена пользователю {user_id}, всего практик {total_practices}")
         
         # Получаем бонусные практики, если они есть

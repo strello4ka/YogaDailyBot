@@ -89,7 +89,11 @@ async def deliver_by_mood_practice(
         set_last_practice_message_id(user_id, msg.message_id)
         set_user_blocked(user_id, False)
         increment_total_practices(user_id)
-        log_practice_sent(user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY)
+        log_id = log_practice_sent(user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY)
+        if log_id:
+            from app.handlers.done import schedule_done_reminders
+
+            await schedule_done_reminders(context, chat_id, user_id, log_id)
         return True
     except Exception as e:
         err = str(e)

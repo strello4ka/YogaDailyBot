@@ -2748,35 +2748,96 @@ def get_weekday_statistics() -> dict:
 
 # Функции для логирования отправленных практик
 
-def log_practice_sent(user_id: int, practice_id: int, day_number: int) -> bool:
+def log_practice_sent(user_id: int, practice_id: int, day_number: int) -> int | None:
     """Логирует отправку практики пользователю.
-    
-    Args:
-        user_id: ID пользователя
-        practice_id: ID практики
-        day_number: номер дня пользователя
-        
+
     Returns:
-        bool: True если операция успешна, False в случае ошибки
+        int | None: log_id новой записи или None при ошибке
     """
+    conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        
-        cursor.execute('''
+
+        cursor.execute(
+            '''
             INSERT INTO practice_logs (user_id, practice_id, day_number)
             VALUES (%s, %s, %s)
-        ''', (user_id, practice_id, day_number))
-        
+            RETURNING log_id
+            ''',
+            (user_id, practice_id, day_number),
+        )
+        row = cursor.fetchone()
         conn.commit()
         conn.close()
-        print(f"Практика {practice_id} залогирована для пользователя {user_id}, день {day_number}")
-        return True
-        
+        log_id = row[0] if row else None
+        print(f"Практика {practice_id} залогирована для пользователя {user_id}, день {day_number}, log_id={log_id}")
+        return log_id
+
     except Exception as e:
         print(f"Ошибка логирования практики {practice_id} для пользователя {user_id}: {e}")
         if conn:
             conn.rollback()
+            conn.close()
+        return None
+
+
+def is_user_eligible_for_done_reminder(user_id: int) -> bool:
+    """Можно ли слать напоминание «практика не отмечена» (не пауза, не блок)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT COALESCE(is_blocked, FALSE), COALESCE(is_paused, FALSE)
+            FROM users WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return False
+        return not row[0] and not row[1]
+    except Exception as e:
+        print(f"Ошибка is_user_eligible_for_done_reminder {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
+def is_pending_practice_log(user_id: int, log_id: int) -> bool:
+    """Запись без completed_at и это последняя неотмеченная практика пользователя."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT completed_at FROM practice_logs
+            WHERE log_id = %s AND user_id = %s
+            ''',
+            (log_id, user_id),
+        )
+        row = cursor.fetchone()
+        if not row or row[0] is not None:
+            conn.close()
+            return False
+        cursor.execute(
+            '''
+            SELECT log_id FROM practice_logs
+            WHERE user_id = %s AND completed_at IS NULL
+            ORDER BY sent_at DESC LIMIT 1
+            ''',
+            (user_id,),
+        )
+        latest = cursor.fetchone()
+        conn.close()
+        return latest is not None and latest[0] == log_id
+    except Exception as e:
+        print(f"Ошибка is_pending_practice_log user={user_id} log={log_id}: {e}")
+        if conn:
             conn.close()
         return False
 
