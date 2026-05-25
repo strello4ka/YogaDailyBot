@@ -157,17 +157,40 @@ python tools/broadcast_old_bot_migration.py --send --confirm SEND
 ## 📊 Структура базы данных
 
 ### Таблица `users`
-- `user_id` - ID пользователя в Telegram
+
+Идентификация и контакты
+- `user_id` - ID пользователя в Telegram (PRIMARY KEY)
 - `chat_id` - ID чата
-- `notify_time` - время уведомлений (HH:MM)
 - `user_name` - имя пользователя
 - `user_nickname` - username пользователя
-- `total_practices` - всего отправлено практик во всех режимах
-- `program_position` - техническая позиция в Daily-программе
-- `challenge_day` - текущий день челленджа
-- `bot_mode` - режим (`pending`, `daily`, `by_mood`, `challenge`)
+
+Режим и расписание
+- `bot_mode` - текущий режим: `pending` (не выбран), `daily`, `by_mood`, `challenge`
 - `daily_schedule_enabled` - включена ли ежедневная рассылка
-- `is_paused` - пауза Daily-рассылки
+- `notify_time` - время уведомлений в Daily/Challenge (HH:MM)
+- `onboarding_required` - нужно ли пройти онбординг (после /start и при смене режима)
+- `challenge_start_id` - стартовая практика челленджа (NULL, если не в челлендже)
+- `challenge_day` - текущий день челленджа
+
+Прогресс
+- `total_practices` - всего отправлено практик во всех режимах (M в «N из M»)
+- `program_position` - техническая позиция в Daily-программе
+- `last_practice_message_id` - id последнего сообщения с кнопкой «✅ Я сделал!» (чтобы снимать кнопку при новой отправке)
+- `extra_practices_inline_messages` - JSONB-список сообщений «Еще практики» (снимаются при смене режима)
+
+Пауза Daily-рассылки
+- `is_paused` - сейчас ли на паузе
+- `paused_at` - когда поставил паузу (для логики «первое напоминание через 7 дней»)
+- `last_pause_reminder_at` - время последнего pause-напоминания
+- `pause_reminder_step` - индекс ротации фраз pause-напоминаний
+
+Неактивность в By mood
+- `last_by_mood_active_at` - последняя активность в By mood (активация режима или отправка практики)
+- `last_by_mood_reminder_at` - время последнего By mood-напоминания
+- `by_mood_reminder_step` - индекс ротации фраз By mood-напоминаний
+
+Технические
+- `is_blocked` - заблокировал ли пользователь бота (помечается при ошибке отправки)
 - `created_at` - дата регистрации
 - `updated_at` - дата последнего обновления
 

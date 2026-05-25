@@ -31,6 +31,7 @@ from .handlers.donations import (
 )
 from .handlers.done import handle_practice_done_callback
 from .handlers.pause import schedule_pause_reminders
+from .by_mood.reminders import schedule_by_mood_reminders
 from .handlers.change_mode import change_mode_command
 from .handlers.progress import (
     handle_progress_reset_callback,
@@ -313,6 +314,8 @@ def main():
     schedule_daily_practices(application)
     # Планируем напоминания пользователям в режиме паузы (логика паузы живет в handlers/pause.py)
     schedule_pause_reminders(application)
+    # Планируем напоминания неактивным пользователям в режиме By mood
+    schedule_by_mood_reminders(application)
     
     # Запускаем бота
     logger.info("Запускаем YogaDailyBot с JobQueue...")

@@ -414,6 +414,38 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца pause_reminder_step: {e}")
 
+        # Миграция: учет неактивности в режиме By mood (для еженедельных напоминаний)
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'last_by_mood_active_at'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN last_by_mood_active_at TIMESTAMP')
+                print("   ✅ Добавлен столбец last_by_mood_active_at в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца last_by_mood_active_at: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'last_by_mood_reminder_at'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN last_by_mood_reminder_at TIMESTAMP')
+                print("   ✅ Добавлен столбец last_by_mood_reminder_at в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца last_by_mood_reminder_at: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'by_mood_reminder_step'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN by_mood_reminder_step INTEGER DEFAULT 0')
+                print("   ✅ Добавлен столбец by_mood_reminder_step в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца by_mood_reminder_step: {e}")
+
         # Миграция: id сообщений с inline «Еще практики» (снять клавиатуру при смене режима)
         try:
             cursor.execute("""
@@ -1146,6 +1178,96 @@ def get_users_for_pause_reminder() -> list:
         if conn:
             conn.close()
         return []
+
+
+def touch_by_mood_activity(user_id: int) -> bool:
+    """Сбрасывает счётчик неактивности By mood: обновляет last_by_mood_active_at и
+    обнуляет состояние напоминаний (last_by_mood_reminder_at, by_mood_reminder_step).
+    Вызывается при активации режима By mood и при каждой отправке практики в этом режиме."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET last_by_mood_active_at = CURRENT_TIMESTAMP,
+                last_by_mood_reminder_at = NULL,
+                by_mood_reminder_step = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка touch_by_mood_activity для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_users_for_by_mood_reminder() -> list:
+    """Пользователи в By mood, которые 7+ дней не запрашивали практику.
+    Напоминания шлются не чаще раза в неделю.
+    Возвращает: [(user_id, chat_id, by_mood_reminder_step)]"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT user_id, chat_id, COALESCE(by_mood_reminder_step, 0)
+            FROM users
+            WHERE COALESCE(bot_mode, 'pending') = 'by_mood'
+              AND COALESCE(is_blocked, FALSE) = FALSE
+              AND COALESCE(onboarding_required, FALSE) = FALSE
+              AND last_by_mood_active_at IS NOT NULL
+              AND last_by_mood_active_at <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
+              AND (
+                    last_by_mood_reminder_at IS NULL
+                    OR last_by_mood_reminder_at <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
+                  )
+            '''
+        )
+        result = cursor.fetchall()
+        conn.close()
+        return result
+    except Exception as e:
+        print(f"Ошибка get_users_for_by_mood_reminder: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
+def mark_by_mood_reminder_sent(user_id: int) -> bool:
+    """Отмечает отправку еженедельного напоминания пользователю в By mood."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET last_by_mood_reminder_at = CURRENT_TIMESTAMP,
+                by_mood_reminder_step = COALESCE(by_mood_reminder_step, 0) + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка mark_by_mood_reminder_sent для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
 
 
 def mark_pause_reminder_sent(user_id: int) -> bool:

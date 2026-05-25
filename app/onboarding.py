@@ -527,6 +527,8 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
         user_name=user.first_name,
         user_nickname=user.username,
     )
+    from data.db import touch_by_mood_activity
+    touch_by_mood_activity(user.id)
     from app.mode.extra_practices import strip_extra_practices_inline_keyboards
 
     await strip_extra_practices_inline_keyboards(context.bot, user.id)
