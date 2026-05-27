@@ -421,24 +421,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     if not msg:
         return
-    intro_message = await msg.reply_text(
-        intro,
+    clear_keyboard_message = await msg.reply_text(
+        ".",
         reply_markup=ReplyKeyboardRemove(),
-        parse_mode='Markdown',
     )
     try:
-        await context.bot.edit_message_reply_markup(
+        await context.bot.delete_message(
             chat_id=chat_id,
-            message_id=intro_message.message_id,
-            reply_markup=get_start_onboarding_keyboard(),
+            message_id=clear_keyboard_message.message_id,
         )
-    except Exception as e:
-        print(f"Не удалось добавить inline-кнопки к стартовому сообщению: {e}")
-        intro_message = await msg.reply_text(
-            intro,
-            reply_markup=get_start_onboarding_keyboard(),
-            parse_mode='Markdown',
-        )
+    except Exception:
+        pass
+    intro_message = await msg.reply_text(
+        intro,
+        reply_markup=get_start_onboarding_keyboard(),
+        parse_mode='Markdown',
+    )
     _remember_onboarding_keyboard_state(
         context=context,
         chat_id=chat_id,
@@ -582,6 +580,18 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
         from app.mode.extra_practices import strip_extra_practices_inline_keyboards
 
         await strip_extra_practices_inline_keyboards(context.bot, user.id)
+        clear_keyboard_message = await context.bot.send_message(
+            chat_id=chat_id,
+            text=".",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        try:
+            await context.bot.delete_message(
+                chat_id=chat_id,
+                message_id=clear_keyboard_message.message_id,
+            )
+        except Exception:
+            pass
     welcome_text_1 = (
         f"Ты выбрал мой любимый режим - *Daily*🧡\n\n"
         "Больше никакого скроллинга YouTube - просто открой сообщение и разомнись.\n\n"
@@ -589,23 +599,9 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     time_choice_message = await context.bot.send_message(
         chat_id=chat_id,
         text=welcome_text_1,
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=get_welcome_keyboard(),
         parse_mode='Markdown',
     )
-    try:
-        await context.bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=time_choice_message.message_id,
-            reply_markup=get_welcome_keyboard(),
-        )
-    except Exception as e:
-        print(f"Не удалось добавить кнопку выбора времени после смены режима: {e}")
-        time_choice_message = await context.bot.send_message(
-            chat_id=chat_id,
-            text=welcome_text_1,
-            reply_markup=get_welcome_keyboard(),
-            parse_mode='Markdown',
-        )
     context.user_data["daily_time_choice_chat_id"] = chat_id
     context.user_data["daily_time_choice_message_id"] = time_choice_message.message_id
 
