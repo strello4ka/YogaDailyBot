@@ -148,6 +148,9 @@ async def handle_stars_amount_callback(update: Update, context: ContextTypes.DEF
     # Создаем инвойс для оплаты звездами
     # Согласно документации, для цифровых товаров используем валюту "XTR" (Telegram Stars)
     try:
+        invoice_keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(f"Внести ⭐️{stars_amount}", pay=True)]]
+        )
         await context.bot.send_invoice(
             chat_id=chat_id,
             title="Поддержка YogaDailyBot",
@@ -157,6 +160,7 @@ async def handle_stars_amount_callback(update: Update, context: ContextTypes.DEF
             currency="XTR",  # Telegram Stars
             prices=[{"label": f"{stars_amount} ⭐️", "amount": stars_amount}],
             start_parameter=f"donation_{stars_amount}",  # Параметр для deep linking
+            reply_markup=invoice_keyboard,
             is_flexible=False,  # Фиксированная цена
             need_name=False,
             need_phone_number=False,

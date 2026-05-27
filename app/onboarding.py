@@ -5,7 +5,7 @@
 import asyncio
 import re
 from datetime import datetime, timedelta
-from telegram import Update
+from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, CallbackContext
 from data.db import activate_user_by_mood
 from data.db import get_current_weekday, get_yoga_practice_by_weekday_order
@@ -64,6 +64,44 @@ def _is_mode_choice_pending(user_id: int) -> bool:
     return get_user_bot_mode(user_id) == "pending"
 
 
+def _get_onboarding_inline_keyboard(context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает актуальную inline-клавиатуру текущего шага онбординга."""
+    keyboard_kind = context.user_data.get("onboarding_keyboard_kind", "start_onboarding")
+    if keyboard_kind == "mode_choice":
+        return get_mode_choice_keyboard()
+    if keyboard_kind == "choose_mode":
+        return get_choose_mode_keyboard()
+    return get_start_onboarding_keyboard()
+
+
+def _remember_onboarding_keyboard_state(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    message_id: int,
+    keyboard_kind: str,
+):
+    """Сохраняет сообщение и тип кнопок, чтобы напоминание могло их продублировать."""
+    context.user_data["onboarding_keyboard_chat_id"] = chat_id
+    context.user_data["onboarding_keyboard_message_id"] = message_id
+    context.user_data["onboarding_keyboard_kind"] = keyboard_kind
+
+
+async def _remove_previous_onboarding_keyboard(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    """Убирает inline-кнопки с предыдущего шага онбординга, если они еще есть."""
+    prev_chat_id = context.user_data.get("onboarding_keyboard_chat_id")
+    prev_message_id = context.user_data.get("onboarding_keyboard_message_id")
+    if prev_chat_id != chat_id or not prev_message_id:
+        return
+    try:
+        await context.bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=prev_message_id,
+            reply_markup=None,
+        )
+    except Exception as e:
+        print(f"Не удалось убрать предыдущие onboarding-кнопки: {e}")
+
+
 async def send_mode_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
     """Напоминание через 1 час: выбрать режим после /start."""
     job = context.job
@@ -74,16 +112,25 @@ async def send_mode_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
         return
 
     reminder_text = (
-        "Чтобы бот начал работать, тебе нужно выбрать режим. \n\n"
-        "Жми *Выбрать режим*: Daily или By mood — и погнали 🧡"
+        "Чтобы бот начал работать, тебе нужно *выбрать режим*.\n"
+        "Определяйся: Daily или By mood — и погнали 🧡"
     )
 
     try:
-        await context.bot.send_message(
+        await _remove_previous_onboarding_keyboard(context, chat_id)
+        keyboard = _get_onboarding_inline_keyboard(context)
+        reminder_message = await context.bot.send_message(
             chat_id,
             reminder_text,
-            reply_markup=get_start_onboarding_keyboard(),
+            reply_markup=keyboard,
             parse_mode="Markdown",
+        )
+        keyboard_kind = context.user_data.get("onboarding_keyboard_kind", "start_onboarding")
+        _remember_onboarding_keyboard_state(
+            context=context,
+            chat_id=chat_id,
+            message_id=reminder_message.message_id,
+            keyboard_kind=keyboard_kind,
         )
     except Exception as e:
         print(f"Ошибка отправки напоминания о выборе режима (1ч): {e}")
@@ -104,11 +151,18 @@ async def send_mode_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        await context.bot.send_message(
+        await _remove_previous_onboarding_keyboard(context, chat_id)
+        reminder_message = await context.bot.send_message(
             chat_id,
             reminder_text,
             reply_markup=get_mode_choice_keyboard(),
             parse_mode="Markdown",
+        )
+        _remember_onboarding_keyboard_state(
+            context=context,
+            chat_id=chat_id,
+            message_id=reminder_message.message_id,
+            keyboard_kind="mode_choice",
         )
     except Exception as e:
         print(f"Ошибка отправки напоминания о выборе режима (24ч): {e}")
@@ -182,8 +236,8 @@ async def send_reminder_4h(context: ContextTypes.DEFAULT_TYPE):
     user_id = job.data['user_id']
     
     reminder_text = (
-        "Мы уже почти готовы начать долгий и счастливый путь к движению, "
-        "осталось выбрать время, когда хочешь получать сообщения"
+        "Мы уже почти готовы начать долгий и счастливый путь к движению, осталось выбрать время, когда хочешь получать сообщения\n\n"
+        "*Введи время в формате ЧЧ.ММ (например, 09.30)*"
     )
     
     try:
@@ -204,7 +258,8 @@ async def send_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
     
     reminder_text = (
         "Эй, мы так и не начали\n"
-        "Если не выберешь время сегодня, придётся отложить старт..а жаль, тебя ждет отличное занятие!"
+        "Если не выберешь время сегодня, придётся отложить старт..а жаль, тебя ждет отличное занятие!\n\n"
+        "*Введи время в формате ЧЧ.ММ (например, 09.30)*"
     )
     
     try:
@@ -337,6 +392,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('is_time_change', None)
     context.user_data.pop('waiting_for_challenge_time', None)
     context.user_data.pop('pending_challenge_practice_id', None)
+    context.user_data.pop("onboarding_keyboard_chat_id", None)
+    context.user_data.pop("onboarding_keyboard_message_id", None)
+    context.user_data.pop("onboarding_keyboard_kind", None)
 
     user = update.effective_user
     chat_id = update.effective_chat.id
@@ -364,9 +422,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not msg:
         return
     await msg.reply_text(
+        "Сбрасываю прошлые кнопки и запускаю onboarding заново 👇",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    intro_message = await msg.reply_text(
         intro,
         reply_markup=get_start_onboarding_keyboard(),
         parse_mode='Markdown',
+    )
+    _remember_onboarding_keyboard_state(
+        context=context,
+        chat_id=chat_id,
+        message_id=intro_message.message_id,
+        keyboard_kind="start_onboarding",
     )
 
     await schedule_mode_reminders(context, chat_id, user.id)
@@ -400,11 +468,17 @@ async def onboarding_open_mode_choice_callback(update: Update, context: ContextT
         "Выбирай то, что ближе тебе сейчас, и *жми кнопку* 👇 \n"
         "(изменить режим можно в любой момент в меню)"
     )
-    await context.bot.send_message(
+    mode_choice_message = await context.bot.send_message(
         chat_id=chat_id,
         text=mode_text,
         reply_markup=get_mode_choice_keyboard(),
         parse_mode='Markdown',
+    )
+    _remember_onboarding_keyboard_state(
+        context=context,
+        chat_id=chat_id,
+        message_id=mode_choice_message.message_id,
+        keyboard_kind="mode_choice",
     )
 
 
@@ -420,10 +494,16 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
     weekday = get_current_weekday()
     sample = get_yoga_practice_by_weekday_order(weekday, 1)
     if not sample:
-        await context.bot.send_message(
+        fallback_message = await context.bot.send_message(
             chat_id=chat_id,
             text="Не смог подобрать пример практики, но ты можешь сразу перейти к выбору режима 👇",
             reply_markup=get_choose_mode_keyboard(),
+        )
+        _remember_onboarding_keyboard_state(
+            context=context,
+            chat_id=chat_id,
+            message_id=fallback_message.message_id,
+            keyboard_kind="choose_mode",
         )
         return
 
@@ -448,12 +528,18 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
         channel_name=channel_name,
         video_url=video_url,
     )
-    await context.bot.send_message(
+    example_message = await context.bot.send_message(
         chat_id=chat_id,
         text=text,
         parse_mode='Markdown',
         disable_web_page_preview=False,
         reply_markup=get_choose_mode_keyboard(),
+    )
+    _remember_onboarding_keyboard_state(
+        context=context,
+        chat_id=chat_id,
+        message_id=example_message.message_id,
+        keyboard_kind="choose_mode",
     )
 
 
@@ -468,6 +554,9 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     chat_id = update.effective_chat.id
 
     await cancel_mode_reminders(context, user.id)
+    context.user_data.pop("onboarding_keyboard_chat_id", None)
+    context.user_data.pop("onboarding_keyboard_message_id", None)
+    context.user_data.pop("onboarding_keyboard_kind", None)
 
     from data.db import get_user_bot_mode, set_user_daily_pending
 
@@ -484,6 +573,11 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
         from app.mode.extra_practices import strip_extra_practices_inline_keyboards
 
         await strip_extra_practices_inline_keyboards(context.bot, user.id)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Переключаю режим и очищаю прошлые кнопки 👇",
+            reply_markup=ReplyKeyboardRemove(),
+        )
     welcome_text_1 = (
         f"Ты выбрал мой любимый режим - *Daily*🧡\n\n"
         "Больше никакого скроллинга YouTube - просто открой сообщение и разомнись.\n\n"
@@ -509,10 +603,14 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     chat_id = update.effective_chat.id
 
     await cancel_mode_reminders(context, user.id)
+    context.user_data.pop("onboarding_keyboard_chat_id", None)
+    context.user_data.pop("onboarding_keyboard_message_id", None)
+    context.user_data.pop("onboarding_keyboard_kind", None)
 
     from data.db import get_user_bot_mode
+    prev_mode = get_user_bot_mode(user.id)
 
-    if get_user_bot_mode(user.id) == "by_mood":
+    if prev_mode == "by_mood":
         await context.bot.send_message(
             chat_id=chat_id,
             text="Ты уже в режиме *By mood*. Выбирай практику по настроению с помощью кнопок на клавиатуре.",
@@ -520,6 +618,12 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
             reply_markup=get_by_mood_reply_keyboard(),
         )
         return
+    if prev_mode in ("daily", "challenge"):
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Переключаю режим и очищаю прошлые кнопки 👇",
+            reply_markup=ReplyKeyboardRemove(),
+        )
 
     activate_user_by_mood(
         user.id,

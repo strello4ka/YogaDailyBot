@@ -116,7 +116,10 @@ async def handle_practice_suggestion_input(update: Update, context: ContextTypes
     if not is_valid:
         await update.message.reply_text(
             f"🚨 {result}\n\n"
-            "Попробуй еще раз с правильной ссылкой на YouTube видео."
+            "Попробуй еще раз в формате:\n"
+            "\\*ссылка на видео\\*\n"
+            "\\*комментарий (не обязательно)\\*",
+            parse_mode='Markdown',
         )
         return
     
