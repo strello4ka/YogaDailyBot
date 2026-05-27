@@ -300,6 +300,14 @@ def main():
         if context.user_data.get('waiting_for_secret'):
             await handle_secret_input(update, context)
             return
+        if context.user_data.get('waiting_for_practice_suggestion'):
+            await update.message.reply_text(
+                "🚨 Пока могу принять только текст в формате:\n"
+                "\\*ссылка на видео\\*\n"
+                "\\*комментарий (не обязательно)\\*",
+                parse_mode='Markdown',
+            )
+            return
     
     # Регистрируем обработчик фото (для рассылки) с высоким приоритетом
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_or_text_for_secret), group=1)

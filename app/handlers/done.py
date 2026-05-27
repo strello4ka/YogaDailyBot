@@ -3,6 +3,7 @@
 import logging
 import random
 from datetime import datetime, timedelta, time
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from telegram import Update
@@ -79,7 +80,7 @@ def _is_before_cutoff(when: datetime) -> bool:
     return (local.hour, local.minute) < (REMINDER_CUTOFF_TIME.hour, REMINDER_CUTOFF_TIME.minute)
 
 
-def _delay_for_one_hour_reminder(now: datetime) -> timedelta | None:
+def _delay_for_one_hour_reminder(now: datetime) -> Optional[timedelta]:
     """+1 ч от отправки, только в тот же календарный день и строго до 22:00 МСК."""
     if not _is_before_cutoff(now):
         return None
@@ -89,14 +90,14 @@ def _delay_for_one_hour_reminder(now: datetime) -> timedelta | None:
     return timedelta(hours=1)
 
 
-def _first_reminder_at(now: datetime) -> datetime | None:
+def _first_reminder_at(now: datetime) -> Optional[datetime]:
     """Момент первого напоминания (+1 ч) или None, если оно в этот день не планируется."""
     if _delay_for_one_hour_reminder(now) is None:
         return None
     return now + timedelta(hours=1)
 
 
-def _delay_for_evening_reminder(now: datetime) -> timedelta | None:
+def _delay_for_evening_reminder(now: datetime) -> Optional[timedelta]:
     """Второе напоминание в 19:30 — только если первое (+1 ч) уже успеет до 19:30."""
     if not _is_before_cutoff(now):
         return None

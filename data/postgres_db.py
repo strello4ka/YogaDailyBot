@@ -2870,11 +2870,11 @@ def get_weekday_statistics() -> dict:
 
 # Функции для логирования отправленных практик
 
-def log_practice_sent(user_id: int, practice_id: int, day_number: int) -> int | None:
+def log_practice_sent(user_id: int, practice_id: int, day_number: int) -> Optional[int]:
     """Логирует отправку практики пользователю.
 
     Returns:
-        int | None: log_id новой записи или None при ошибке
+        Optional[int]: log_id новой записи или None при ошибке
     """
     conn = None
     try:
