@@ -225,8 +225,8 @@ async def cancel_mode_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int
         print(f"Ошибка cancel_mode_reminders для user_id={user_id}: {e}")
 
 
-async def send_reminder_4h(context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет напоминание через 4 часа после выбора времени.
+async def send_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет напоминание через 1 час после выбора времени.
     
     Args:
         context: Контекст бота с данными пользователя
@@ -243,7 +243,7 @@ async def send_reminder_4h(context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.send_message(chat_id, reminder_text)
     except Exception as e:
-        print(f"Ошибка отправки напоминания 4ч: {e}")
+        print(f"Ошибка отправки напоминания 1ч: {e}")
 
 
 async def send_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
@@ -269,7 +269,7 @@ async def send_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def schedule_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
-    """Планирует отправку напоминаний через 4 и 24 часа.
+    """Планирует отправку напоминаний через 1 и 24 часа.
     
     Перед планированием новых напоминаний отменяет существующие для этого пользователя,
     чтобы избежать дублирования напоминаний при повторных вызовах функции.
@@ -291,12 +291,12 @@ async def schedule_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: int, u
     job_data = {'chat_id': chat_id, 'user_id': user_id}
     
     try:
-        # Планируем напоминание через 4 часа
+        # Планируем напоминание через 1 час
         context.job_queue.run_once(
-            send_reminder_4h,
-            when=timedelta(hours=4),
+            send_reminder_1h,
+            when=timedelta(hours=1),
             data=job_data,
-            name=f"reminder_4h_{user_id}"
+            name=f"reminder_1h_{user_id}"
         )
         
         # Планируем напоминание через 24 часа
@@ -328,7 +328,7 @@ async def cancel_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
         print(f"=== DEBUG: JobQueue недоступен для user_id={user_id} - не можем отменить напоминания ===")
         return
     
-    job_names = [f"reminder_4h_{user_id}", f"reminder_24h_{user_id}"]
+    job_names = [f"reminder_1h_{user_id}", f"reminder_24h_{user_id}"]
     cancelled_count = 0
     
     try:
@@ -670,7 +670,7 @@ async def want_start_callback(update: Update, context: CallbackContext):
     """Обработчик нажатия кнопки "Выбрать время".
     
     Показывает пользователю инструкцию по вводу времени и сразу запрашивает ввод.
-    Планирует напоминания через 4 и 24 часа.
+    Планирует напоминания через 1 и 24 часа.
     Это второй шаг в онбординге.
     
     Args:
@@ -733,7 +733,7 @@ async def want_start_callback(update: Update, context: CallbackContext):
         parse_mode='Markdown'
     )
     
-    # Планируем напоминания через 4 и 24 часа (если JobQueue доступен)
+    # Планируем напоминания через 1 и 24 часа (если JobQueue доступен)
     if hasattr(context, 'job_queue') and context.job_queue is not None:
         await schedule_reminders(context, chat_id, user_id)
     else:
