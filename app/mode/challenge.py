@@ -10,11 +10,11 @@ from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import ContextTypes
 
 from app.keyboards import (
+    MODE_CHOICE_INTRO_MARKDOWN,
     get_main_reply_keyboard,
     get_mode_choice_keyboard,
     get_welcome_keyboard,
 )
-from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN
 
 from data.db import (
     get_yoga_practice_by_id,
