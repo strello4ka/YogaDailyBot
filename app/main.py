@@ -57,6 +57,11 @@ from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
 from .handlers.tips import handle_tips_callback
+from .handlers.help import (
+    HELP_SLEEP_QUESTION_CALLBACK,
+    handle_help_sleep_question_callback,
+    help_command,
+)
 from .bot_commands import setup_bot_commands
 from app.by_mood.self_decide import handle_intensity_callback as by_mood_self_intensity_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
@@ -191,26 +196,6 @@ async def myid_command(update: Update, context):
     logger.info(f"Отправлен ID пользователю {user_id}: user_id={user_id}, chat_id={chat_id}")
 
 
-async def help_command(update: Update, context):
-    """Команда для получения помощи."""
-    # Очищаем состояние ожидания предложения практики, если оно было установлено
-    # Это нужно, чтобы пользователь мог взаимодействовать с другими функциями бота
-    context.user_data.pop('waiting_for_practice_suggestion', None)
-    context.user_data.pop('waiting_for_time', None)
-
-    chat_id = update.effective_chat.id
-
-    # Справка по использованию бота
-    help_text = (
-        "*Мой проект только зарождается, поэтому так важен любой фидбек* 🧡\n\n"
-        "Если хочешь сообщить об ошибке, предложить идею или просто общаться с другими пользователями бота, то заходи в [Чатик бота](https://t.me/+oqyK2IiKjfdkOWIy) или пиши @strello4ka.\n\n"
-        "Благодаря тебе YogaDailyBot станет лучше!"
-    )
-    
-    await update.message.reply_text(help_text, parse_mode='Markdown')
-    logger.info(f"Отправлена справка пользователю {update.effective_user.id}")
-
-
 def main():
     """Основная функция запуска бота."""
     # Создаем приложение с JobQueue
@@ -244,6 +229,12 @@ def main():
     application.add_handler(CallbackQueryHandler(mode_pick_daily_callback, pattern="^mode_pick_daily$"))
     application.add_handler(CallbackQueryHandler(mode_pick_by_mood_callback, pattern="^mode_pick_by_mood$"))
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
+    application.add_handler(
+        CallbackQueryHandler(
+            handle_help_sleep_question_callback,
+            pattern=f"^{HELP_SLEEP_QUESTION_CALLBACK}$",
+        )
+    )
     application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
     application.add_handler(CallbackQueryHandler(by_mood_self_intensity_callback, pattern="^self_intensity:"))
     application.add_handler(CallbackQueryHandler(handle_extra_mood_callback, pattern="^extra_mood:"))

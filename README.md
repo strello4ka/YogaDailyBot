@@ -154,6 +154,61 @@ python tools/broadcast_old_bot_migration.py --send --confirm SEND
 
 Отчёты сохраняются в `broadcast_reports/` и не коммитятся в git.
 
+## 📬 Ежедневная рассылка практик (as is)
+
+Сейчас в production планировщик каждую минуту запускает `send_daily_practice`, а кандидаты на отправку выбираются через `get_users_pending_for_today`. Ниже зафиксирована текущая логика как есть (без изменений и оптимизаций), чтобы безопасно пройти период челленджа.
+
+```mermaid
+flowchart TD
+    START([Каждую минуту: send_daily_practice]) --> NOW[Текущее время HH:MM<br/>таймзона Europe/Moscow]
+    NOW --> DB[(get_users_pending_for_today)]
+
+    DB --> F1{is_blocked = false?}
+    F1 -->|нет| SKIP[Не в выборке]
+    F1 -->|да| F2{is_paused = false?}
+    F2 -->|нет| SKIP
+    F2 -->|да| F3{onboarding_required = false?}
+    F3 -->|нет| SKIP
+    F3 -->|да| F4{bot_mode in daily, challenge?}
+    F4 -->|нет| SKIP
+    F4 -->|да| F5{daily_schedule_enabled = true?}
+    F5 -->|нет| SKIP
+    F5 -->|да| F6{Сегодня уже есть practice_logs<br/>day_number >= 1?}
+    F6 -->|да| SKIP
+    F6 -->|нет| F7{notify_time <= сейчас?}
+    F7 -->|нет| SKIP
+    F7 -->|да| F8{Уже были рассылки<br/>day_number >= 1?}
+
+    F8 -->|да| LIST[В списке на отправку]
+    F8 -->|нет, новичок| F9{День настройки времени прошёл?<br/>updated_at раньше сегодня}
+    F9 -->|нет, тот же день| SKIP
+    F9 -->|да| LIST
+
+    LIST --> LOOP{Для каждого user_id, chat_id}
+    LOOP --> SEND[send_practice_to_user]
+
+    SEND --> BTN[Снять кнопку с прошлого сообщения]
+    BTN --> MODE{challenge_start_id задан?}
+    MODE -->|да| CH[Практика челленджа<br/>по challenge_day + 1]
+    MODE -->|нет| DAILY[Практика Daily<br/>день недели + program_position + 1]
+    CH --> FOUND{Практика найдена?}
+    DAILY --> FOUND
+    FOUND -->|нет| ERR[Лог ошибки]
+    FOUND -->|да| TG[Сообщение в Telegram + кнопка «Я сделал!»]
+    TG --> OK{Успех отправки?}
+    OK -->|бот заблокирован| BLOCK[is_blocked = true]
+    OK -->|ошибка| ERR
+    OK -->|да| INC[Инкремент счётчиков + practice_logs]
+    INC --> BONUS{Есть бонусные практики?}
+    BONUS -->|да| BONUSSEND[Отправить бонусы]
+    BONUS -->|нет| LOOP
+    BONUSSEND --> LOOP
+
+    SKIP --> END([Конец минутного цикла])
+    ERR --> LOOP
+    BLOCK --> LOOP
+```
+
 ## 📊 Структура базы данных
 
 ### Таблица `users`
