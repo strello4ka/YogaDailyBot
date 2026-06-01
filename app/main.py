@@ -56,7 +56,6 @@ from .mode.challenge import (
 from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
-from .handlers.tips import handle_tips_callback
 from .handlers.help import help_command
 from .bot_commands import setup_bot_commands
 from app.by_mood.self_decide import handle_intensity_callback as by_mood_self_intensity_callback
@@ -78,10 +77,6 @@ async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_progress_callback(update, context)
-
-
-async def tips_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await handle_tips_callback(update, context)
 
 
 async def handle_text_input(update: Update, context):
@@ -134,7 +129,20 @@ async def handle_text_input(update: Update, context):
         print("=== DEBUG: Переадресация на handle_challenge_time_input (challenge из БД) ===")
         await handle_challenge_time_input(update, context)
         return
-    
+
+    if (
+        update.effective_user
+        and is_user_onboarding_required(update.effective_user.id)
+        and get_user_bot_mode(update.effective_user.id) in ("pending", "daily")
+    ):
+        from app.onboarding import validate_time_format
+
+        is_valid, _ = validate_time_format(update.message.text or "")
+        if is_valid:
+            print("=== DEBUG: Переадресация на handle_time_input (время без кнопки) ===")
+            await handle_time_input(update, context)
+            return
+
     print("=== DEBUG: Никакое состояние не установлено, сообщение игнорируется ===")
     # Если никакое состояние не установлено, сбрасываем возможные "зависшие" состояния
     # и игнорируем сообщение (это может быть обычное сообщение пользователя)
@@ -208,7 +216,6 @@ def main():
     application.add_handler(CommandHandler("suggest", suggest_command))
     application.add_handler(CommandHandler("donate", donate_command))
     application.add_handler(CommandHandler("progress", progress_command))
-    application.add_handler(CommandHandler("tips", tips_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("test", test_practice_command))
     application.add_handler(CommandHandler("myid", myid_command))

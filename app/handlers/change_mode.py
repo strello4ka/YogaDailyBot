@@ -3,7 +3,8 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.keyboards import MODE_CHOICE_INTRO_MARKDOWN, get_mode_choice_keyboard
+from app.keyboards import get_mode_choice_keyboard
+from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN
 from app.mode.challenge import CHALLENGE_TIME_FLOW_KEY, PENDING_CHALLENGE_PRACTICE_KEY
 
 

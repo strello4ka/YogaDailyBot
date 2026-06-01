@@ -12,6 +12,7 @@ from urllib.parse import urlparse, parse_qs
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, project_root)
 
+from app.config import get_db_connection_label  # noqa: E402
 from data.db import (  # noqa: E402 - импортируем после настройки sys.path
     add_bonus_practice,
     get_bonus_practice_count,
@@ -35,15 +36,17 @@ def extract_video_id(url: str):
 
 
 def get_youtube_data(url: str):
-    """Подтягиваем название, канал, описание и длительность бонуса прямо с YouTube."""
+    """Подтягиваем название, канал, описание и длительность с YouTube."""
     try:
         import yt_dlp
 
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-        }
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': False}
+        cookies_file = os.environ.get('YOUTUBE_COOKIES_FILE', '').strip()
+        cookies_browser = os.environ.get('YOUTUBE_COOKIES_BROWSER', '').strip()
+        if cookies_file and os.path.isfile(cookies_file):
+            ydl_opts['cookiefile'] = cookies_file
+        elif cookies_browser:
+            ydl_opts['cookiesfrombrowser'] = (cookies_browser,)
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -51,11 +54,17 @@ def get_youtube_data(url: str):
         return {
             'title': info.get('title', 'Без названия'),
             'channel_name': info.get('uploader', 'Неизвестный канал'),
-            'description': info.get('description', '')[:1000],
-            'time_practices': (info.get('duration', 0) or 0) // 60
+            'description': (info.get('description') or '')[:1000],
+            'time_practices': (info.get('duration', 0) or 0) // 60,
         }
     except Exception as exc:
         print(f"❌ Ошибка получения данных с YouTube: {exc}")
+        err = str(exc).lower()
+        if 'not a bot' in err or 'sign in to confirm' in err:
+            print(
+                "💡 Добавьте в .env: YOUTUBE_COOKIES_BROWSER=chrome\n"
+                "   (или export YOUTUBE_COOKIES_BROWSER=chrome в терминале)"
+            )
         return None
 
 
@@ -175,6 +184,9 @@ def main():
     """Простое меню, чтобы можно было создать шаблон или загрузить бонусы."""
     print("💫 Массовое добавление бонусных практик")
     print("=" * 40)
+    print(f"📡 База данных (из .env): {get_db_connection_label()}")
+    if not os.environ.get('YOUTUBE_COOKIES_BROWSER', '').strip():
+        print("⚠️  В .env нет YOUTUBE_COOKIES_BROWSER=chrome — YouTube может блокировать запросы.")
 
     while True:
         print("\nВыберите действие:")

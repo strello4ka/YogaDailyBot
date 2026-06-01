@@ -12,12 +12,25 @@ from data.db import get_current_weekday, get_yoga_practice_by_weekday_order
 from app.schedule.scheduler import format_practice_message
 
 from .keyboards import (
-    MODE_CHOICE_INTRO_MARKDOWN,
     get_by_mood_reply_keyboard,
     get_choose_mode_keyboard,
     get_mode_choice_keyboard,
     get_start_onboarding_keyboard,
     get_welcome_keyboard,
+)
+
+MODE_CHOICE_INTRO_MARKDOWN = (
+    "*Выбери режим работы бота:*\n\n"
+    "🌀 Режим *Daily* — для тех, кто хочет мягко внедрить привычку заниматься *ежедневно* и не перегорать, ведь неделя содержит сбалансированный набор практик.\n"
+    "*Выбираешь удобное время, и бот присылает видео в это время каждый день.*\n"
+    "Ты не заметишь напряга, но станешь сильнее, выносливее и гибче!\n\n"
+    "🌀 Режим *By mood* — для тех, кто хочет делать зарядки и разминки по состоянию в моменте, но без траты времени на поиск качественного контента.\n"
+    "*Нажимаешь подходящую по настроению кнопку, и бот сразу подбирает практику под твой запрос: Ленивые дни, Мини, Практика дня и т.д.* Также можно самому настроить время и интенсивность.\n\n"
+    "Оба режима помогают практиковать регулярно, просто разным способом:\n"
+    "*Daily* — через привычку и стабильность\n"
+    "*By mood* — через гибкость и свободу выбора.\n\n"
+    "Выбирай то, что ближе тебе сейчас, и *жми кнопку* 👇 \n"
+    "(изменить режим можно в любой момент в меню)"
 )
 
 
@@ -65,14 +78,112 @@ def _is_mode_choice_pending(user_id: int) -> bool:
     return get_user_bot_mode(user_id) == "pending"
 
 
-def _get_onboarding_inline_keyboard(context: ContextTypes.DEFAULT_TYPE):
-    """Возвращает актуальную inline-клавиатуру текущего шага онбординга."""
-    keyboard_kind = context.user_data.get("onboarding_keyboard_kind", "start_onboarding")
-    if keyboard_kind == "mode_choice":
-        return get_mode_choice_keyboard()
-    if keyboard_kind == "choose_mode":
-        return get_choose_mode_keyboard()
-    return get_start_onboarding_keyboard()
+def _is_daily_time_onboarding_pending(user_id: int) -> bool:
+    """True, если Daily/Challenge выбран, но время ещё не сохранено."""
+    from data.db import is_user_onboarding_required
+
+    return is_user_onboarding_required(user_id)
+
+
+# --- Тексты напоминаний (Markdown) ---
+
+MODE_REMINDER_AFTER_START_1H = (
+    "Чтобы бот начал работать, тебе нужно *выбрать режим*.\n"
+    "Определяйся: *Daily* или *By mood* — и погнали 🧡"
+)
+
+MODE_REMINDER_AFTER_START_24H = (
+    "Ты все еще не выбрал режим...\n\n"
+    "Нажми *Daily* или *By mood* — это займёт один миг"
+)
+
+MODE_REMINDER_ON_MODE_SCREEN_1H = (
+    "Чтобы бот начал работать, тебе нужно *выбрать режим*.\n"
+    "Определяйся: *Daily* или *By mood* — и погнали 🧡"
+)
+
+MODE_REMINDER_ON_MODE_SCREEN_24H = MODE_REMINDER_AFTER_START_24H
+
+TIME_REMINDER_AFTER_DAILY_PICK_1H = (
+    "Мы уже почти готовы начать долгий и счастливый путь к движению, осталось выбрать время, "
+    "когда хочешь получать сообщения\n\n"
+    "*Введи время в формате ЧЧ.ММ (например, 09.30)*"
+)
+
+TIME_REMINDER_AFTER_DAILY_PICK_24H = (
+    "Эй, мы так и не начали\n"
+    "Если не выберешь время сегодня, придётся отложить старт..а жаль, тебя ждет отличное занятие!\n\n"
+    "*Введи время в формате ЧЧ.ММ (например, 09.30)*"
+)
+
+TIME_REMINDER_AFTER_TIME_BUTTON_1H = TIME_REMINDER_AFTER_DAILY_PICK_1H
+
+TIME_REMINDER_AFTER_TIME_BUTTON_24H = TIME_REMINDER_AFTER_DAILY_PICK_24H
+
+
+def _mode_start_job_names(user_id: int) -> list[str]:
+    return [f"mode_start_reminder_1h_{user_id}", f"mode_start_reminder_24h_{user_id}"]
+
+
+def _mode_pick_job_names(user_id: int) -> list[str]:
+    return [f"mode_pick_reminder_1h_{user_id}", f"mode_pick_reminder_24h_{user_id}"]
+
+
+def _time_pick_job_names(user_id: int) -> list[str]:
+    return [f"time_pick_reminder_1h_{user_id}", f"time_pick_reminder_24h_{user_id}"]
+
+
+def _time_input_job_names(user_id: int) -> list[str]:
+    return [f"time_input_reminder_1h_{user_id}", f"time_input_reminder_24h_{user_id}"]
+
+
+async def _cancel_named_jobs(context: ContextTypes.DEFAULT_TYPE, job_names: list[str]) -> None:
+    if not hasattr(context, "job_queue") or context.job_queue is None:
+        return
+    job_queue = context.job_queue
+    for job_name in job_names:
+        try:
+            for job in job_queue.get_jobs_by_name(job_name):
+                job.schedule_removal()
+        except Exception as e:
+            print(f"Ошибка отмены задачи '{job_name}': {e}")
+    try:
+        scheduler = job_queue.scheduler
+        for job_name in job_names:
+            try:
+                if scheduler.get_job(job_name):
+                    scheduler.remove_job(job_name)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"Ошибка доступа к scheduler: {e}")
+
+
+async def strip_inline_keyboard(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int | None
+) -> None:
+    if not message_id:
+        return
+    try:
+        await context.bot.edit_message_reply_markup(
+            chat_id=chat_id, message_id=message_id, reply_markup=None
+        )
+    except Exception as e:
+        print(f"Не удалось снять inline-кнопки с сообщения {message_id}: {e}")
+
+
+async def _send_reminder_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    text: str,
+    reply_markup=None,
+) -> None:
+    await context.bot.send_message(
+        chat_id,
+        text,
+        reply_markup=reply_markup,
+        parse_mode="Markdown",
+    )
 
 
 def _remember_onboarding_keyboard_state(
@@ -103,278 +214,279 @@ async def _remove_previous_onboarding_keyboard(context: ContextTypes.DEFAULT_TYP
         print(f"Не удалось убрать предыдущие onboarding-кнопки: {e}")
 
 
-async def send_mode_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
-    """Напоминание через 1 час: выбрать режим после /start."""
+async def send_mode_start_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
+    """+1 ч после /start: режим не выбран."""
     job = context.job
     chat_id = job.data["chat_id"]
     user_id = job.data["user_id"]
-
     if not _is_mode_choice_pending(user_id):
         return
-
-    reminder_text = (
-        "Чтобы бот начал работать, тебе нужно *выбрать режим*.\n"
-        "Определяйся: Daily или By mood — и погнали 🧡"
-    )
-
     try:
-        await _remove_previous_onboarding_keyboard(context, chat_id)
-        keyboard = _get_onboarding_inline_keyboard(context)
-        reminder_message = await context.bot.send_message(
+        await _send_reminder_message(
+            context,
             chat_id,
-            reminder_text,
-            reply_markup=keyboard,
-            parse_mode="Markdown",
-        )
-        keyboard_kind = context.user_data.get("onboarding_keyboard_kind", "start_onboarding")
-        _remember_onboarding_keyboard_state(
-            context=context,
-            chat_id=chat_id,
-            message_id=reminder_message.message_id,
-            keyboard_kind=keyboard_kind,
+            MODE_REMINDER_AFTER_START_1H,
+            reply_markup=get_start_onboarding_keyboard(),
         )
     except Exception as e:
-        print(f"Ошибка отправки напоминания о выборе режима (1ч): {e}")
+        print(f"Ошибка напоминания о режиме после /start (1ч): {e}")
 
 
-async def send_mode_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
-    """Напоминание через 24 часа: выбрать режим после /start."""
+async def send_mode_start_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
+    """+24 ч после /start: режим не выбран."""
     job = context.job
     chat_id = job.data["chat_id"]
     user_id = job.data["user_id"]
-
     if not _is_mode_choice_pending(user_id):
         return
-
-    reminder_text = (
-        "Ты все еще не выбрал режим..."
-    )
-
     try:
-        await _remove_previous_onboarding_keyboard(context, chat_id)
-        reminder_message = await context.bot.send_message(
+        await _send_reminder_message(
+            context,
             chat_id,
-            reminder_text,
+            MODE_REMINDER_AFTER_START_24H,
             reply_markup=get_mode_choice_keyboard(),
-            parse_mode="Markdown",
-        )
-        _remember_onboarding_keyboard_state(
-            context=context,
-            chat_id=chat_id,
-            message_id=reminder_message.message_id,
-            keyboard_kind="mode_choice",
         )
     except Exception as e:
-        print(f"Ошибка отправки напоминания о выборе режима (24ч): {e}")
+        print(f"Ошибка напоминания о режиме после /start (24ч): {e}")
+
+
+async def send_mode_pick_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
+    """+1 ч после «Выбрать режим»: Daily/By mood не нажаты."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+    if not _is_mode_choice_pending(user_id):
+        return
+    try:
+        await _send_reminder_message(
+            context,
+            chat_id,
+            MODE_REMINDER_ON_MODE_SCREEN_1H,
+            reply_markup=get_mode_choice_keyboard(),
+        )
+    except Exception as e:
+        print(f"Ошибка напоминания на экране режима (1ч): {e}")
+
+
+async def send_mode_pick_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
+    """+24 ч после «Выбрать режим»: Daily/By mood не нажаты."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+    if not _is_mode_choice_pending(user_id):
+        return
+    try:
+        await _send_reminder_message(
+            context,
+            chat_id,
+            MODE_REMINDER_ON_MODE_SCREEN_24H,
+            reply_markup=get_mode_choice_keyboard(),
+        )
+    except Exception as e:
+        print(f"Ошибка напоминания на экране режима (24ч): {e}")
+
+
+async def send_time_pick_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
+    """+1 ч после Daily/Challenge: кнопку «Выбрать время» не нажали."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+    if not _is_daily_time_onboarding_pending(user_id):
+        return
+    try:
+        await strip_inline_keyboard(
+            context, chat_id, job.data.get("strip_message_id")
+        )
+        await _send_reminder_message(
+            context, chat_id, TIME_REMINDER_AFTER_DAILY_PICK_1H
+        )
+    except Exception as e:
+        print(f"Ошибка напоминания о времени после Daily (1ч): {e}")
+
+
+async def send_time_pick_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
+    """+24 ч после Daily/Challenge: кнопку «Выбрать время» не нажали."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+    if not _is_daily_time_onboarding_pending(user_id):
+        return
+    try:
+        await strip_inline_keyboard(
+            context, chat_id, job.data.get("strip_message_id")
+        )
+        await _send_reminder_message(
+            context, chat_id, TIME_REMINDER_AFTER_DAILY_PICK_24H
+        )
+    except Exception as e:
+        print(f"Ошибка напоминания о времени после Daily (24ч): {e}")
+
+
+async def send_time_input_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
+    """+1 ч после «Выбрать время»: время не введено."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+    if not _is_daily_time_onboarding_pending(user_id):
+        return
+    try:
+        await _send_reminder_message(
+            context, chat_id, TIME_REMINDER_AFTER_TIME_BUTTON_1H
+        )
+    except Exception as e:
+        print(f"Ошибка напоминания о вводе времени (1ч): {e}")
+
+
+async def send_time_input_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
+    """+24 ч после «Выбрать время»: время не введено."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+    if not _is_daily_time_onboarding_pending(user_id):
+        return
+    try:
+        await _send_reminder_message(
+            context, chat_id, TIME_REMINDER_AFTER_TIME_BUTTON_24H
+        )
+    except Exception as e:
+        print(f"Ошибка напоминания о вводе времени (24ч): {e}")
 
 
 async def schedule_mode_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
-    """Планирует напоминания о выборе режима через 1 и 24 часа после /start."""
+    """Напоминания о выборе режима через 1 и 24 ч после /start."""
     if not hasattr(context, "job_queue") or context.job_queue is None:
         print("JobQueue недоступен — напоминания о выборе режима не будут отправлены")
         return
 
     await cancel_mode_reminders(context, user_id)
-
     job_data = {"chat_id": chat_id, "user_id": user_id}
-
     try:
         context.job_queue.run_once(
-            send_mode_reminder_1h,
+            send_mode_start_reminder_1h,
             when=timedelta(hours=1),
             data=job_data,
-            name=f"mode_reminder_1h_{user_id}",
+            name=f"mode_start_reminder_1h_{user_id}",
         )
         context.job_queue.run_once(
-            send_mode_reminder_24h,
+            send_mode_start_reminder_24h,
             when=timedelta(hours=24),
             data=job_data,
-            name=f"mode_reminder_24h_{user_id}",
+            name=f"mode_start_reminder_24h_{user_id}",
         )
     except Exception as e:
-        print(f"Ошибка планирования напоминаний о выборе режима: {e}")
+        print(f"Ошибка планирования напоминаний о режиме после /start: {e}")
 
 
-async def cancel_mode_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Отменяет запланированные напоминания о выборе режима."""
+async def schedule_mode_pick_reminders(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int
+):
+    """Напоминания через 1 и 24 ч после «Выбрать режим» (экран Daily / By mood)."""
     if not hasattr(context, "job_queue") or context.job_queue is None:
         return
 
-    job_names = [f"mode_reminder_1h_{user_id}", f"mode_reminder_24h_{user_id}"]
+    await _cancel_named_jobs(context, _mode_start_job_names(user_id))
+    await _cancel_named_jobs(context, _mode_pick_job_names(user_id))
 
+    job_data = {"chat_id": chat_id, "user_id": user_id}
     try:
-        job_queue = context.job_queue
-        for job_name in job_names:
-            try:
-                for job in job_queue.get_jobs_by_name(job_name):
-                    job.schedule_removal()
-            except Exception as e:
-                print(f"Ошибка отмены задачи '{job_name}': {e}")
-
-        try:
-            scheduler = job_queue.scheduler
-            for job_name in job_names:
-                try:
-                    if scheduler.get_job(job_name):
-                        scheduler.remove_job(job_name)
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f"Ошибка доступа к scheduler при отмене напоминаний о режиме: {e}")
+        context.job_queue.run_once(
+            send_mode_pick_reminder_1h,
+            when=timedelta(hours=1),
+            data=job_data,
+            name=f"mode_pick_reminder_1h_{user_id}",
+        )
+        context.job_queue.run_once(
+            send_mode_pick_reminder_24h,
+            when=timedelta(hours=24),
+            data=job_data,
+            name=f"mode_pick_reminder_24h_{user_id}",
+        )
     except Exception as e:
-        print(f"Ошибка cancel_mode_reminders для user_id={user_id}: {e}")
+        print(f"Ошибка планирования напоминаний на экране режима: {e}")
 
 
-async def send_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет напоминание через 1 час после выбора времени.
-    
-    Args:
-        context: Контекст бота с данными пользователя
-    """
-    job = context.job
-    chat_id = job.data['chat_id']
-    user_id = job.data['user_id']
-    
-    reminder_text = (
-        "Мы уже почти готовы начать долгий и счастливый путь к движению, осталось выбрать время, когда хочешь получать сообщения\n\n"
-        "*Введи время в формате ЧЧ.ММ (например, 09.30)*"
+async def cancel_mode_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Отменяет все напоминания о выборе режима."""
+    await _cancel_named_jobs(
+        context,
+        _mode_start_job_names(user_id)
+        + _mode_pick_job_names(user_id)
+        + [f"mode_reminder_1h_{user_id}", f"mode_reminder_24h_{user_id}"],
     )
-    
-    try:
-        await context.bot.send_message(chat_id, reminder_text)
-    except Exception as e:
-        print(f"Ошибка отправки напоминания 1ч: {e}")
 
 
-async def send_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет напоминание через 24 часа после выбора времени.
-    
-    Args:
-        context: Контекст бота с данными пользователя
-    """
-    job = context.job
-    chat_id = job.data['chat_id']
-    user_id = job.data['user_id']
-    
-    reminder_text = (
-        "Эй, мы так и не начали\n"
-        "Если не выберешь время сегодня, придётся отложить старт..а жаль, тебя ждет отличное занятие!\n\n"
-        "*Введи время в формате ЧЧ.ММ (например, 09.30)*"
-    )
-    
+async def schedule_time_pick_reminders(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+    welcome_message_id: int | None,
+):
+    """Напоминания о времени: выбрали Daily/Challenge, но не нажали «Выбрать время»."""
+    if not hasattr(context, "job_queue") or context.job_queue is None:
+        print("JobQueue недоступен — напоминания о времени не будут отправлены")
+        return
+
+    await _cancel_named_jobs(context, _time_pick_job_names(user_id))
+    await _cancel_named_jobs(context, _time_input_job_names(user_id))
+
+    job_data = {
+        "chat_id": chat_id,
+        "user_id": user_id,
+        "strip_message_id": welcome_message_id,
+    }
     try:
-        await context.bot.send_message(chat_id, reminder_text)
+        context.job_queue.run_once(
+            send_time_pick_reminder_1h,
+            when=timedelta(hours=1),
+            data=job_data,
+            name=f"time_pick_reminder_1h_{user_id}",
+        )
+        context.job_queue.run_once(
+            send_time_pick_reminder_24h,
+            when=timedelta(hours=24),
+            data=job_data,
+            name=f"time_pick_reminder_24h_{user_id}",
+        )
     except Exception as e:
-        print(f"Ошибка отправки напоминания 24ч: {e}")
+        print(f"Ошибка планирования напоминаний о времени (Daily): {e}")
 
 
 async def schedule_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
-    """Планирует отправку напоминаний через 1 и 24 часа.
-    
-    Перед планированием новых напоминаний отменяет существующие для этого пользователя,
-    чтобы избежать дублирования напоминаний при повторных вызовах функции.
-    
-    Args:
-        context: Контекст бота
-        chat_id: ID чата пользователя
-        user_id: ID пользователя
-    """
-    # Проверяем, что JobQueue доступен
-    if not hasattr(context, 'job_queue') or context.job_queue is None:
-        print("JobQueue недоступен - напоминания не будут отправлены")
+    """Напоминания о времени: нажали «Выбрать время», но не ввели."""
+    if not hasattr(context, "job_queue") or context.job_queue is None:
+        print("JobQueue недоступен — напоминания не будут отправлены")
         return
-    
-    # Сначала отменяем существующие напоминания для этого пользователя,
-    # чтобы избежать дублирования при повторных вызовах функции
-    await cancel_reminders(context, user_id)
-    
-    job_data = {'chat_id': chat_id, 'user_id': user_id}
-    
+
+    await _cancel_named_jobs(context, _time_pick_job_names(user_id))
+    await _cancel_named_jobs(context, _time_input_job_names(user_id))
+
+    job_data = {"chat_id": chat_id, "user_id": user_id}
     try:
-        # Планируем напоминание через 1 час
         context.job_queue.run_once(
-            send_reminder_1h,
+            send_time_input_reminder_1h,
             when=timedelta(hours=1),
             data=job_data,
-            name=f"reminder_1h_{user_id}"
+            name=f"time_input_reminder_1h_{user_id}",
         )
-        
-        # Планируем напоминание через 24 часа
         context.job_queue.run_once(
-            send_reminder_24h,
+            send_time_input_reminder_24h,
             when=timedelta(hours=24),
             data=job_data,
-            name=f"reminder_24h_{user_id}"
+            name=f"time_input_reminder_24h_{user_id}",
         )
     except Exception as e:
-        print(f"Ошибка планирования напоминаний: {e}")
+        print(f"Ошибка планирования напоминаний о вводе времени: {e}")
 
 
 async def cancel_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    """Отменяет запланированные напоминания при выборе времени.
-    
-    Использует несколько методов для отмены задач, чтобы гарантировать их удаление:
-    1. Пытается найти задачи через get_jobs_by_name и вызвать schedule_removal
-    2. Если это не работает, пытается удалить через scheduler.remove_job
-    
-    Args:
-        context: Контекст бота
-        user_id: ID пользователя
-    """
-    print(f"=== DEBUG: cancel_reminders вызвана для user_id={user_id} ===")
-    
-    # Проверяем, что JobQueue доступен
-    if not hasattr(context, 'job_queue') or context.job_queue is None:
-        print(f"=== DEBUG: JobQueue недоступен для user_id={user_id} - не можем отменить напоминания ===")
-        return
-    
-    job_names = [f"reminder_1h_{user_id}", f"reminder_24h_{user_id}"]
-    cancelled_count = 0
-    
-    try:
-        job_queue = context.job_queue
-        
-        # Метод 1: Пытаемся найти и отменить задачи через get_jobs_by_name
-        # Это предпочтительный метод для python-telegram-bot
-        for job_name in job_names:
-            try:
-                # Получаем все задачи с таким именем (их может быть несколько)
-                jobs = job_queue.get_jobs_by_name(job_name)
-                if jobs:
-                    for job in jobs:
-                        job.schedule_removal()
-                        cancelled_count += 1
-                        print(f"=== DEBUG: Задача '{job_name}' помечена на удаление через schedule_removal ===")
-                else:
-                    print(f"=== DEBUG: Задача '{job_name}' не найдена через get_jobs_by_name ===")
-            except Exception as e:
-                print(f"=== DEBUG: Ошибка при отмене задачи '{job_name}' через get_jobs_by_name: {e} ===")
-        
-        # Метод 2: Дополнительно пытаемся удалить через scheduler напрямую
-        # Это нужно на случай, если первый метод не сработал
-        try:
-            scheduler = job_queue.scheduler
-            all_jobs = scheduler.get_jobs()
-            existing_job_ids = [job.id for job in all_jobs]
-            print(f"=== DEBUG: Все задачи в scheduler: {existing_job_ids} ===")
-            
-            for job_name in job_names:
-                try:
-                    job = scheduler.get_job(job_name)
-                    if job:
-                        scheduler.remove_job(job_name)
-                        cancelled_count += 1
-                        print(f"=== DEBUG: Задача '{job_name}' удалена через scheduler.remove_job ===")
-                except Exception as e:
-                    # Игнорируем ошибку, если задача уже удалена или не существует
-                    print(f"=== DEBUG: Задача '{job_name}' не найдена в scheduler или уже удалена: {e} ===")
-        except Exception as e:
-            print(f"=== DEBUG: Ошибка при доступе к scheduler: {e} ===")
-        
-        print(f"=== DEBUG: Всего отменено задач для user_id={user_id}: {cancelled_count} ===")
-                
-    except Exception as e:
-        print(f"=== DEBUG: Критическая ошибка при отмене напоминаний для user_id={user_id}: {e} ===")
+    """Отменяет все напоминания о выборе времени в онбординге."""
+    await _cancel_named_jobs(
+        context, _time_pick_job_names(user_id) + _time_input_job_names(user_id)
+    )
+    # Старые имена задач (до рефакторинга)
+    await _cancel_named_jobs(
+        context, [f"reminder_1h_{user_id}", f"reminder_24h_{user_id}"]
+    )
 
 
 async def remove_callback_keyboard(query):
@@ -468,6 +580,10 @@ async def onboarding_open_mode_choice_callback(update: Update, context: ContextT
         keyboard_kind="mode_choice",
     )
 
+    user = update.effective_user
+    if user:
+        await schedule_mode_pick_reminders(context, chat_id, user.id)
+
 
 async def onboarding_show_example_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отправляет пример практики без влияния на прогресс и расписание."""
@@ -555,8 +671,9 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
             parse_mode="Markdown",
         )
         return
-    if prev in ("by_mood", "challenge"):
+    if prev in ("by_mood", "challenge", "pending"):
         set_user_daily_pending(user.id)
+    if prev in ("by_mood", "challenge"):
         from app.mode.extra_practices import strip_extra_practices_inline_keyboards
 
         await strip_extra_practices_inline_keyboards(context.bot, user.id)
@@ -591,6 +708,11 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     context.user_data["daily_time_choice_chat_id"] = chat_id
     context.user_data["daily_time_choice_message_id"] = time_choice_message.message_id
 
+    if hasattr(context, "job_queue") and context.job_queue is not None:
+        await schedule_time_pick_reminders(
+            context, chat_id, user.id, time_choice_message.message_id
+        )
+
 
 async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Режим By mood: без рассылки по времени, сразу клавиатура фильтров."""
@@ -603,6 +725,7 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     chat_id = update.effective_chat.id
 
     await cancel_mode_reminders(context, user.id)
+    await cancel_reminders(context, user.id)
     context.user_data.pop("onboarding_keyboard_chat_id", None)
     context.user_data.pop("onboarding_keyboard_message_id", None)
     context.user_data.pop("onboarding_keyboard_kind", None)
@@ -688,11 +811,11 @@ async def want_start_callback(update: Update, context: CallbackContext):
     # Отвечаем на callback, чтобы убрать "часики" у кнопки
     await query.answer()
     await remove_callback_keyboard(query)
-    context.user_data.pop("daily_time_choice_chat_id", None)
-    context.user_data.pop("daily_time_choice_message_id", None)
-    
-    # Получаем данные пользователя
+
     chat_id = update.effective_chat.id
+    strip_message_id = context.user_data.pop("daily_time_choice_message_id", None)
+    context.user_data.pop("daily_time_choice_chat_id", None)
+    await strip_inline_keyboard(context, chat_id, strip_message_id)
     
     # Очищаем другие состояния перед установкой нового
     context.user_data.pop('waiting_for_practice_suggestion', None)
@@ -739,13 +862,18 @@ async def handle_time_input(update: Update, context: CallbackContext):
     print(f"Waiting for time: {context.user_data.get('waiting_for_time')}")
     print(f"Is time change: {context.user_data.get('is_time_change')}")
     
-    # Проверяем, что пользователь в состоянии ожидания ввода времени
-    # И что это НЕ изменение времени (для онбординга)
-    if not context.user_data.get('waiting_for_time') or context.user_data.get('is_time_change'):
-        print("=== DEBUG: Пользователь не в состоянии ожидания времени ИЛИ это изменение времени ===")
+    if context.user_data.get("is_time_change"):
+        print("=== DEBUG: Это изменение времени, не онбординг ===")
         return
-    
-    # Получаем введенное время
+
+    user_id = update.effective_user.id if update.effective_user else None
+    from data.db import is_user_onboarding_required
+
+    if not context.user_data.get("waiting_for_time"):
+        if not user_id or not is_user_onboarding_required(user_id):
+            print("=== DEBUG: Пользователь не в состоянии ожидания времени ===")
+            return
+
     time_input = update.message.text
     print(f"=== DEBUG: Введенное время: '{time_input}' ===")
     
@@ -753,10 +881,10 @@ async def handle_time_input(update: Update, context: CallbackContext):
     is_valid, result = validate_time_format(time_input)
     
     if not is_valid:
-        # Показываем ошибку и просим ввести заново
         await update.message.reply_text(
             f"🚨 {result}\n\n"
-            "Попробуй еще раз в формате ЧЧ.ММ"
+            "Попробуй еще раз в формате *ЧЧ.ММ*",
+            parse_mode="Markdown",
         )
         return
     
