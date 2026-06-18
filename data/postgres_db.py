@@ -3,7 +3,7 @@ import psycopg2.extras
 import json
 import os
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo  # Нужен для вычисления дня недели с учётом таймзоны
 from typing import Optional  # Для типов, совместимых с Python 3.9
 import sys
@@ -3073,29 +3073,74 @@ def get_completed_count(user_id: int) -> int:
         return 0
 
 
-def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received: int = 5):
-    """Возвращает процент пользователей с таким же результатом по бакету процента выполнения.
+def _completed_at_to_moscow_date(completed_at: datetime) -> date:
+    """Переводит метку выполнения в календарную дату по таймзоне бота."""
+    tz = ZoneInfo(DEFAULT_TZ)
+    if completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=ZoneInfo("UTC"))
+    return completed_at.astimezone(tz).date()
 
-    Результат пользователя = completed / total_practices * 100.
-    «Такие же» = пользователи с total_practices >= min_received, чьи результаты попали в тот же
-    бакет шириной bucket_size (например, 50-54 для bucket_size=5).
+
+def get_streak_days(user_id: int) -> int:
+    """Непрерывная серия календарных дней с хотя бы одной выполненной практикой (МСК).
+
+    Сегодня выполнил — считаем от сегодня назад.
+    Сегодня ещё нет, вчера был — серия жива до конца дня.
+    Иначе — 0.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT completed_at FROM practice_logs
+            WHERE user_id = %s AND completed_at IS NOT NULL
+        ''', (user_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return 0
+
+        completion_days = {_completed_at_to_moscow_date(row[0]) for row in rows}
+        tz = ZoneInfo(DEFAULT_TZ)
+        today = datetime.now(tz).date()
+        yesterday = today - timedelta(days=1)
+
+        if today in completion_days:
+            anchor = today
+        elif yesterday in completion_days:
+            anchor = yesterday
+        else:
+            return 0
+
+        streak = 0
+        day = anchor
+        while day in completion_days:
+            streak += 1
+            day -= timedelta(days=1)
+        return streak
+
+    except Exception as e:
+        logger.error(f"Ошибка get_streak_days для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+
+def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_completed: int = 3):
+    """Возвращает процент пользователей с таким же результатом по бакету числа выполненных практик.
+
+    «Такие же» = пользователи с completed_cnt >= min_completed в том же бакете шириной
+    bucket_size (например, 10–14 при bucket_size=5).
 
     Returns:
         float | None: процент «таких же» пользователей (0..100) или None, если данных пока мало.
     """
+    conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
-
-        cursor.execute('SELECT COALESCE(total_practices, 0) FROM users WHERE user_id = %s', (user_id,))
-        row = cursor.fetchone()
-        if not row:
-            conn.close()
-            return None
-        total_practices = int(row[0])
-        if total_practices < min_received or total_practices <= 0:
-            conn.close()
-            return None
 
         cursor.execute('''
             SELECT COUNT(*) FROM practice_logs
@@ -3103,8 +3148,11 @@ def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received:
         ''', (user_id,))
         completed_row = cursor.fetchone()
         user_completed = int(completed_row[0]) if completed_row else 0
-        user_percent = (user_completed * 100.0) / total_practices
-        user_bucket = int(user_percent // bucket_size)
+        if user_completed < min_completed:
+            conn.close()
+            return None
+
+        user_bucket = user_completed // bucket_size
 
         cursor.execute('''
             WITH completed_by_user AS (
@@ -3114,27 +3162,25 @@ def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_received:
                 GROUP BY user_id
             ),
             eligible AS (
-                SELECT u.user_id,
-                       u.total_practices,
-                       COALESCE(c.completed_cnt, 0) AS completed_cnt
+                SELECT u.user_id, COALESCE(c.completed_cnt, 0) AS completed_cnt
                 FROM users u
                 LEFT JOIN completed_by_user c ON c.user_id = u.user_id
                 WHERE COALESCE(u.is_blocked, FALSE) = FALSE
-                  AND COALESCE(u.total_practices, 0) >= %s
+                  AND COALESCE(c.completed_cnt, 0) >= %s
             ),
             stats AS (
                 SELECT
                     COUNT(*) AS total_cnt,
                     SUM(
                         CASE
-                            WHEN FLOOR((completed_cnt * 100.0 / total_practices) / %s) = %s THEN 1
+                            WHEN (completed_cnt / %s) = %s THEN 1
                             ELSE 0
                         END
                     ) AS same_cnt
                 FROM eligible
             )
             SELECT total_cnt, same_cnt FROM stats
-        ''', (min_received, bucket_size, user_bucket))
+        ''', (min_completed, bucket_size, user_bucket))
 
         totals = cursor.fetchone()
         conn.close()

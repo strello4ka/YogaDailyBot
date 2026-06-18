@@ -5,38 +5,55 @@ from telegram.ext import ContextTypes
 
 from data.db import (
     get_completed_count,
-    get_total_practices,
     get_similar_result_percent,
+    get_streak_days,
     reset_user_progress,
 )
 
 
-def _progress_text(user_id: int) -> str:
-    """Формирует текст прогресса «N из M»."""
-    n = get_completed_count(user_id)
-    m = get_total_practices(user_id)
+def format_streak_line(n: int, streak: int) -> str:
+    """Строка про непрерывную серию дней."""
+    if n == 0:
+        return ""
+    if streak == 0:
+        return "непрерывная серия дней ждет тебя, приходи завтра!"
+    return f"Непрерывная серия дней: *{streak}*"
 
-    if m == 0:
+
+def format_progress_stats(n: int, streak: int) -> str:
+    """Две строки прогресса: всего выполнено и серия."""
+    streak_line = format_streak_line(n, streak)
+    lines = [f"Выполнено всего практик: *{n}*"]
+    if streak_line:
+        lines.append(streak_line)
+    return "\n".join(lines)
+
+
+def format_similar_result_line(n: int, similar_percent) -> str:
+    """Текст про долю пользователей с таким же результатом (по числу выполненных)."""
+    if n == 0:
+        return ""
+    if n < 3 or similar_percent is None:
+        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
+    if similar_percent < 1:
+        return "\n*Менее 1%* пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
+    return f"\nТакой же результат сейчас у *{round(similar_percent)}%* пользователей YogaDailyBot"
+
+
+def _progress_text(user_id: int) -> str:
+    """Формирует текст прогресса: всего выполнено + серия дней."""
+    n = get_completed_count(user_id)
+    if n == 0:
         return "Ты еще не выполнил ни одной практики, все самое прекрасное впереди✨"
-    return f"Выполнено практик: *{n} из {m}*"
+    streak = get_streak_days(user_id)
+    return format_progress_stats(n, streak)
 
 
 def _similar_result_line(user_id: int) -> str:
     """Текст про долю пользователей с таким же результатом."""
-    if get_completed_count(user_id) == 0:
-        return ""
-    m = get_total_practices(user_id)
-    if m < 3:
-        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
-
-    similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_received=3)
-    if similar_percent is None:
-        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
-
-    if similar_percent < 1:
-        return "\n*Менее 1%* пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
-
-    return f"\nТакой же результат сейчас у *{round(similar_percent)}%* пользователей YogaDailyBot"
+    n = get_completed_count(user_id)
+    similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)
+    return format_similar_result_line(n, similar_percent)
 
 
 def _progress_keyboard() -> InlineKeyboardMarkup:

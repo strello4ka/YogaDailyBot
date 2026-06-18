@@ -10,10 +10,11 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.config import DEFAULT_TZ
+from app.handlers.progress import format_progress_stats, format_similar_result_line
 from data.db import (
     get_completed_count,
     get_similar_result_percent,
-    get_total_practices,
+    get_streak_days,
     is_pending_practice_log,
     is_user_eligible_for_done_reminder,
     mark_practice_completed_today,
@@ -42,14 +43,14 @@ DONE_REMINDER_TEXTS_EVENING = [
 
 ACHIEVEMENT_MESSAGES = {
     1: "Ура! Начало положено, заглядывай еще 🫂",
-    3: "Ого, ты набираешь обороты 🌀",
+    2: "Ого, ты набираешь обороты 🌀",
     5: "Давай дневник, ставлю 5️⃣",
-    10: "Первая ДЕСЯТОЧКА! Очень горжусь твоей дисциплиной 🫂",
+    10: "Первая ДЕСЯТОЧКА! Ты настоящий йога-двигатель 🔋",
     15: "Легенда коврика, официально ✨",
-    20: "20 ДНЕЙ С ПРАКТИКОЙ!Ты настоящий йога-двигатель 🔋",
+    20: "20 ПРАКТИК! Это уже уровень мастера привычек 🧘‍♂️",
     25: "Ритм держишь как профи 🧡 ",
-    30: "30 — это уже уровень мастера привычек 🧘‍♂️",
-    40: "40 ДНЕЙ С ПРАКТИКОЙ!Такой темп пугает и восхищает одновременно 🌀",
+    30: "30 — Такой темп пугает и восхищает одновременно 🌀",
+    40: "40 ПРАКТИК 💪💪💪",
     50: "ПОЛСОТНИ — уровень МАШИНА 🦾",
     60: "Ты уже сверхчеловек на коврике...",
     70: "Кажется, тебя уже не остановить 🧘‍♂️",
@@ -62,6 +63,23 @@ ACHIEVEMENT_MESSAGES = {
     300: "300!!! Ты просто монстр 💪",
     365: "365 дней в году и столько раз ты занимался йогой вместе мной, наши отношения переходят на новый уровень 🫂",
 }
+
+STREAK_ACHIEVEMENT_MESSAGES = {
+    3: "Три дня подряд — цепочка завязалась 🔗",
+    7: "Неделя без пропусков, круто держишься 🌀",
+    14: "Две недели подряд! Очень горжусь твоей дисциплиной 🫂",
+    21: "Три недели",
+    28: "Четыре недели",
+    35: "Мы вместе уже больше месяца",
+    40: "40 ДНЕЙ С ПРАКТИКОЙ 💪💪💪",
+}
+
+
+def _achievement_title(n: int, streak: int) -> str:
+    """Заголовок после «Я сделал!»: веха по серии важнее вехи по числу практик."""
+    if streak in STREAK_ACHIEVEMENT_MESSAGES:
+        return STREAK_ACHIEVEMENT_MESSAGES[streak]
+    return ACHIEVEMENT_MESSAGES.get(n, "Ты супер🧡")
 
 
 def pick_done_reminder_text(reminder_kind: str) -> str:
@@ -221,17 +239,9 @@ async def schedule_done_reminders(
         )
 
 
-def _similar_result_line(m: int, similar_percent) -> str:
-    if m < 3 or similar_percent is None:
-        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
-    if similar_percent < 1:
-        return "\nМенее 1% пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
-    return f"\nТакой же результат сейчас у {round(similar_percent)}% пользователей YogaDailyBot"
-
-
-def _done_text(n: int, m: int, similar_line: str) -> str:
-    title = ACHIEVEMENT_MESSAGES.get(n, "Ты супер🧡")
-    return f"{title}\n\nВыполнено практик: *{n} из {m}*{similar_line}"
+def _done_text(n: int, streak: int, similar_line: str) -> str:
+    title = _achievement_title(n, streak)
+    return f"{title}\n\n{format_progress_stats(n, streak)}{similar_line}"
 
 
 async def handle_practice_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,10 +264,10 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
         except Exception:
             pass
         n = get_completed_count(user_id)
-        m = get_total_practices(user_id)
-        similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_received=3)
-        similar_line = _similar_result_line(m, similar_percent)
-        text = _done_text(n, m, similar_line)
+        streak = get_streak_days(user_id)
+        similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)
+        similar_line = format_similar_result_line(n, similar_percent)
+        text = _done_text(n, streak, similar_line)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=text,
