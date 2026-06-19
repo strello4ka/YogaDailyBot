@@ -34,10 +34,10 @@ def format_similar_result_line(n: int, similar_percent) -> str:
     if n == 0:
         return ""
     if n < 3 or similar_percent is None:
-        return "\n\\*уже считаю сколько пользователей с таким же результатом\\*"
+        return "\n\n\\*уже считаю сколько пользователей с таким же результатом\\*"
     if similar_percent < 1:
-        return "\n*Менее 1%* пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
-    return f"\nТакой же результат сейчас у *{round(similar_percent)}%* пользователей YogaDailyBot"
+        return "\n\n*Менее 1%* пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
+    return f"\n\nТакой же результат сейчас у *{round(similar_percent)}%* пользователей YogaDailyBot"
 
 
 def _progress_text(user_id: int) -> str:
