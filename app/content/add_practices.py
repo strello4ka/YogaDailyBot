@@ -6,6 +6,7 @@
 import sys
 import os
 import csv
+import time
 from urllib.parse import urlparse, parse_qs
 
 # Добавляем путь к корневой папке проекта в sys.path
@@ -13,6 +14,7 @@ from urllib.parse import urlparse, parse_qs
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
+from app.config import get_db_connection_label
 from data.db import add_yoga_practice, get_practice_count, weekday_to_name
 
 
@@ -31,38 +33,39 @@ def extract_video_id(url):
     return None
 
 
-def get_youtube_data(url):
-    """Получает данные о видео с YouTube."""
+def get_youtube_data(url, delay_seconds=0):
+    """Получает данные о видео с YouTube (cookies из .env: YOUTUBE_COOKIES_BROWSER или YOUTUBE_COOKIES_FILE)."""
+    if delay_seconds > 0:
+        time.sleep(delay_seconds)
     try:
         import yt_dlp
-        
-        # Настройки для yt-dlp
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-        }
-        
+
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': False}
+        cookies_file = os.environ.get('YOUTUBE_COOKIES_FILE', '').strip()
+        cookies_browser = os.environ.get('YOUTUBE_COOKIES_BROWSER', '').strip()
+        if cookies_file and os.path.isfile(cookies_file):
+            ydl_opts['cookiefile'] = cookies_file
+        elif cookies_browser:
+            ydl_opts['cookiesfrombrowser'] = (cookies_browser,)
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Получаем информацию о видео
             info = ydl.extract_info(url, download=False)
-            
-            # Извлекаем данные
-            title = info.get('title', 'Без названия')
-            channel_name = info.get('uploader', 'Неизвестный канал')
-            description = info.get('description', '')[:1000]  # Ограничиваем длину описания
-            duration_seconds = info.get('duration', 0)
-            duration_minutes = duration_seconds // 60 if duration_seconds else 0
-            
-            return {
-                'title': title,
-                'channel_name': channel_name,
-                'description': description,
-                'time_practices': duration_minutes
-            }
-        
+
+        duration_seconds = info.get('duration', 0) or 0
+        return {
+            'title': info.get('title', 'Без названия'),
+            'channel_name': info.get('uploader', 'Неизвестный канал'),
+            'description': (info.get('description') or '')[:1000],
+            'time_practices': duration_seconds // 60,
+        }
     except Exception as e:
         print(f"❌ Ошибка получения данных с YouTube: {e}")
+        err = str(e).lower()
+        if 'not a bot' in err or 'sign in to confirm' in err:
+            print(
+                "💡 Добавьте в .env: YOUTUBE_COOKIES_BROWSER=chrome\n"
+                "   (или export YOUTUBE_COOKIES_BROWSER=chrome в терминале)"
+            )
         return None
 
 
@@ -156,9 +159,9 @@ def process_csv_file(csv_file):
                     error_count += 1
                     continue
             
-            # Получаем данные с YouTube
+            # Получаем данные с YouTube (пауза снижает риск блокировки после нескольких строк)
             print(f"📡 Получаем данные с YouTube...")
-            youtube_data = get_youtube_data(video_url)
+            youtube_data = get_youtube_data(video_url, delay_seconds=2 if row_num > 1 else 0)
             if not youtube_data:
                 print(f"❌ Строка {row_num}: не удалось получить данные с YouTube")
                 error_count += 1
@@ -206,6 +209,15 @@ def main():
     """Главная функция."""
     print("🧘‍♀️ Массовое добавление йога практик")
     print("=" * 40)
+    db_label = get_db_connection_label()
+    print(f"📡 База данных (из .env): {db_label}")
+    if not os.environ.get('YOUTUBE_COOKIES_BROWSER', '').strip():
+        print("⚠️  В .env нет YOUTUBE_COOKIES_BROWSER=chrome — YouTube может блокировать запросы.")
+    if db_label.startswith("81.19.136.130"):
+        print(
+            "⚠️  Похоже, в .env ещё старый сервер. Обновите подключение на Railway "
+            "(DATABASE_PUBLIC_URL или POSTGRESQL_*)."
+        )
     
     while True:
         print("\nВыберите действие:")

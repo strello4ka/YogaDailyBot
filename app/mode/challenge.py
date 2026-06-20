@@ -10,7 +10,6 @@ from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import ContextTypes
 
 from app.keyboards import (
-    MODE_CHOICE_INTRO_MARKDOWN,
     get_main_reply_keyboard,
     get_mode_choice_keyboard,
     get_welcome_keyboard,
@@ -67,6 +66,13 @@ async def begin_challenge_time_selection_flow(
     context.user_data["daily_time_choice_chat_id"] = chat_id
     context.user_data["daily_time_choice_message_id"] = time_choice_message.message_id
 
+    from app.onboarding import schedule_time_pick_reminders
+
+    if hasattr(context, "job_queue") and context.job_queue is not None:
+        await schedule_time_pick_reminders(
+            context, chat_id, user.id, time_choice_message.message_id
+        )
+
 
 async def handle_challenge_time_choice_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -77,18 +83,19 @@ async def handle_challenge_time_choice_callback(
         return
     await query.answer()
 
-    from app.onboarding import remove_callback_keyboard, schedule_reminders
+    from app.onboarding import remove_callback_keyboard, schedule_reminders, strip_inline_keyboard
 
     await remove_callback_keyboard(query)
+    chat_id = update.effective_chat.id
+    strip_message_id = context.user_data.pop("daily_time_choice_message_id", None)
     context.user_data.pop("daily_time_choice_chat_id", None)
-    context.user_data.pop("daily_time_choice_message_id", None)
+    await strip_inline_keyboard(context, chat_id, strip_message_id)
     context.user_data.pop("waiting_for_practice_suggestion", None)
     context.user_data.pop("is_time_change", None)
     context.user_data["waiting_for_time"] = True
     context.user_data[CHALLENGE_TIME_FLOW_KEY] = True
 
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
     await context.bot.send_message(
         chat_id=chat_id,
         text=CHALLENGE_TIME_INPUT_TEXT,
@@ -230,6 +237,8 @@ async def _start_challenge(
 
 async def challenge_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Выход из режима челленджа: переводим пользователя в pending и показываем выбор режима."""
+    from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN
+
     user_id = update.effective_user.id
     context.user_data.pop(PENDING_CHALLENGE_PRACTICE_KEY, None)
     context.user_data.pop(CHALLENGE_TIME_FLOW_KEY, None)

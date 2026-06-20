@@ -53,3 +53,6 @@ tools/.env.broadcast
 # Временные файлы
 .DS_Store
 Thumbs.db
+
+# Railway CLI (локальная привязка к проекту, не коммитить)
+.railway/

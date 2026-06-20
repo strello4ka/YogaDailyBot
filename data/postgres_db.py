@@ -13,6 +13,12 @@ from app.config import get_db_config, DEFAULT_TZ  # Берём таймзону 
 
 logger = logging.getLogger(__name__)
 
+
+def _tomorrow_date_moscow():
+    """Календарная дата «завтра» в таймзоне бота (первая рассылка Daily/Challenge)."""
+    return (datetime.now(ZoneInfo(DEFAULT_TZ)) + timedelta(days=1)).date()
+
+
 # Приводим my_description к реальным переносам строк, чтобы маркеры из CSV/ручного ввода
 # (/n — новая строка, //n — новый абзац) отображались корректно при сохранении и выдаче.
 def _decode_my_description(text: Optional[str]) -> Optional[str]:
@@ -500,6 +506,18 @@ def init_database():
         try:
             cursor.execute("""
                 SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'first_daily_send_date'
+            """)
+            if not cursor.fetchone():
+                cursor.execute(
+                    "ALTER TABLE users ADD COLUMN first_daily_send_date DATE"
+                )
+                print("   ✅ Добавлен столбец first_daily_send_date в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца first_daily_send_date: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
                 WHERE table_name = 'yoga_practices' AND column_name = 'without_mat'
             """)
             if not cursor.fetchone():
@@ -579,11 +597,12 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
         cursor = conn.cursor()
         
         if reset_days:
-            # Первый запуск (/start) - обнуляем счётчик отправленных практик
+            first_send_date = _tomorrow_date_moscow()
+            # Первый запуск онбординга: первая рассылка только со следующего календарного дня
             cursor.execute('''
                 INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, total_practices,
-                    bot_mode, daily_schedule_enabled)
-                VALUES (%s, %s, %s, %s, %s, 0, 'daily', TRUE)
+                    bot_mode, daily_schedule_enabled, first_daily_send_date)
+                VALUES (%s, %s, %s, %s, %s, 0, 'daily', TRUE, %s)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET 
                     chat_id = EXCLUDED.chat_id,
@@ -594,10 +613,11 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                     onboarding_required = FALSE,
                     bot_mode = 'daily',
                     daily_schedule_enabled = TRUE,
+                    first_daily_send_date = EXCLUDED.first_daily_send_date,
                     challenge_start_id = NULL,
                     challenge_day = 0,
                     updated_at = CURRENT_TIMESTAMP
-            ''', (user_id, chat_id, notify_time, user_name, user_nickname))
+            ''', (user_id, chat_id, notify_time, user_name, user_nickname, first_send_date))
         else:
             # Изменение времени - НЕ обнуляем счётчик отправленных практик
             cursor.execute('''
@@ -1015,8 +1035,8 @@ def get_users_pending_for_today(current_time: str) -> list:
     Для тех, кто уже получал запланированные практики (day_number >= 1 в логах),
     используется notify_time <= current_time — чтобы дослать при сбое в тот же день.
 
-    Для новичка после выбора времени (ещё нет таких логов) первая рассылка только
-    начиная со следующего календарного дня (день настройки времени не считается).
+    Первая рассылка после онбординга — не раньше users.first_daily_send_date (завтра).
+    Для пользователей без этой даты действует прежняя логика (досыл в тот же день при сбое).
 
     Args:
         current_time: текущее время в формате HH:MM (в базовой таймзоне бота)
@@ -1038,6 +1058,10 @@ def get_users_pending_for_today(current_time: str) -> list:
               AND COALESCE(u.onboarding_required, FALSE) = FALSE
               AND COALESCE(u.bot_mode, 'daily') IN ('daily', 'challenge')
               AND COALESCE(u.daily_schedule_enabled, TRUE) = TRUE
+              AND (
+                  u.first_daily_send_date IS NULL
+                  OR u.first_daily_send_date <= (NOW() AT TIME ZONE %s)::date
+              )
               AND NOT EXISTS (
                   SELECT 1
                   FROM practice_logs pl
@@ -1051,6 +1075,7 @@ def get_users_pending_for_today(current_time: str) -> list:
                       FROM practice_logs pl
                       WHERE pl.user_id = u.user_id
                         AND pl.day_number >= 1
+                        AND pl.sent_at::date < (NOW() AT TIME ZONE %s)::date
                   )
                   AND u.notify_time <= %s
                   OR (
@@ -1066,7 +1091,7 @@ def get_users_pending_for_today(current_time: str) -> list:
                   )
               )
             ''',
-            (DEFAULT_TZ, current_time, current_time, DEFAULT_TZ, DEFAULT_TZ),
+            (DEFAULT_TZ, DEFAULT_TZ, DEFAULT_TZ, current_time, current_time, DEFAULT_TZ, DEFAULT_TZ),
         )
 
         results = cursor.fetchall()
@@ -1423,6 +1448,7 @@ def complete_user_challenge_setup(
     try:
         conn = get_connection()
         cursor = conn.cursor()
+        first_send_date = _tomorrow_date_moscow()
         cursor.execute(
             '''
             UPDATE users
@@ -1434,6 +1460,7 @@ def complete_user_challenge_setup(
                 onboarding_required = FALSE,
                 bot_mode = 'challenge',
                 daily_schedule_enabled = TRUE,
+                first_daily_send_date = %s,
                 is_paused = FALSE,
                 paused_at = NULL,
                 last_pause_reminder_at = NULL,
@@ -1442,7 +1469,7 @@ def complete_user_challenge_setup(
             WHERE user_id = %s
               AND challenge_start_id IS NOT NULL
             ''',
-            (chat_id, notify_time, user_name, user_nickname, user_id),
+            (chat_id, notify_time, user_name, user_nickname, first_send_date, user_id),
         )
         if cursor.rowcount == 0:
             conn.close()
@@ -2039,6 +2066,7 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
     Returns:
         tuple: (success: bool, message: str) - успех операции и сообщение о результате
     """
+    conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -2056,21 +2084,17 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
         ''', (title, video_url, time_practices, channel_name, description, my_description, intensity, weekday))
         
         conn.commit()
-        conn.close()
         return (True, f"Йога практика добавлена: {title}")
         
     except psycopg2.IntegrityError:
         error_msg = f"Видео с URL {video_url} уже существует в базе данных"
-        if conn:
-            conn.rollback()
-            conn.close()
         return (False, error_msg)
     except Exception as e:
         error_msg = f"Ошибка добавления йога практики: {e}"
-        if conn:
-            conn.rollback()
-            conn.close()
         return (False, error_msg)
+    finally:
+        if conn:
+            conn.close()
 
 def get_yoga_practice_by_id(practice_id: int) -> tuple:
     """Получает йога практику по ID.
