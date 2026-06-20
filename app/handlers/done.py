@@ -40,7 +40,7 @@ ACHIEVEMENT_MESSAGES = {
     2: "Ого, ты набираешь обороты 🌀",
     5: "Давай дневник, ставлю 5️⃣",
     10: "Первая ДЕСЯТОЧКА! Ты настоящий йога-двигатель 🔋",
-    15: "Легенда коврика, официально ✨",
+    15: "{name} — легенда коврика, официально ✨",
     20: "20 ПРАКТИК!!!",
     25: "Ритм держишь как профи 🧡 ",
     30: "30 — Такой темп пугает и восхищает одновременно 🌀",
@@ -74,11 +74,32 @@ STREAK_ACHIEVEMENT_MESSAGES = {
 }
 
 
-def _achievement_title(n: int, streak: int) -> str:
+def _display_name(user) -> str:
+    """Имя для ачивки: first_name → @username → «Ты»."""
+    if not user:
+        return "Ты"
+    first_name = (user.first_name or "").strip()
+    if first_name:
+        return first_name
+    username = (user.username or "").strip()
+    if username:
+        return f"@{username}"
+    return "Ты"
+
+
+def _format_achievement_text(template: str, name: str) -> str:
+    """Подставляет {name} в шаблон ачивки, если плейсхолдер есть."""
+    if "{name}" in template:
+        return template.format(name=name)
+    return template
+
+
+def _achievement_title(n: int, streak: int, name: str) -> str:
     """Заголовок после «Я сделал!»: веха по серии важнее вехи по числу практик."""
     if streak in STREAK_ACHIEVEMENT_MESSAGES:
-        return STREAK_ACHIEVEMENT_MESSAGES[streak]
-    return ACHIEVEMENT_MESSAGES.get(n, "Ты супер🧡")
+        return _format_achievement_text(STREAK_ACHIEVEMENT_MESSAGES[streak], name)
+    template = ACHIEVEMENT_MESSAGES.get(n, "Ты супер🧡")
+    return _format_achievement_text(template, name)
 
 
 def pick_done_reminder_text() -> str:
@@ -182,8 +203,8 @@ async def schedule_done_reminders(
         )
 
 
-def _done_text(n: int, streak: int, similar_line: str) -> str:
-    title = _achievement_title(n, streak)
+def _done_text(n: int, streak: int, similar_line: str, name: str) -> str:
+    title = _achievement_title(n, streak, name)
     return f"{title}\n\n{format_progress_stats(n, streak)}{similar_line}"
 
 
@@ -210,7 +231,8 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
         streak = get_streak_days(user_id)
         similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)
         similar_line = format_similar_result_line(n, similar_percent)
-        text = _done_text(n, streak, similar_line)
+        name = _display_name(update.effective_user)
+        text = _done_text(n, streak, similar_line, name)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=text,
