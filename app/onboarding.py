@@ -5,6 +5,7 @@
 import asyncio
 import re
 from datetime import datetime, timedelta
+from typing import Optional
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, CallbackContext
 from data.db import activate_user_by_mood
@@ -160,7 +161,7 @@ async def _cancel_named_jobs(context: ContextTypes.DEFAULT_TYPE, job_names: list
 
 
 async def strip_inline_keyboard(
-    context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int | None
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: Optional[int]
 ) -> None:
     if not message_id:
         return
@@ -419,7 +420,7 @@ async def schedule_time_pick_reminders(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
     user_id: int,
-    welcome_message_id: int | None,
+    welcome_message_id: Optional[int],
 ):
     """Напоминания о времени: выбрали Daily/Challenge, но не нажали «Выбрать время»."""
     if not hasattr(context, "job_queue") or context.job_queue is None:
