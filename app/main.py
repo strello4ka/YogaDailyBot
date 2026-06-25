@@ -280,7 +280,7 @@ def main():
     escaped = [re.escape(b) for b in reply_buttons]
     application.add_handler(
         MessageHandler(
-            filters.TEXT & filters.Regex(f"^({'|'.join(escaped)})$"),
+            filters.TEXT & filters.Regex(f"^({'|'.join(escaped)})$") & filters.ChatType.PRIVATE,
             handle_reply_button,
         )
     )
@@ -305,10 +305,12 @@ def main():
             return
     
     # Регистрируем обработчик фото (для рассылки) с высоким приоритетом
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo_or_text_for_secret), group=1)
+    application.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, handle_photo_or_text_for_secret), group=1)
     
-    # Регистрируем обработчик текстовых сообщений для ввода времени и предложений практик
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
+    # Текстовый ввод (время, suggest и т.д.) — только в личке, не в группах
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_text_input)
+    )
     
     # Регистрируем обработчик ошибок
     application.add_error_handler(error_handler)

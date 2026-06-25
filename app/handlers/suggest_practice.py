@@ -88,6 +88,9 @@ async def handle_practice_suggestion_input(update: Update, context: ContextTypes
         update: Объект обновления от Telegram
         context: Контекст бота
     """
+    if update.effective_chat and update.effective_chat.type != "private":
+        return
+
     # Проверяем, что пользователь в состоянии ожидания предложения практики
     if not context.user_data.get('waiting_for_practice_suggestion'):
         return
