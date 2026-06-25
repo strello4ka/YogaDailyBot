@@ -7,8 +7,8 @@ from typing import Literal, Optional
 
 SummaryKind = Literal["daily", "intermediate", "final"]
 
-SUMMARY_HOUR = 8
-SUMMARY_MINUTE = 0
+SUMMARY_HOUR = 10
+SUMMARY_MINUTE = 10
 CHALLENGE_DURATION = 28
 INTERMEDIATE_DAYS = frozenset({7, 14, 21})
 FINAL_DAY = 28
@@ -185,7 +185,7 @@ def build_summary_message(
     final_rows: Optional[list[FinalRankRow]] = None,
 ) -> str:
     """Собирает текст утренней сводки по типу."""
-    header = "🌅 Доброе утро, йоги!"
+    header = "Доброе утро, йоги ☀️"
     parts = [header]
 
     if kind in ("daily", "intermediate"):

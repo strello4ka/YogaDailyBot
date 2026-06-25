@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def challenge_summary_preview_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет сводку сразу (без ожидания 08:00), не меняя флаги отправки."""
+    """Отправляет сводку сразу (без ожидания 10:10), не меняя флаги отправки."""
     user_id = update.effective_user.id if update.effective_user else None
     if user_id != ADMIN_USER_ID:
         await update.message.reply_text("❌ У тебя нет доступа к этой команде.")
