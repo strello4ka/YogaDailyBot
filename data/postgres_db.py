@@ -570,6 +570,13 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при удалении устаревших столбцов ранга: {e}")
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS system_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        ''')
+
         conn.commit()
         conn.close()
         print("PostgreSQL база данных инициализирована успешно")
@@ -3422,4 +3429,206 @@ def delete_latest_broadcast() -> bool:
             conn.rollback()
             conn.close()
         return False
+
+
+CHALLENGE_SUMMARY_LAST_SENT_KEY = "challenge_summary_last_sent_date"
+CHALLENGE_SUMMARY_STOPPED_KEY = "challenge_summary_stopped"
+
+
+def _get_system_state(key: str) -> Optional[str]:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM system_state WHERE key = %s", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception as e:
+        print(f"Ошибка чтения system_state {key}: {e}")
+        if conn:
+            conn.close()
+        return None
+
+
+def _set_system_state(key: str, value: str) -> bool:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO system_state (key, value)
+            VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            ''',
+            (key, value),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка записи system_state {key}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def _delete_system_state(key: str) -> bool:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM system_state WHERE key = %s", (key,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка удаления system_state {key}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_active_challenge_participants() -> list:
+    """Активные участники челленджа: bot_mode=challenge, challenge_start_id задан, не на паузе."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT user_id, user_name, user_nickname, COALESCE(challenge_day, 0)
+            FROM users
+            WHERE COALESCE(bot_mode, 'daily') = 'challenge'
+              AND challenge_start_id IS NOT NULL
+              AND COALESCE(is_paused, FALSE) = FALSE
+              AND COALESCE(is_blocked, FALSE) = FALSE
+              AND COALESCE(onboarding_required, FALSE) = FALSE
+            ORDER BY user_id
+            '''
+        )
+        results = cursor.fetchall()
+        conn.close()
+        return results
+    except Exception as e:
+        print(f"Ошибка get_active_challenge_participants: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
+def get_group_challenge_day() -> int:
+    """Максимальный challenge_day среди активных участников челленджа."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT COALESCE(MAX(COALESCE(challenge_day, 0)), 0)
+            FROM users
+            WHERE COALESCE(bot_mode, 'daily') = 'challenge'
+              AND challenge_start_id IS NOT NULL
+              AND COALESCE(is_paused, FALSE) = FALSE
+              AND COALESCE(is_blocked, FALSE) = FALSE
+              AND COALESCE(onboarding_required, FALSE) = FALSE
+            '''
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return int(row[0]) if row else 0
+    except Exception as e:
+        print(f"Ошибка get_group_challenge_day: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+
+def get_yesterday_completed_challenge_user_ids(yesterday: date) -> set:
+    """user_id участников челленджа, выполнивших практику, отправленную вчера."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT DISTINCT pl.user_id
+            FROM practice_logs pl
+            INNER JOIN users u ON u.user_id = pl.user_id
+            WHERE COALESCE(u.bot_mode, 'daily') = 'challenge'
+              AND u.challenge_start_id IS NOT NULL
+              AND COALESCE(u.is_paused, FALSE) = FALSE
+              AND COALESCE(u.is_blocked, FALSE) = FALSE
+              AND COALESCE(u.onboarding_required, FALSE) = FALSE
+              AND pl.day_number >= 1
+              AND pl.sent_at::date = %s
+              AND pl.completed_at IS NOT NULL
+            ''',
+            (yesterday,),
+        )
+        results = {row[0] for row in cursor.fetchall()}
+        conn.close()
+        return results
+    except Exception as e:
+        print(f"Ошибка get_yesterday_completed_challenge_user_ids: {e}")
+        if conn:
+            conn.close()
+        return set()
+
+
+def get_challenge_completed_in_last_n_days(user_id: int, n: int) -> int:
+    """Число выполненных практик среди последних n отправленных (day_number >= 1)."""
+    if n <= 0:
+        return 0
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT COUNT(*) FROM (
+                SELECT completed_at
+                FROM practice_logs
+                WHERE user_id = %s AND day_number >= 1
+                ORDER BY sent_at DESC
+                LIMIT %s
+            ) recent
+            WHERE completed_at IS NOT NULL
+            ''',
+            (user_id, n),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return int(row[0]) if row else 0
+    except Exception as e:
+        print(f"Ошибка get_challenge_completed_in_last_n_days user={user_id}: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+
+def is_challenge_summary_sent_on(sent_date: date) -> bool:
+    stored = _get_system_state(CHALLENGE_SUMMARY_LAST_SENT_KEY)
+    return stored == sent_date.isoformat()
+
+
+def mark_challenge_summary_sent(sent_date: date) -> bool:
+    return _set_system_state(CHALLENGE_SUMMARY_LAST_SENT_KEY, sent_date.isoformat())
+
+
+def is_challenge_summary_stopped() -> bool:
+    return _get_system_state(CHALLENGE_SUMMARY_STOPPED_KEY) == "true"
+
+
+def mark_challenge_summary_stopped() -> bool:
+    return _set_system_state(CHALLENGE_SUMMARY_STOPPED_KEY, "true")
+
+
+def reset_challenge_summary_state() -> bool:
+    ok1 = _delete_system_state(CHALLENGE_SUMMARY_LAST_SENT_KEY)
+    ok2 = _delete_system_state(CHALLENGE_SUMMARY_STOPPED_KEY)
+    return ok1 and ok2
 

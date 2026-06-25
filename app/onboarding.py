@@ -530,7 +530,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ) + (
         "Я, твой YogaDailyBot, помогу тебе чаще двигаться и не терять контакт с телом 🔋\n\n"
         "Со мной тебе не нужно будет тратить время на поиск, ведь я храню *большой каталог самых приятных практик* от разных преподавателей с YouTube, в том числе от владельца бота @strello4ka.\n"
-        "Каталог постоянно растет и обновляется, а *практики подобраны разнообразно*\n"
+        "Каталог постоянно растет и обновляется, а *практики подобраны разнообразно.*\n"
         "Больше никакого скроллинга YouTube - просто открой сообщение и разомнись!\n\n"
         "У меня *есть несколько режимов работы* для выбора под твой запрос и образ жизни.\n\n"
         "Далее ты можешь посмотреть пример практики или сразу *перейти к выбору режима* 👇"
@@ -680,7 +680,7 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     if prev in ("by_mood", "challenge", "pending"):
         set_user_daily_pending(user.id)
     if prev in ("by_mood", "challenge"):
-        from app.mode.extra_practices import strip_extra_practices_inline_keyboards
+        from app.daily.extra_practices import strip_extra_practices_inline_keyboards
 
         await strip_extra_practices_inline_keyboards(context.bot, user.id)
         clear_keyboard_message = await context.bot.send_message(
@@ -755,7 +755,7 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     )
     from data.db import touch_by_mood_activity
     touch_by_mood_activity(user.id)
-    from app.mode.extra_practices import strip_extra_practices_inline_keyboards
+    from app.daily.extra_practices import strip_extra_practices_inline_keyboards
 
     await strip_extra_practices_inline_keyboards(context.bot, user.id)
     context.user_data.pop('waiting_for_time', None)
@@ -798,7 +798,7 @@ async def want_start_callback(update: Update, context: CallbackContext):
     print(f"Callback data: {query.data}")
 
     user_id = update.effective_user.id
-    from app.mode.challenge import (
+    from app.challenge.challenge_commands import (
         PENDING_CHALLENGE_PRACTICE_KEY,
         handle_challenge_time_choice_callback,
     )

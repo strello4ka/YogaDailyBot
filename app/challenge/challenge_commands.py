@@ -244,7 +244,7 @@ async def challenge_off_command(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop(CHALLENGE_TIME_FLOW_KEY, None)
     context.user_data.pop("waiting_for_time", None)
     clear_user_challenge(user_id)
-    from app.mode.extra_practices import strip_extra_practices_inline_keyboards
+    from app.daily.extra_practices import strip_extra_practices_inline_keyboards
 
     await strip_extra_practices_inline_keyboards(context.bot, user_id)
     await update.message.reply_text(

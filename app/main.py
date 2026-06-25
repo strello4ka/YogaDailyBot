@@ -18,7 +18,7 @@ from .onboarding import (
     mode_pick_daily_callback,
     mode_pick_by_mood_callback,
 )
-from .handlers.set_time import handle_time_change_input
+from .daily.set_time import handle_time_change_input
 from .handlers.reply_handlers import handle_reply_button
 from .handlers.suggest_practice import handle_practice_suggestion_input
 from .handlers.donations import (
@@ -30,7 +30,7 @@ from .handlers.donations import (
     handle_successful_payment
 )
 from .handlers.done import handle_practice_done_callback
-from .handlers.pause import schedule_pause_reminders
+from .daily.pause import schedule_pause_reminders
 from .by_mood.reminders import schedule_by_mood_reminders
 from .handlers.change_mode import change_mode_command
 from .handlers.progress import (
@@ -46,7 +46,12 @@ from .handlers.secret import (
     handle_secret_edit_input,
 )
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
-from .mode.challenge import (
+from .challenge.job import schedule_challenge_summary
+from .challenge.admin import (
+    challenge_summary_preview_command,
+    challenge_summary_reset_command,
+)
+from .challenge.challenge_commands import (
     CHALLENGE_TIME_FLOW_KEY,
     challenge_command,
     challenge_compact_command,
@@ -60,7 +65,7 @@ from .handlers.help import help_command
 from .bot_commands import setup_bot_commands
 from app.by_mood.self_decide import handle_intensity_callback as by_mood_self_intensity_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
-from app.mode.extra_practices import (
+from app.daily.extra_practices import (
     handle_extra_mood_callback,
     handle_extra_self_intensity_callback,
     handle_extra_self_time_callback,
@@ -224,6 +229,8 @@ def main():
     application.add_handler(CommandHandler("secret_edit", secret_edit_command))
     application.add_handler(CommandHandler("challenge", challenge_command))
     application.add_handler(CommandHandler("challenge_off", challenge_off_command))
+    application.add_handler(CommandHandler("challenge_summary_preview", challenge_summary_preview_command))
+    application.add_handler(CommandHandler("challenge_summary_reset", challenge_summary_reset_command))
     application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/challenge(?:@[\w_]+)?\d+$"), challenge_compact_command))
     
     # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
@@ -312,6 +319,7 @@ def main():
     schedule_pause_reminders(application)
     # Планируем напоминания неактивным пользователям в режиме By mood
     schedule_by_mood_reminders(application)
+    schedule_challenge_summary(application)
     
     # Запускаем бота
     logger.info("Запускаем YogaDailyBot с JobQueue...")

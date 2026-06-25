@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 
 from app.keyboards import get_mode_choice_keyboard
 from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN
-from app.mode.challenge import CHALLENGE_TIME_FLOW_KEY, PENDING_CHALLENGE_PRACTICE_KEY
+from app.challenge.challenge_commands import CHALLENGE_TIME_FLOW_KEY, PENDING_CHALLENGE_PRACTICE_KEY
 
 
 async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

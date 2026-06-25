@@ -29,7 +29,7 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id if update.effective_user else None
 
     if message_text == "Еще практики":
-        from app.mode.extra_practices import send_extra_practices_intro, user_may_use_extra_practices
+        from app.daily.extra_practices import send_extra_practices_intro, user_may_use_extra_practices
 
         if user_id and user_may_use_extra_practices(user_id):
             await send_extra_practices_intro(update, context)
@@ -55,16 +55,16 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode="Markdown",
             )
             return
-        from .set_time import handle_set_time_callback
+        from app.daily.set_time import handle_set_time_callback
         await handle_set_time_callback(update, context)
 
     elif message_text == "Советы":
         print("=== Обработка кнопки 'Советы' ===")
-        from .tips import handle_tips_callback
+        from app.daily.tips import handle_tips_callback
         await handle_tips_callback(update, context)
 
     elif message_text == "Пауза":
-        from .pause import pause_toggle_command
+        from app.daily.pause import pause_toggle_command
         await pause_toggle_command(update, context)
 
     else:

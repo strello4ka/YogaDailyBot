@@ -30,7 +30,7 @@ from data.db import (
     get_bonus_practices_by_parent,
     set_user_blocked,
 )
-from app.mode.challenge import get_practice_for_daily_send
+from app.challenge.challenge_commands import get_practice_for_daily_send
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ async def send_daily_practice(context: ContextTypes.DEFAULT_TYPE):
 async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, weekday: int):
     """Отправляет практику конкретному пользователю.
     
-    Если у пользователя включён режим челленджа — практика по порядку id (модуль mode.challenge).
+    Если у пользователя включён режим челленджа — практика по порядку id (app.challenge.challenge_commands).
     Иначе — практика по дню недели и счётчику дней.
     
     Args:

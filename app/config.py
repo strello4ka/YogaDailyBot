@@ -11,6 +11,7 @@ load_dotenv(env_file)
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 DEFAULT_TZ: str = os.getenv("DEFAULT_TZ", "Europe/Moscow")
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+CHALLENGE_GROUP_CHAT_ID: str = os.getenv("CHALLENGE_GROUP_CHAT_ID", "")
 
 
 def get_database_url() -> str:
