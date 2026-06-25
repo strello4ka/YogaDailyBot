@@ -94,6 +94,23 @@ def rank_final_results(progress_rows: list[ProgressRow]) -> list[FinalRankRow]:
     return ranked
 
 
+def _join_names_with_limit(names: list[str], max_names_length: int = 3500) -> str:
+    if not names:
+        return ""
+    names_text = ", ".join(names)
+    if len(names_text) <= max_names_length:
+        return names_text
+    truncated: list[str] = []
+    current_len = 0
+    for name in names:
+        part = name if not truncated else f", {name}"
+        if current_len + len(part) + 1 > max_names_length:
+            break
+        truncated.append(name)
+        current_len += len(part)
+    return ", ".join(truncated) + ", …"
+
+
 def _format_yesterday_section(
     participants: list[ChallengeParticipant],
     yesterday_done_ids: set[int],
@@ -101,29 +118,24 @@ def _format_yesterday_section(
 ) -> str:
     total = len(participants)
     done = [p for p in participants if p.user_id in yesterday_done_ids]
-    names = [display_name(p.user_nickname, p.user_name) for p in done]
+    not_done = [p for p in participants if p.user_id not in yesterday_done_ids]
 
-    names_text = ", ".join(names)
-    if len(names_text) > max_names_length:
-        truncated: list[str] = []
-        current_len = 0
-        for name in names:
-            part = name if not truncated else f", {name}"
-            if current_len + len(part) + 1 > max_names_length:
-                break
-            truncated.append(name)
-            current_len += len(part)
-        names_text = ", ".join(truncated) + ", …"
+    done_names = [display_name(p.user_nickname, p.user_name) for p in done]
+    not_done_names = [display_name(p.user_nickname, p.user_name) for p in not_done]
 
-    if names_text:
-        return (
-            f"Итоги за вчера:\n"
-            f"✅ Выполнили практику {len(done)} из {total} участников: {names_text}"
-        )
-    return (
-        f"Итоги за вчера:\n"
-        f"✅ Выполнили практику 0 из {total} участников"
-    )
+    lines = ["Итоги за вчера:"]
+
+    done_text = _join_names_with_limit(done_names, max_names_length)
+    if done_text:
+        lines.append(f"🔋 Выполнили практику {len(done)} из {total} участников: {done_text}")
+    else:
+        lines.append(f"🔋 Выполнили практику 0 из {total} участников")
+
+    not_done_text = _join_names_with_limit(not_done_names, max_names_length)
+    if not_done_text:
+        lines.append(f"🪫 Не выполнили {len(not_done)} из {total}: {not_done_text}")
+
+    return "\n".join(lines)
 
 
 def _format_intermediate_section(progress_rows: list[ProgressRow]) -> str:
@@ -185,7 +197,7 @@ def build_summary_message(
     final_rows: Optional[list[FinalRankRow]] = None,
 ) -> str:
     """Собирает текст утренней сводки по типу."""
-    header = "Доброе утро, йоги ☀️"
+    header = "Доброе утро, йоги ☀️\n\n"
     parts = [header]
 
     if kind in ("daily", "intermediate"):

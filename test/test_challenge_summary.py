@@ -87,10 +87,18 @@ class BuildSummaryMessageTests(unittest.TestCase):
             _participant(2, nickname=None, name="Екатерина"),
         ]
         text = build_summary_message("daily", participants, {1})
-        self.assertIn("🌅 Доброе утро, йоги!", text)
+        self.assertIn("Доброе утро, йоги ☀️", text)
         self.assertIn("1 из 2 участников", text)
         self.assertIn("@anna", text)
+        self.assertIn("Не выполнили 1 из 2", text)
+        self.assertIn("Екатерина", text)
         self.assertNotIn("Промежуточные", text)
+
+    def test_daily_message_all_done(self):
+        participants = [_participant(1, "anna"), _participant(2, "petr")]
+        text = build_summary_message("daily", participants, {1, 2})
+        self.assertIn("2 из 2 участников", text)
+        self.assertNotIn("Не выполнили", text)
 
     def test_intermediate_message(self):
         participants = [_participant(1, "anna", day=7), _participant(2, "petr", day=7)]
