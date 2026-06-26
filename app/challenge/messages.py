@@ -111,47 +111,67 @@ def _join_names_with_limit(names: list[str], max_names_length: int = 3500) -> st
     return ", ".join(truncated) + ", …"
 
 
-def _format_yesterday_section(
+def build_summary_message(
+    kind: SummaryKind,
     participants: list[ChallengeParticipant],
     yesterday_done_ids: set[int],
+    progress_rows: Optional[list[ProgressRow]] = None,
+    final_rows: Optional[list[FinalRankRow]] = None,
     max_names_length: int = 3500,
 ) -> str:
-    total = len(participants)
-    done = [p for p in participants if p.user_id in yesterday_done_ids]
-    not_done = [p for p in participants if p.user_id not in yesterday_done_ids]
+    """Собирает текст утренней сводки по типу."""
+    text = "Доброе утро, йоги ☀️\n\n"
 
-    done_names = [display_name(p.user_nickname, p.user_name) for p in done]
-    not_done_names = [display_name(p.user_nickname, p.user_name) for p in not_done]
+    if kind in ("daily", "intermediate"):
+        total = len(participants)
+        done = [p for p in participants if p.user_id in yesterday_done_ids]
+        not_done = [p for p in participants if p.user_id not in yesterday_done_ids]
+        done_names = _join_names_with_limit(
+            [display_name(p.user_nickname, p.user_name) for p in done],
+            max_names_length,
+        )
+        not_done_names = _join_names_with_limit(
+            [display_name(p.user_nickname, p.user_name) for p in not_done],
+            max_names_length,
+        )
 
-    lines = ["Итоги за вчера:"]
+        if done_names:
+            text += (
+                f"Итоги за вчера:\n"
+                f"🔋 Выполнили практику {len(done)} из {total} участников: {done_names}"
+            )
+        else:
+            text += (
+                "Итоги за вчера:\n"
+                f"🔋 Выполнили практику 0 из {total} участников"
+            )
 
-    done_text = _join_names_with_limit(done_names, max_names_length)
-    if done_text:
-        lines.append(f"🔋 Выполнили практику {len(done)} из {total} участников: {done_text}")
-    else:
-        lines.append(f"🔋 Выполнили практику 0 из {total} участников")
+        if not_done_names:
+            text += f"\n🪫 Не выполнили {len(not_done)} из {total}: {not_done_names}"
 
-    not_done_text = _join_names_with_limit(not_done_names, max_names_length)
-    if not_done_text:
-        lines.append(f"🪫 Не выполнили {len(not_done)} из {total}: {not_done_text}")
+    if kind == "intermediate" and progress_rows is not None:
+        progress_lines = "\n".join(
+            f"• {display_name(row.participant.user_nickname, row.participant.user_name)}"
+            f" — {row.completed}/{row.total} дней"
+            for row in progress_rows
+        )
+        text += f"\n\nПромежуточные итоги челленджа:\n{progress_lines}"
 
-    return "\n".join(lines)
+    if kind == "final" and final_rows is not None:
+        final_lines = "\n".join(
+            f"• {display_name(row.participant.user_nickname, row.participant.user_name)}"
+            f" — {row.completed}/{row.total} дней — {row.label}"
+            for row in final_rows
+        )
+        text += (
+            f"Поздравляю всех с окончанием челленджа ✨\n"
+            f"Итоги:\n"
+            f"{final_lines}"
+        )
 
-
-def _format_intermediate_section(progress_rows: list[ProgressRow]) -> str:
-    lines = ["Промежуточные итоги челленджа:"]
-    for row in progress_rows:
-        name = display_name(row.participant.user_nickname, row.participant.user_name)
-        lines.append(f"• {name} — {row.completed}/{row.total} дней")
-    return "\n".join(lines)
-
-
-def _format_final_section(final_rows: list[FinalRankRow]) -> str:
-    lines = ["Поздравляю с окончанием челленджа!", "Итоги:"]
-    for row in final_rows:
-        name = display_name(row.participant.user_nickname, row.participant.user_name)
-        lines.append(f"• {name} — {row.completed}/{row.total} дней — {row.label}")
-    return "\n".join(lines)
+    if len(text) > TELEGRAM_MESSAGE_LIMIT:
+        text = text[: TELEGRAM_MESSAGE_LIMIT - 1] + "…"
+    return text
 
 
 def build_progress_rows(
@@ -187,32 +207,6 @@ def build_final_rows(
         for p in participants
     ]
     return rank_final_results(progress)
-
-
-def build_summary_message(
-    kind: SummaryKind,
-    participants: list[ChallengeParticipant],
-    yesterday_done_ids: set[int],
-    progress_rows: Optional[list[ProgressRow]] = None,
-    final_rows: Optional[list[FinalRankRow]] = None,
-) -> str:
-    """Собирает текст утренней сводки по типу."""
-    header = "Доброе утро, йоги ☀️\n\n"
-    parts = [header]
-
-    if kind in ("daily", "intermediate"):
-        parts.append(_format_yesterday_section(participants, yesterday_done_ids))
-
-    if kind == "intermediate" and progress_rows is not None:
-        parts.append(_format_intermediate_section(progress_rows))
-
-    if kind == "final" and final_rows is not None:
-        parts.append(_format_final_section(final_rows))
-
-    text = "\n".join(parts)
-    if len(text) > TELEGRAM_MESSAGE_LIMIT:
-        text = text[: TELEGRAM_MESSAGE_LIMIT - 1] + "…"
-    return text
 
 
 def collect_summary_data(

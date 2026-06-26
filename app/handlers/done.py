@@ -123,6 +123,13 @@ def _job_names(user_id: int) -> list[str]:
     return [f"done_reminder_1h_{user_id}", f"done_reminder_1930_{user_id}"]
 
 
+def dismiss_done_reminders(user_id: int) -> None:
+    """Помечает неотмеченные практики как без вечернего напоминания (/start, /change_mode)."""
+    from data.db import dismiss_done_reminders as dismiss_in_db
+
+    dismiss_in_db(user_id)
+
+
 async def cancel_done_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     if not getattr(context, "job_queue", None):
         return

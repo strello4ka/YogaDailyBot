@@ -478,6 +478,20 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца completed_at: {e}")
 
+        # Миграция: снятие напоминания «Я сделал» после /start или /change_mode
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'practice_logs' AND column_name = 'done_reminder_dismissed'
+            """)
+            if not cursor.fetchone():
+                cursor.execute(
+                    'ALTER TABLE practice_logs ADD COLUMN done_reminder_dismissed BOOLEAN NOT NULL DEFAULT FALSE'
+                )
+                print("   ✅ Добавлен столбец done_reminder_dismissed в таблицу practice_logs")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца done_reminder_dismissed: {e}")
+
         # Миграция: режим бота (Daily / By mood), флаг активной ежедневной рассылки, признак «без коврика»
         try:
             cursor.execute("""
@@ -2936,14 +2950,16 @@ def log_practice_sent(user_id: int, practice_id: int, day_number: int) -> Option
 
 
 def is_user_eligible_for_done_reminder(user_id: int) -> bool:
-    """Можно ли слать напоминание «практика не отмечена» (не пауза, не блок)."""
+    """Можно ли слать напоминание «практика не отмечена» (не пауза, не блок, не онбординг)."""
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
             '''
-            SELECT COALESCE(is_blocked, FALSE), COALESCE(is_paused, FALSE)
+            SELECT COALESCE(is_blocked, FALSE),
+                   COALESCE(is_paused, FALSE),
+                   COALESCE(onboarding_required, FALSE)
             FROM users WHERE user_id = %s
             ''',
             (user_id,),
@@ -2952,10 +2968,35 @@ def is_user_eligible_for_done_reminder(user_id: int) -> bool:
         conn.close()
         if not row:
             return False
-        return not row[0] and not row[1]
+        return not row[0] and not row[1] and not row[2]
     except Exception as e:
         print(f"Ошибка is_user_eligible_for_done_reminder {user_id}: {e}")
         if conn:
+            conn.close()
+        return False
+
+
+def dismiss_done_reminders(user_id: int) -> bool:
+    """Снимает вечерние напоминания «Я сделал» для всех неотмеченных практик пользователя."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE practice_logs
+            SET done_reminder_dismissed = TRUE
+            WHERE user_id = %s AND completed_at IS NULL
+            ''',
+            (user_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка dismiss_done_reminders {user_id}: {e}")
+        if conn:
+            conn.rollback()
             conn.close()
         return False
 
@@ -2968,19 +3009,22 @@ def is_pending_practice_log(user_id: int, log_id: int) -> bool:
         cursor = conn.cursor()
         cursor.execute(
             '''
-            SELECT completed_at FROM practice_logs
+            SELECT completed_at, COALESCE(done_reminder_dismissed, FALSE)
+            FROM practice_logs
             WHERE log_id = %s AND user_id = %s
             ''',
             (log_id, user_id),
         )
         row = cursor.fetchone()
-        if not row or row[0] is not None:
+        if not row or row[0] is not None or row[1]:
             conn.close()
             return False
         cursor.execute(
             '''
             SELECT log_id FROM practice_logs
-            WHERE user_id = %s AND completed_at IS NULL
+            WHERE user_id = %s
+              AND completed_at IS NULL
+              AND COALESCE(done_reminder_dismissed, FALSE) = FALSE
             ORDER BY sent_at DESC LIMIT 1
             ''',
             (user_id,),

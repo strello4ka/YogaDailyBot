@@ -27,9 +27,9 @@ MODE_CHOICE_INTRO_MARKDOWN = (
     "Ты не заметишь напряга, но станешь сильнее, выносливее и гибче!\n\n"
     "🌀 Режим *By mood* — для тех, кто хочет делать зарядки и разминки по состоянию в моменте, но без траты времени на поиск качественного контента.\n"
     "*Нажимаешь подходящую по настроению кнопку, и бот сразу подбирает практику под твой запрос: Ленивые дни, Мини, Практика дня и т.д.* Также можно самому настроить время и интенсивность.\n\n"
-    "Оба режима помогают практиковать регулярно, просто разным способом:\n"
-    "*Daily* — через привычку и стабильность\n"
-    "*By mood* — через гибкость и свободу выбора.\n\n"
+    # "Оба режима помогают практиковать регулярно, просто разным способом:\n"
+    # "*Daily* — через привычку и стабильность\n"
+    # "*By mood* — через гибкость и свободу выбора.\n\n"
     "Выбирай то, что ближе тебе сейчас, и *жми кнопку* 👇 \n"
     "(изменить режим можно в любой момент в меню)"
 )
@@ -79,6 +79,16 @@ def _is_mode_choice_pending(user_id: int) -> bool:
     return get_user_bot_mode(user_id) == "pending"
 
 
+def _should_send_mode_pick_reminder(user_id: int, job_data: dict) -> bool:
+    """Напоминание на экране Daily/By mood: онбординг или зависание на /change_mode."""
+    from data.db import get_user_bot_mode
+
+    if get_user_bot_mode(user_id) == "pending":
+        return True
+    scheduled_mode = job_data.get("scheduled_at_mode")
+    return scheduled_mode is not None and get_user_bot_mode(user_id) == scheduled_mode
+
+
 def _is_daily_time_onboarding_pending(user_id: int) -> bool:
     """True, если Daily/Challenge выбран, но время ещё не сохранено."""
     from data.db import is_user_onboarding_required
@@ -94,8 +104,7 @@ MODE_REMINDER_AFTER_START_1H = (
 )
 
 MODE_REMINDER_AFTER_START_24H = (
-    "Ты все еще не выбрал режим...\n\n"
-    "Нажми *Daily* или *By mood* — это займёт один миг"
+    "Ты все еще не выбрал режим...это займёт один миг"
 )
 
 MODE_REMINDER_ON_MODE_SCREEN_1H = (
@@ -245,7 +254,7 @@ async def send_mode_start_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
             context,
             chat_id,
             MODE_REMINDER_AFTER_START_24H,
-            reply_markup=get_mode_choice_keyboard(),
+            reply_markup=get_start_onboarding_keyboard(),
         )
     except Exception as e:
         print(f"Ошибка напоминания о режиме после /start (24ч): {e}")
@@ -256,7 +265,7 @@ async def send_mode_pick_reminder_1h(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     chat_id = job.data["chat_id"]
     user_id = job.data["user_id"]
-    if not _is_mode_choice_pending(user_id):
+    if not _should_send_mode_pick_reminder(user_id, job.data):
         return
     try:
         await _send_reminder_message(
@@ -274,7 +283,7 @@ async def send_mode_pick_reminder_24h(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     chat_id = job.data["chat_id"]
     user_id = job.data["user_id"]
-    if not _is_mode_choice_pending(user_id):
+    if not _should_send_mode_pick_reminder(user_id, job.data):
         return
     try:
         await _send_reminder_message(
@@ -379,7 +388,11 @@ async def schedule_mode_reminders(context: ContextTypes.DEFAULT_TYPE, chat_id: i
 
 
 async def schedule_mode_pick_reminders(
-    context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+    *,
+    from_change_mode: bool = False,
 ):
     """Напоминания через 1 и 24 ч после «Выбрать режим» (экран Daily / By mood)."""
     if not hasattr(context, "job_queue") or context.job_queue is None:
@@ -389,6 +402,10 @@ async def schedule_mode_pick_reminders(
     await _cancel_named_jobs(context, _mode_pick_job_names(user_id))
 
     job_data = {"chat_id": chat_id, "user_id": user_id}
+    if from_change_mode:
+        from data.db import get_user_bot_mode
+
+        job_data["scheduled_at_mode"] = get_user_bot_mode(user_id)
     try:
         context.job_queue.run_once(
             send_mode_pick_reminder_1h,
@@ -513,12 +530,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     from data.db import set_user_onboarding_required
+    from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
+
     set_user_onboarding_required(
         user.id,
         chat_id,
         user_name=user.first_name,
         user_nickname=user.username,
     )
+    await cancel_done_reminders(context, user.id)
+    dismiss_done_reminders(user.id)
 
     name = (user.first_name or "").strip()
     if not name and user.username:
@@ -662,7 +683,10 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     user = update.effective_user
     chat_id = update.effective_chat.id
 
+    from app.handlers.done import cancel_done_reminders
+
     await cancel_mode_reminders(context, user.id)
+    await cancel_done_reminders(context, user.id)
     context.user_data.pop("onboarding_keyboard_chat_id", None)
     context.user_data.pop("onboarding_keyboard_message_id", None)
     context.user_data.pop("onboarding_keyboard_kind", None)
@@ -730,8 +754,11 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     user = update.effective_user
     chat_id = update.effective_chat.id
 
+    from app.handlers.done import cancel_done_reminders
+
     await cancel_mode_reminders(context, user.id)
     await cancel_reminders(context, user.id)
+    await cancel_done_reminders(context, user.id)
     context.user_data.pop("onboarding_keyboard_chat_id", None)
     context.user_data.pop("onboarding_keyboard_message_id", None)
     context.user_data.pop("onboarding_keyboard_kind", None)

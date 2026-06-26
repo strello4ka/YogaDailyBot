@@ -27,8 +27,7 @@ from psycopg2.extras import RealDictCursor
 
 # Текст как в app/onboarding.py (напоминание через 1 ч)
 PENDING_MODE_MESSAGE = (
-    "Чтобы бот начал работать, тебе нужно выбрать режим. \n\n"
-    "Жми *Выбрать режим*: Daily или By mood — и погнали 🧡"
+    "Ты все еще не выбрал режим...это займёт один миг ✨"
 )
 
 
