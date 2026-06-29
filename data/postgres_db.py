@@ -2179,6 +2179,31 @@ def get_yoga_practice_by_url(video_url: str) -> tuple:
             conn.close()
         return None
 
+def get_yoga_practice_by_video_id(video_id: str) -> tuple:
+    """Получает йога практику по ID YouTube-видео (без учёта формата ссылки и ?si=...)."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
+            FROM yoga_practices
+            WHERE video_url ILIKE %s
+            ORDER BY practices_id ASC
+            LIMIT 1
+        ''', (f'%{video_id}%',))
+
+        result = cursor.fetchone()
+        conn.close()
+
+        return _decode_practice_row(result)
+
+    except Exception as e:
+        print(f"Ошибка получения йога практики по video_id {video_id}: {e}")
+        if conn:
+            conn.close()
+        return None
+
 def get_all_yoga_practices() -> list:
     """Получает список всех йога практик.
     

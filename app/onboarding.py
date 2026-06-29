@@ -9,8 +9,11 @@ from typing import Optional
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, CallbackContext
 from data.db import activate_user_by_mood
-from data.db import get_current_weekday, get_yoga_practice_by_weekday_order
+from data.db import get_yoga_practice_by_video_id
 from app.schedule.scheduler import format_practice_message
+
+ONBOARDING_EXAMPLE_VIDEO_URL = "https://youtu.be/2s0T9z9v-aQ?si=cdK69rPKdQXTu0l4"
+ONBOARDING_EXAMPLE_VIDEO_ID = "2s0T9z9v-aQ"
 
 from .keyboards import (
     get_by_mood_reply_keyboard,
@@ -612,6 +615,11 @@ async def onboarding_open_mode_choice_callback(update: Update, context: ContextT
         await schedule_mode_pick_reminders(context, chat_id, user.id)
 
 
+def _get_onboarding_example_practice():
+    """Возвращает фиксированную практику-пример для онбординга (из каталога, если есть)."""
+    return get_yoga_practice_by_video_id(ONBOARDING_EXAMPLE_VIDEO_ID)
+
+
 async def onboarding_show_example_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отправляет пример практики без влияния на прогресс и расписание."""
     query = update.callback_query
@@ -621,42 +629,34 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
     await remove_callback_keyboard(query)
     chat_id = update.effective_chat.id
 
-    weekday = get_current_weekday()
-    sample = get_yoga_practice_by_weekday_order(weekday, 1)
-    if not sample:
-        fallback_message = await context.bot.send_message(
-            chat_id=chat_id,
-            text="Не смог подобрать пример практики, но ты можешь сразу перейти к выбору режима 👇",
-            reply_markup=get_choose_mode_keyboard(),
-        )
-        _remember_onboarding_keyboard_state(
-            context=context,
-            chat_id=chat_id,
-            message_id=fallback_message.message_id,
-            keyboard_kind="choose_mode",
-        )
-        return
+    sample = _get_onboarding_example_practice()
+    if sample:
+        (
+            _practice_id,
+            _title,
+            _video_url,
+            time_practices,
+            channel_name,
+            _description,
+            my_description,
+            intensity,
+            _practice_weekday,
+            _created_at,
+            _updated_at,
+        ) = sample
+    else:
+        my_description = ""
+        time_practices = 0
+        intensity = None
+        channel_name = "YouTube"
 
-    (
-        _practice_id,
-        _title,
-        video_url,
-        time_practices,
-        channel_name,
-        _description,
-        my_description,
-        intensity,
-        _practice_weekday,
-        _created_at,
-        _updated_at,
-    ) = sample
     text = format_practice_message(
         title="Практика дня",
         my_description=my_description,
         time_practices=time_practices,
         intensity=intensity,
         channel_name=channel_name,
-        video_url=video_url,
+        video_url=ONBOARDING_EXAMPLE_VIDEO_URL,
     )
     example_message = await context.bot.send_message(
         chat_id=chat_id,
