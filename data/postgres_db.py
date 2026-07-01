@@ -3129,24 +3129,98 @@ def get_practice_sent_count(practice_id: int) -> int:
         return 0
 
 
+def _completed_at_to_moscow_date(completed_at: datetime) -> date:
+    """Переводит метку выполнения в календарную дату по таймзоне бота."""
+    tz = ZoneInfo(DEFAULT_TZ)
+    if completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=ZoneInfo("UTC"))
+    return completed_at.astimezone(tz).date()
+
+
+def _timestamp_moscow_date_sql(column: str) -> str:
+    """SQL-выражение: календарная дата TIMESTAMP (хранится как UTC) в таймзоне бота."""
+    return f"({column} AT TIME ZONE 'UTC' AT TIME ZONE %s)::date"
+
+
+def _cascade_challenge_logs_on_done(cursor, user_id: int, today_moscow: date) -> int:
+    """Дополнительно отмечает практики челленджа при любом «Я сделал».
+
+    — практики челленджа, отправленные сегодня (замена через «Ещё практики»);
+    — если сегодняшняя ещё не приходила — последнюю незакрытую практику челленджа (вчерашнюю).
+    """
+    if get_user_bot_mode(user_id) != "challenge":
+        return 0
+
+    sent_moscow = _timestamp_moscow_date_sql("sent_at")
+    updated = 0
+
+    cursor.execute(
+        f'''
+        UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
+        WHERE user_id = %s
+          AND completed_at IS NULL
+          AND day_number >= 1
+          AND {sent_moscow} = %s
+        ''',
+        (DEFAULT_TZ, user_id, today_moscow),
+    )
+    updated += cursor.rowcount
+
+    cursor.execute(
+        f'''
+        SELECT EXISTS (
+            SELECT 1 FROM practice_logs
+            WHERE user_id = %s
+              AND day_number >= 1
+              AND {sent_moscow} = %s
+        )
+        ''',
+        (DEFAULT_TZ, user_id, today_moscow),
+    )
+    challenge_sent_today = bool(cursor.fetchone()[0])
+
+    if not challenge_sent_today:
+        cursor.execute(
+            '''
+            UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
+            WHERE log_id = (
+                SELECT log_id FROM practice_logs
+                WHERE user_id = %s AND completed_at IS NULL AND day_number >= 1
+                ORDER BY sent_at DESC LIMIT 1
+            )
+            ''',
+            (user_id,),
+        )
+        updated += cursor.rowcount
+
+    return updated
+
+
 def mark_practice_completed_today(user_id: int) -> bool:
-    """Отмечает последнюю отправленную практику пользователя (без completed_at) как выполненную.
-    Returns True если запись найдена и обновлена."""
+    """Отмечает нажатую практику и сопутствующие записи челленджа (см. _cascade_challenge_logs_on_done)."""
+    conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
+        today_moscow = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
+
+        cursor.execute(
+            '''
             UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
             WHERE log_id = (
                 SELECT log_id FROM practice_logs
                 WHERE user_id = %s AND completed_at IS NULL
                 ORDER BY sent_at DESC LIMIT 1
             )
-        ''', (user_id,))
-        ok = cursor.rowcount > 0
+            ''',
+            (user_id,),
+        )
+        marked = cursor.rowcount > 0
+        marked = marked or _cascade_challenge_logs_on_done(cursor, user_id, today_moscow) > 0
+
         conn.commit()
         conn.close()
-        return ok
+        return marked
     except Exception as e:
         print(f"Ошибка mark_practice_completed_today для {user_id}: {e}")
         if conn:
@@ -3171,14 +3245,6 @@ def get_completed_count(user_id: int) -> int:
         if conn:
             conn.close()
         return 0
-
-
-def _completed_at_to_moscow_date(completed_at: datetime) -> date:
-    """Переводит метку выполнения в календарную дату по таймзоне бота."""
-    tz = ZoneInfo(DEFAULT_TZ)
-    if completed_at.tzinfo is None:
-        completed_at = completed_at.replace(tzinfo=ZoneInfo("UTC"))
-    return completed_at.astimezone(tz).date()
 
 
 def get_streak_days(user_id: int) -> int:
@@ -3648,26 +3714,36 @@ def get_group_challenge_start_id() -> Optional[int]:
 
 
 def get_yesterday_completed_challenge_user_ids(yesterday: date) -> set:
-    """user_id участников челленджа, выполнивших практику, отправленную вчера."""
+    """user_id участников челленджа, выполнивших вчерашнее задание (календарь МСК).
+
+    Засчитывается, если:
+    — нажали «Я сделал» вчера (любая практика, в т.ч. «Ещё практики»);
+    — или отметили практику челленджа, отправленную вчера (даже утром следующего дня,
+      пока сегодняшняя ещё не пришла).
+    """
     conn = None
+    completed_moscow = _timestamp_moscow_date_sql("pl.completed_at")
+    sent_moscow = _timestamp_moscow_date_sql("pl.sent_at")
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            '''
-            SELECT DISTINCT pl.user_id
-            FROM practice_logs pl
-            INNER JOIN users u ON u.user_id = pl.user_id
+            f'''
+            SELECT DISTINCT u.user_id
+            FROM users u
+            INNER JOIN practice_logs pl ON pl.user_id = u.user_id
             WHERE COALESCE(u.bot_mode, 'daily') = 'challenge'
               AND u.challenge_start_id IS NOT NULL
               AND COALESCE(u.is_paused, FALSE) = FALSE
               AND COALESCE(u.is_blocked, FALSE) = FALSE
               AND COALESCE(u.onboarding_required, FALSE) = FALSE
-              AND pl.day_number >= 1
-              AND pl.sent_at::date = %s
               AND pl.completed_at IS NOT NULL
+              AND (
+                  {completed_moscow} = %s
+                  OR ({sent_moscow} = %s AND pl.day_number >= 1)
+              )
             ''',
-            (yesterday,),
+            (DEFAULT_TZ, DEFAULT_TZ, yesterday, yesterday),
         )
         results = {row[0] for row in cursor.fetchall()}
         conn.close()
@@ -3680,25 +3756,40 @@ def get_yesterday_completed_challenge_user_ids(yesterday: date) -> set:
 
 
 def get_challenge_completed_in_last_n_days(user_id: int, n: int) -> int:
-    """Число выполненных практик среди последних n отправленных (day_number >= 1)."""
+    """Сколько из последних n дней челленджа засчитано.
+
+    День засчитан, если отмечена практика из расписания или в тот же календарный день
+    (МСК) нажали «Я сделал» на любой другой практике бота («Ещё практики» и т.д.).
+    """
     if n <= 0:
         return 0
     conn = None
+    sent_moscow = _timestamp_moscow_date_sql("c.sent_at")
+    sub_completed_moscow = _timestamp_moscow_date_sql("sub.completed_at")
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            '''
+            f'''
             SELECT COUNT(*) FROM (
-                SELECT completed_at
-                FROM practice_logs
-                WHERE user_id = %s AND day_number >= 1
-                ORDER BY sent_at DESC
+                SELECT
+                    c.completed_at,
+                    {sent_moscow} AS sent_day
+                FROM practice_logs c
+                WHERE c.user_id = %s AND c.day_number >= 1
+                ORDER BY c.sent_at DESC
                 LIMIT %s
             ) recent
-            WHERE completed_at IS NOT NULL
+            WHERE recent.completed_at IS NOT NULL
+               OR EXISTS (
+                   SELECT 1
+                   FROM practice_logs sub
+                   WHERE sub.user_id = %s
+                     AND sub.completed_at IS NOT NULL
+                     AND {sub_completed_moscow} = recent.sent_day
+               )
             ''',
-            (user_id, n),
+            (DEFAULT_TZ, user_id, n, user_id, DEFAULT_TZ),
         )
         row = cursor.fetchone()
         conn.close()
