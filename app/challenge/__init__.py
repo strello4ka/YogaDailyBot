@@ -2,6 +2,6 @@
 
 - challenge_commands.py — /challenge, /challenge_off, выбор практики для рассылки
 - messages.py — текст утренней сводки, ранжирование
-- job.py — отправка сводки по расписанию (10:10 МСК)
-- admin.py — /challenge_summary_preview и /challenge_summary_reset
+- job.py — сводка (10:10 МСК) и расписание на неделю (вс 20:00 МСК)
+- admin.py — preview/reset сводки, preview расписания
 """

@@ -3502,6 +3502,7 @@ def delete_latest_broadcast() -> bool:
 
 CHALLENGE_SUMMARY_LAST_SENT_KEY = "challenge_summary_last_sent_date"
 CHALLENGE_SUMMARY_STOPPED_KEY = "challenge_summary_stopped"
+CHALLENGE_WEEKLY_SCHEDULE_SENT_KEY = "challenge_weekly_schedule_last_sent_date"
 
 
 def _get_system_state(key: str) -> Optional[str]:
@@ -3616,6 +3617,36 @@ def get_group_challenge_day() -> int:
         return 0
 
 
+def get_group_challenge_start_id() -> Optional[int]:
+    """challenge_start_id потока: значение у большинства активных участников."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT challenge_start_id, COUNT(*) AS cnt
+            FROM users
+            WHERE COALESCE(bot_mode, 'daily') = 'challenge'
+              AND challenge_start_id IS NOT NULL
+              AND COALESCE(is_paused, FALSE) = FALSE
+              AND COALESCE(is_blocked, FALSE) = FALSE
+              AND COALESCE(onboarding_required, FALSE) = FALSE
+            GROUP BY challenge_start_id
+            ORDER BY cnt DESC, challenge_start_id ASC
+            LIMIT 1
+            '''
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return int(row[0]) if row else None
+    except Exception as e:
+        print(f"Ошибка get_group_challenge_start_id: {e}")
+        if conn:
+            conn.close()
+        return None
+
+
 def get_yesterday_completed_challenge_user_ids(yesterday: date) -> set:
     """user_id участников челленджа, выполнивших практику, отправленную вчера."""
     conn = None
@@ -3688,6 +3719,15 @@ def mark_challenge_summary_sent(sent_date: date) -> bool:
     return _set_system_state(CHALLENGE_SUMMARY_LAST_SENT_KEY, sent_date.isoformat())
 
 
+def is_challenge_weekly_schedule_sent_on(sent_date: date) -> bool:
+    stored = _get_system_state(CHALLENGE_WEEKLY_SCHEDULE_SENT_KEY)
+    return stored == sent_date.isoformat()
+
+
+def mark_challenge_weekly_schedule_sent(sent_date: date) -> bool:
+    return _set_system_state(CHALLENGE_WEEKLY_SCHEDULE_SENT_KEY, sent_date.isoformat())
+
+
 def is_challenge_summary_stopped() -> bool:
     return _get_system_state(CHALLENGE_SUMMARY_STOPPED_KEY) == "true"
 
@@ -3699,5 +3739,6 @@ def mark_challenge_summary_stopped() -> bool:
 def reset_challenge_summary_state() -> bool:
     ok1 = _delete_system_state(CHALLENGE_SUMMARY_LAST_SENT_KEY)
     ok2 = _delete_system_state(CHALLENGE_SUMMARY_STOPPED_KEY)
-    return ok1 and ok2
+    ok3 = _delete_system_state(CHALLENGE_WEEKLY_SCHEDULE_SENT_KEY)
+    return ok1 and ok2 and ok3
 

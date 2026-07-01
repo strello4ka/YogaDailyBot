@@ -10,8 +10,13 @@ SummaryKind = Literal["daily", "intermediate", "final"]
 SUMMARY_HOUR = 10
 SUMMARY_MINUTE = 10
 CHALLENGE_DURATION = 28
-INTERMEDIATE_DAYS = frozenset({7, 14, 21})
+INTERMEDIATE_DAYS = frozenset({8, 15, 22})
 FINAL_DAY = 28
+WEEKLY_PROGRESS_DAYS = 7
+
+SCHEDULE_HOUR = 20
+SCHEDULE_MINUTE = 0
+WEEKDAY_SHORT_LABELS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 
@@ -62,6 +67,22 @@ def detect_summary_kind(group_challenge_day: int, stopped: bool) -> Optional[Sum
     if group_challenge_day < FINAL_DAY:
         return "daily"
     return None
+
+
+def get_upcoming_week_day_range(group_challenge_day: int) -> Optional[tuple[int, int]]:
+    """Диапазон дней челленджа на ближайшую неделю (для воскресного расписания)."""
+    if group_challenge_day >= CHALLENGE_DURATION:
+        return None
+    from_day = group_challenge_day + 1
+    if from_day > CHALLENGE_DURATION:
+        return None
+    to_day = min(group_challenge_day + 7, CHALLENGE_DURATION)
+    return from_day, to_day
+
+
+def challenge_day_weekday_label(challenge_day: int) -> str:
+    """Короткое название дня недели: день 1 = Пн, день 2 = Вт, …"""
+    return WEEKDAY_SHORT_LABELS[(challenge_day - 1) % 7]
 
 
 def rank_final_results(progress_rows: list[ProgressRow]) -> list[FinalRankRow]:
@@ -122,7 +143,7 @@ def build_summary_message(
     """Собирает текст утренней сводки по типу."""
     text = "Доброе утро, йоги ☀️\n\n"
 
-    if kind in ("daily", "intermediate"):
+    if kind == "daily":
         total = len(participants)
         done = [p for p in participants if p.user_id in yesterday_done_ids]
         not_done = [p for p in participants if p.user_id not in yesterday_done_ids]
@@ -155,7 +176,7 @@ def build_summary_message(
             f" — {row.completed}/{row.total} дней"
             for row in progress_rows
         )
-        text += f"\n\nПромежуточные итоги челленджа:\n{progress_lines}"
+        text += f"Промежуточные итоги челленджа:\n{progress_lines}\n\nВы прекрасны! Продолжайте!"
 
     if kind == "final" and final_rows is not None:
         final_lines = "\n".join(
@@ -172,6 +193,25 @@ def build_summary_message(
     if len(text) > TELEGRAM_MESSAGE_LIMIT:
         text = text[: TELEGRAM_MESSAGE_LIMIT - 1] + "…"
     return text
+
+
+def build_weekly_progress_rows(
+    participants: list[ChallengeParticipant],
+    completed_by_user_id: dict[int, int],
+) -> list[ProgressRow]:
+    """Прогресс за прошедшую неделю (7 дней) для еженедельной сводки."""
+    rows = [
+        ProgressRow(
+            participant=p,
+            completed=completed_by_user_id.get(p.user_id, 0),
+            total=WEEKLY_PROGRESS_DAYS,
+        )
+        for p in participants
+    ]
+    rows.sort(
+        key=lambda r: (-r.completed, display_name(r.participant.user_nickname, r.participant.user_name))
+    )
+    return rows
 
 
 def build_progress_rows(
@@ -209,6 +249,19 @@ def build_final_rows(
     return rank_final_results(progress)
 
 
+def build_weekly_schedule_message(
+    from_day: int,
+    to_day: int,
+    practices: list[tuple[int, str, str, int]],
+) -> str:
+    """Расписание на неделю: день недели — заголовок — канал — время (мин)."""
+    lines = ["📅 Расписание на неделю:\n"]
+    for day, title, channel_name, minutes in practices:
+        weekday = challenge_day_weekday_label(day)
+        lines.append(f"{weekday}. {title} — {channel_name} — {minutes} мин")
+    return "\n".join(lines)
+
+
 def collect_summary_data(
     participants_raw: list[tuple],
     yesterday_done_ids: set[int],
@@ -236,7 +289,7 @@ def collect_summary_data(
     progress_rows = None
     final_rows = None
     if kind == "intermediate":
-        progress_rows = build_progress_rows(participants, completed_by_user_id)
+        progress_rows = build_weekly_progress_rows(participants, completed_by_user_id)
     elif kind == "final":
         final_rows = build_final_rows(participants, completed_by_user_id)
 

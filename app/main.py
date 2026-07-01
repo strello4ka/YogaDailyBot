@@ -50,6 +50,7 @@ from .challenge.job import schedule_challenge_summary
 from .challenge.admin import (
     challenge_summary_preview_command,
     challenge_summary_reset_command,
+    challenge_schedule_preview_command,
 )
 from .challenge.challenge_commands import (
     CHALLENGE_TIME_FLOW_KEY,
@@ -231,6 +232,7 @@ def main():
     application.add_handler(CommandHandler("challenge_off", challenge_off_command))
     application.add_handler(CommandHandler("challenge_summary_preview", challenge_summary_preview_command))
     application.add_handler(CommandHandler("challenge_summary_reset", challenge_summary_reset_command))
+    application.add_handler(CommandHandler("challenge_schedule_preview", challenge_schedule_preview_command))
     application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/challenge(?:@[\w_]+)?\d+$"), challenge_compact_command))
     
     # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
