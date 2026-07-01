@@ -204,7 +204,7 @@ async def send_challenge_weekly_schedule(context: ContextTypes.DEFAULT_TYPE, *, 
     text = build_weekly_schedule_message(from_day, to_day, practices)
 
     try:
-        await context.bot.send_message(chat_id=group_chat_id, text=text)
+        await context.bot.send_message(chat_id=group_chat_id, text=text, parse_mode="HTML")
     except Exception as e:
         logger.error("Ошибка отправки расписания челленджа в чат %s: %s", group_chat_id, e)
         return False

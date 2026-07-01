@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -16,7 +17,15 @@ WEEKLY_PROGRESS_DAYS = 7
 
 SCHEDULE_HOUR = 20
 SCHEDULE_MINUTE = 0
-WEEKDAY_SHORT_LABELS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+WEEKDAY_FULL_LABELS = (
+    "Понедельник",
+    "Вторник",
+    "Среда",
+    "Четверг",
+    "Пятница",
+    "Суббота",
+    "Воскресенье",
+)
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 
@@ -81,8 +90,8 @@ def get_upcoming_week_day_range(group_challenge_day: int) -> Optional[tuple[int,
 
 
 def challenge_day_weekday_label(challenge_day: int) -> str:
-    """Короткое название дня недели: день 1 = Пн, день 2 = Вт, …"""
-    return WEEKDAY_SHORT_LABELS[(challenge_day - 1) % 7]
+    """Название дня недели: день 1 = Понедельник, день 2 = Вторник, …"""
+    return WEEKDAY_FULL_LABELS[(challenge_day - 1) % 7]
 
 
 def rank_final_results(progress_rows: list[ProgressRow]) -> list[FinalRankRow]:
@@ -254,12 +263,18 @@ def build_weekly_schedule_message(
     to_day: int,
     practices: list[tuple[int, str, str, int]],
 ) -> str:
-    """Расписание на неделю: день недели — заголовок — канал — время (мин)."""
-    lines = ["📅 Расписание на неделю:\n"]
+    """Расписание на неделю: день и длительность (жирным), заголовок, канал."""
+    blocks = ["📅 Расписание на неделю:\n"]
     for day, title, channel_name, minutes in practices:
         weekday = challenge_day_weekday_label(day)
-        lines.append(f"{weekday}. {title} — {channel_name} — {minutes} мин")
-    return "\n".join(lines)
+        title_text = html.escape((title or "Практика").strip())
+        channel_text = html.escape((channel_name or "—").strip())
+        blocks.append(
+            f"<b>{html.escape(weekday)}: {minutes} мин</b>\n"
+            f"{title_text}\n"
+            f"{channel_text}"
+        )
+    return "\n\n".join(blocks)
 
 
 def collect_summary_data(
