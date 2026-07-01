@@ -264,17 +264,20 @@ def build_weekly_schedule_message(
     practices: list[tuple[int, str, str, int]],
 ) -> str:
     """Расписание на неделю: день и длительность (жирным), заголовок, канал."""
-    blocks = ["📅 Расписание на неделю:\n"]
+    day_blocks: list[str] = []
     for day, title, channel_name, minutes in practices:
         weekday = challenge_day_weekday_label(day)
         title_text = html.escape((title or "Практика").strip())
         channel_text = html.escape((channel_name or "—").strip())
-        blocks.append(
-            f"<b>{html.escape(weekday)}: {minutes} мин</b>\n"
+        day_blocks.append(
+            f"<b>🌀{html.escape(weekday)}: {minutes} мин</b>\n"
             f"{title_text}\n"
             f"{channel_text}"
         )
-    return "\n\n".join(blocks)
+    body = "\n\n".join(day_blocks)
+    if not body:
+        return "📅 Расписание на неделю:"
+    return f"📅 Расписание на неделю:\n\n{body}"
 
 
 def collect_summary_data(
