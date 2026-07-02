@@ -85,7 +85,7 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         weekday: день недели (используется только в обычном режиме)
     """
     try:
-        # Снимаем кнопку «Я сделал ✅» с предыдущего сообщения с практикой
+        # Снимаем кнопку «✅ Я сделал!» с предыдущего сообщения с практикой
         last_message_id = get_last_practice_message_id(user_id)
         if last_message_id is not None:
             try:
@@ -120,7 +120,7 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         title = f"{challenge_day} день челленджа" if is_challenge else "Практика дня"
         message_text = format_practice_message(title, my_description, time_practices, intensity, channel_name, video_url)
 
-        # Отправляем сообщение с кнопками избранного и «Я сделал ✅»
+        # Отправляем сообщение с кнопками избранного и «✅ Я сделал!»
         done_keyboard = get_practice_action_keyboard(
             practice_id, is_user_favorite(user_id, practice_id)
         )

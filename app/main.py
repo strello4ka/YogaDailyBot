@@ -268,7 +268,7 @@ def main():
     # Регистрируем обработчики для выбора количества звезд
     application.add_handler(CallbackQueryHandler(handle_stars_amount_callback, pattern="^stars_"))
 
-    # Трекер прогресса: кнопка «Я сделал ✅» и «Мой прогресс» / сброс
+    # Трекер прогресса: кнопка «✅ Я сделал!» и «Мой прогресс» / сброс
     application.add_handler(CallbackQueryHandler(handle_practice_done_callback, pattern="^practice_done$"))
     application.add_handler(CallbackQueryHandler(handle_fav_toggle_callback, pattern="^fav_toggle:"))
     application.add_handler(CallbackQueryHandler(handle_fav_pick_callback, pattern="^fav_pick:"))
