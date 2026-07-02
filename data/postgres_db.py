@@ -558,6 +558,23 @@ def init_database():
             print("   ✅ Таблица by_mood_seen готова")
         except Exception as e:
             print(f"⚠️ Ошибка при создании by_mood_seen: {e}")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_favorites (
+                    user_id BIGINT NOT NULL,
+                    practice_id INTEGER NOT NULL,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, practice_id),
+                    FOREIGN KEY (practice_id) REFERENCES yoga_practices (practices_id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_favorites_user_added "
+                "ON user_favorites(user_id, added_at DESC)"
+            )
+            print("   ✅ Таблица user_favorites готова")
+        except Exception as e:
+            print(f"⚠️ Ошибка при создании user_favorites: {e}")
 
         # Cleanup-migration: удаляем устаревшие столбцы users, которые больше не используются
         try:
@@ -2043,6 +2060,102 @@ def pick_random_by_mood_practice(
     except Exception as e:
         print(f"Ошибка pick_random_by_mood_practice {user_id} {filter_key}: {e}")
         return None
+
+
+def add_user_favorite(user_id: int, practice_id: int) -> bool:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO user_favorites (user_id, practice_id)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id, practice_id) DO NOTHING
+            """,
+            (user_id, practice_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка add_user_favorite {user_id} {practice_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def remove_user_favorite(user_id: int, practice_id: int) -> bool:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM user_favorites WHERE user_id = %s AND practice_id = %s",
+            (user_id, practice_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка remove_user_favorite {user_id} {practice_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def is_user_favorite(user_id: int, practice_id: int) -> bool:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM user_favorites WHERE user_id = %s AND practice_id = %s",
+            (user_id, practice_id),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        print(f"Ошибка is_user_favorite {user_id} {practice_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
+def list_user_favorites(user_id: int) -> list:
+    """Избранные практики пользователя, новые сверху.
+
+    Returns:
+        list[tuple]: (practices_id, title, video_url, time_practices, channel_name,
+                      description, my_description, intensity, weekday, created_at, updated_at)
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT yp.practices_id, yp.title, yp.video_url, yp.time_practices, yp.channel_name,
+                   yp.description, yp.my_description, yp.intensity, yp.weekday,
+                   yp.created_at, yp.updated_at
+            FROM user_favorites uf
+            JOIN yoga_practices yp ON yp.practices_id = uf.practice_id
+            WHERE uf.user_id = %s
+            ORDER BY uf.added_at DESC
+            """,
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [_decode_practice_row(row) for row in rows]
+    except Exception as e:
+        print(f"Ошибка list_user_favorites {user_id}: {e}")
+        if conn:
+            conn.close()
+        return []
 
 
 def record_by_mood_seen(user_id: int, filter_key: str, practice_id: int) -> bool:

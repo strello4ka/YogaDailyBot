@@ -63,6 +63,13 @@ from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
 from .handlers.help import help_command
+from .handlers.favorites import (
+    favorite_command,
+    handle_fav_toggle_callback,
+    handle_fav_page_callback,
+    handle_fav_pick_callback,
+    handle_fav_noop_callback,
+)
 from .bot_commands import setup_bot_commands
 from app.by_mood.self_decide import handle_intensity_callback as by_mood_self_intensity_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
@@ -83,6 +90,10 @@ async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_progress_callback(update, context)
+
+
+async def favorite_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await favorite_command(update, context)
 
 
 async def handle_text_input(update: Update, context):
@@ -222,6 +233,7 @@ def main():
     application.add_handler(CommandHandler("suggest", suggest_command))
     application.add_handler(CommandHandler("donate", donate_command))
     application.add_handler(CommandHandler("progress", progress_command))
+    application.add_handler(CommandHandler("favorite", favorite_command_handler))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("test", test_practice_command))
     application.add_handler(CommandHandler("myid", myid_command))
@@ -258,6 +270,10 @@ def main():
 
     # Трекер прогресса: кнопка «✅ Я сделал!» и «Мой прогресс» / сброс
     application.add_handler(CallbackQueryHandler(handle_practice_done_callback, pattern="^practice_done$"))
+    application.add_handler(CallbackQueryHandler(handle_fav_toggle_callback, pattern="^fav_toggle:"))
+    application.add_handler(CallbackQueryHandler(handle_fav_pick_callback, pattern="^fav_pick:"))
+    application.add_handler(CallbackQueryHandler(handle_fav_page_callback, pattern="^fav_page:"))
+    application.add_handler(CallbackQueryHandler(handle_fav_noop_callback, pattern="^fav_noop$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_callback, pattern="^progress_reset$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_yes_callback, pattern="^progress_reset_yes$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_no_callback, pattern="^progress_reset_no$"))

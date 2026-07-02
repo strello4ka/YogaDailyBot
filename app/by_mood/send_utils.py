@@ -4,11 +4,12 @@ import logging
 
 from telegram.ext import ContextTypes
 
-from app.keyboards import get_practice_done_keyboard
+from app.keyboards import get_practice_action_keyboard
 from data.db import (
     BY_MOOD_PRACTICE_LOG_DAY,
     get_last_practice_message_id,
     increment_total_practices,
+    is_user_favorite,
     log_practice_sent,
     record_by_mood_seen,
     set_last_practice_message_id,
@@ -39,14 +40,16 @@ def format_by_mood_practice_message(
     return "\n".join(parts)
 
 
-async def deliver_by_mood_practice(
+async def deliver_on_demand_practice(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
     user_id: int,
-    filter_key: str,
     practice_row: tuple,
+    *,
+    record_seen_filter_key: str | None = None,
+    touch_activity: bool = True,
 ) -> bool:
-    """practice_row — кортеж как из pick_random_by_mood_practice."""
+    """Отправляет практику по запросу (By mood, избранное и т.п.)."""
     (
         practice_id,
         _title,
@@ -71,7 +74,8 @@ async def deliver_by_mood_practice(
             except Exception as edit_err:
                 logger.debug("Не удалось снять кнопку с прошлого сообщения: %s", edit_err)
 
-        record_by_mood_seen(user_id, filter_key, practice_id)
+        if record_seen_filter_key:
+            record_by_mood_seen(user_id, record_seen_filter_key, practice_id)
 
         text = format_by_mood_practice_message(
             my_description or "",
@@ -80,17 +84,19 @@ async def deliver_by_mood_practice(
             channel_name,
             video_url,
         )
+        is_fav = is_user_favorite(user_id, practice_id)
         msg = await context.bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode="Markdown",
             disable_web_page_preview=False,
-            reply_markup=get_practice_done_keyboard(),
+            reply_markup=get_practice_action_keyboard(practice_id, is_fav),
         )
         set_last_practice_message_id(user_id, msg.message_id)
         set_user_blocked(user_id, False)
         increment_total_practices(user_id)
-        touch_by_mood_activity(user_id)
+        if touch_activity:
+            touch_by_mood_activity(user_id)
         log_id = log_practice_sent(user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY)
         if log_id:
             from app.handlers.done import schedule_done_reminders
@@ -101,5 +107,23 @@ async def deliver_by_mood_practice(
         err = str(e)
         if "bot was blocked by the user" in err or "Forbidden: bot was blocked by the user" in err:
             set_user_blocked(user_id, True)
-        logger.error("Ошибка deliver_by_mood_practice user=%s: %s", user_id, e)
+        logger.error("Ошибка deliver_on_demand_practice user=%s: %s", user_id, e)
         return False
+
+
+async def deliver_by_mood_practice(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+    filter_key: str,
+    practice_row: tuple,
+) -> bool:
+    """practice_row — кортеж как из pick_random_by_mood_practice."""
+    return await deliver_on_demand_practice(
+        context,
+        chat_id,
+        user_id,
+        practice_row,
+        record_seen_filter_key=filter_key,
+        touch_activity=True,
+    )

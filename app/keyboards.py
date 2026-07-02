@@ -40,14 +40,14 @@ def get_welcome_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_practice_done_keyboard():
-    """Клавиатура с кнопкой «✅ Я сделал!» под сообщением с практикой.
-    
-    Returns:
-        InlineKeyboardMarkup: Одна кнопка «✅ Я сделал!» (callback_data="practice_done")
-    """
+def get_practice_action_keyboard(practice_id: int, is_favorited: bool) -> InlineKeyboardMarkup:
+    """Клавиатура под практикой: избранное + «Я сделал!»."""
+    favorite_label = "Удалить из 🧡" if is_favorited else "🧡 В избранное"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Я сделал!", callback_data="practice_done")]
+        [
+            InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}"),
+            InlineKeyboardButton("✅ Я сделал!", callback_data="practice_done"),
+        ]
     ])
 
 

@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Используем таймзону, чтобы сравнивать время корректно
 from telegram.ext import ContextTypes
-from app.keyboards import get_practice_done_keyboard
+from app.keyboards import get_practice_action_keyboard
 from data.db import (
     get_users_by_time,
     get_users_pending_for_today,
@@ -29,6 +29,7 @@ from data.db import (
     get_current_weekday,
     get_bonus_practices_by_parent,
     set_user_blocked,
+    is_user_favorite,
 )
 from app.challenge.challenge_commands import get_practice_for_daily_send
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
@@ -119,8 +120,10 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         title = f"{challenge_day} день челленджа" if is_challenge else "Практика дня"
         message_text = format_practice_message(title, my_description, time_practices, intensity, channel_name, video_url)
 
-        # Отправляем сообщение с кнопкой «✅ Я сделал!»
-        done_keyboard = get_practice_done_keyboard()
+        # Отправляем сообщение с кнопками избранного и «Я сделал!»
+        done_keyboard = get_practice_action_keyboard(
+            practice_id, is_user_favorite(user_id, practice_id)
+        )
 
         # Отправляем сообщение с кнопкой
         message = await context.bot.send_message(
@@ -307,7 +310,9 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
          description, my_description, intensity, practice_weekday, created_at, updated_at) = practice
 
         message_text = format_practice_message("Практика дня", my_description, time_practices, intensity, channel_name, video_url)
-        done_keyboard = get_practice_done_keyboard()
+        done_keyboard = get_practice_action_keyboard(
+            practice_id, is_user_favorite(user_id, practice_id)
+        )
 
         message = await context.bot.send_message(
             chat_id=chat_id,

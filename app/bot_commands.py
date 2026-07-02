@@ -11,6 +11,7 @@ async def setup_bot_commands(application) -> None:
             BotCommand("suggest", "Порекомендовать практику"),
             BotCommand("donate", "Донаты"),
             BotCommand("progress", "Мой прогресс"),
+            BotCommand("favorite", "🧡 Избранное"),
             BotCommand("help", "Помощь и вопросы"),
         ]
     )
