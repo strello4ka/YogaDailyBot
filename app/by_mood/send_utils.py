@@ -1,6 +1,7 @@
 """Отправка одной практики в режиме By mood (формат сообщения + кнопка «Я сделал»)."""
 
 import logging
+from typing import Optional
 
 from telegram.ext import ContextTypes
 
@@ -46,7 +47,7 @@ async def deliver_on_demand_practice(
     user_id: int,
     practice_row: tuple,
     *,
-    record_seen_filter_key: str | None = None,
+    record_seen_filter_key: Optional[str] = None,
     touch_activity: bool = True,
 ) -> bool:
     """Отправляет практику по запросу (By mood, избранное и т.п.)."""

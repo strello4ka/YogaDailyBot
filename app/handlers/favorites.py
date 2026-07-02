@@ -2,6 +2,7 @@
 
 import logging
 import math
+from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -52,7 +53,7 @@ def format_favorite_list_button_label(channel_name: str, title: str, time_practi
     return f"{fixed}{truncated}{end}"
 
 
-def _favorites_list_keyboard(favorites: list, page: int) -> InlineKeyboardMarkup | None:
+def _favorites_list_keyboard(favorites: list, page: int) -> Optional[InlineKeyboardMarkup]:
     total = len(favorites)
     if total == 0:
         return None
@@ -94,7 +95,7 @@ async def _send_favorites_list(
     chat_id: int,
     user_id: int,
     page: int = 0,
-    message_id: int | None = None,
+    message_id: Optional[int] = None,
 ) -> None:
     favorites = list_user_favorites(user_id)
     text = _favorites_list_text(favorites)
