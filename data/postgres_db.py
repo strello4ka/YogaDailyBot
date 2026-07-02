@@ -3743,7 +3743,7 @@ def get_yesterday_completed_challenge_user_ids(yesterday: date) -> set:
                   OR ({sent_moscow} = %s AND pl.day_number >= 1)
               )
             ''',
-            (DEFAULT_TZ, DEFAULT_TZ, yesterday, yesterday),
+            (DEFAULT_TZ, yesterday, DEFAULT_TZ, yesterday),
         )
         results = {row[0] for row in cursor.fetchall()}
         conn.close()
