@@ -42,7 +42,7 @@ def get_welcome_keyboard():
 
 def get_practice_action_keyboard(practice_id: int, is_favorited: bool) -> InlineKeyboardMarkup:
     """Клавиатура под практикой: избранное + «✅ Я сделал!»."""
-    favorite_label = "Удалить из 🧡" if is_favorited else "🧡 В избранное"
+    favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}"),
@@ -58,7 +58,7 @@ def get_favorites_carousel_keyboard(
     total: int,
 ) -> InlineKeyboardMarkup:
     """Карусель избранного: действия с практикой + навигация."""
-    favorite_label = "Удалить из 🧡" if is_favorited else "🧡 В избранное"
+    favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
     rows = [
         [
             InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}"),

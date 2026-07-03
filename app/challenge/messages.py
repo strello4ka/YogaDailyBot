@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import html
 from dataclasses import dataclass
 from typing import Literal, Optional
+
+from telegram.helpers import escape_markdown
 
 SummaryKind = Literal["daily", "intermediate", "final"]
 
@@ -267,10 +268,10 @@ def build_weekly_schedule_message(
     day_blocks: list[str] = []
     for day, title, channel_name, minutes in practices:
         weekday = challenge_day_weekday_label(day)
-        title_text = html.escape((title or "Практика").strip())
-        channel_text = html.escape((channel_name or "—").strip())
+        title_text = escape_markdown((title or "Практика").strip(), version=1)
+        channel_text = escape_markdown((channel_name or "—").strip(), version=1)
         day_blocks.append(
-            f"<b>🌀{html.escape(weekday)}: {minutes} мин</b>\n"
+            f"*🌀{weekday}: {minutes} мин*\n"
             f"{title_text}\n"
             f"{channel_text}"
         )
