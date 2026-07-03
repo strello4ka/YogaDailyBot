@@ -46,9 +46,34 @@ def get_practice_action_keyboard(practice_id: int, is_favorited: bool) -> Inline
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}"),
-            InlineKeyboardButton("✅ Я сделал!", callback_data="practice_done"),
+            InlineKeyboardButton("✅ Я сделал!", callback_data=f"practice_done:{practice_id}"),
         ]
     ])
+
+
+def get_favorites_carousel_keyboard(
+    practice_id: int,
+    is_favorited: bool,
+    index: int,
+    total: int,
+) -> InlineKeyboardMarkup:
+    """Карусель избранного: действия с практикой + навигация."""
+    favorite_label = "Удалить из 🧡" if is_favorited else "🧡 В избранное"
+    rows = [
+        [
+            InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}"),
+            InlineKeyboardButton("✅ Я сделал!", callback_data=f"practice_done:{practice_id}"),
+        ],
+    ]
+    if total > 1:
+        nav = []
+        if index > 0:
+            nav.append(InlineKeyboardButton("⬅️", callback_data=f"fav_nav:{index - 1}"))
+        nav.append(InlineKeyboardButton(f"{index + 1} / {total}", callback_data="fav_noop"))
+        if index < total - 1:
+            nav.append(InlineKeyboardButton("➡️", callback_data=f"fav_nav:{index + 1}"))
+        rows.append(nav)
+    return InlineKeyboardMarkup(rows)
 
 
 def get_main_reply_keyboard():

@@ -11,12 +11,18 @@ from telegram.ext import ContextTypes
 
 from app.config import DEFAULT_TZ
 from app.handlers.progress import format_progress_stats, format_similar_result_line
+from app.handlers.favorites import (
+    get_carousel_index_from_markup,
+    message_is_favorites_carousel,
+    render_favorites_carousel,
+)
 from data.db import (
     get_completed_count,
     get_similar_result_percent,
     get_streak_days,
     is_pending_practice_log,
     is_user_eligible_for_done_reminder,
+    mark_practice_completed_by_practice_id,
     mark_practice_completed_today,
 )
 
@@ -216,7 +222,7 @@ def _done_text(n: int, streak: int, similar_line: str, name: str) -> str:
 
 
 async def handle_practice_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """«✅ Я сделал!»: отметка последней практики и отмена напоминаний."""
+    """«✅ Я сделал!»: отметка практики и отмена напоминаний."""
     query = update.callback_query
     if not query:
         return
@@ -226,14 +232,42 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
         await query.answer("Ошибка: пользователь не определён.")
         return
 
-    ok = mark_practice_completed_today(user_id)
+    data = query.data or ""
+    practice_id = None
+    if data.startswith("practice_done:"):
+        try:
+            practice_id = int(data.split(":", 1)[1])
+        except (IndexError, ValueError):
+            await query.answer("Ошибка.")
+            return
+
+    if practice_id is not None:
+        ok = mark_practice_completed_by_practice_id(user_id, practice_id)
+    else:
+        ok = mark_practice_completed_today(user_id)
+
     await cancel_done_reminders(context, user_id)
     await query.answer()
+
+    is_carousel = message_is_favorites_carousel(
+        query.message.reply_markup if query.message else None
+    )
+
     if ok:
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
+        if is_carousel and query.message:
+            index = get_carousel_index_from_markup(query.message.reply_markup)
+            await render_favorites_carousel(
+                bot=context.bot,
+                chat_id=query.message.chat_id,
+                user_id=user_id,
+                index=index,
+                message_id=query.message.message_id,
+            )
+        else:
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
         n = get_completed_count(user_id)
         streak = get_streak_days(user_id)
         similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)

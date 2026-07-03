@@ -3342,6 +3342,60 @@ def mark_practice_completed_today(user_id: int) -> bool:
         return False
 
 
+def mark_practice_completed_by_practice_id(user_id: int, practice_id: int) -> bool:
+    """Отмечает конкретную практику выполненной (карусель избранного и явный practice_id)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        today_moscow = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
+
+        cursor.execute(
+            '''
+            UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
+            WHERE log_id = (
+                SELECT log_id FROM practice_logs
+                WHERE user_id = %s AND practice_id = %s AND completed_at IS NULL
+                ORDER BY sent_at DESC LIMIT 1
+            )
+            ''',
+            (user_id, practice_id),
+        )
+        marked = cursor.rowcount > 0
+
+        if not marked:
+            cursor.execute(
+                '''
+                INSERT INTO practice_logs (user_id, practice_id, day_number)
+                VALUES (%s, %s, %s)
+                RETURNING log_id
+                ''',
+                (user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY),
+            )
+            row = cursor.fetchone()
+            if row:
+                cursor.execute(
+                    'UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP WHERE log_id = %s',
+                    (row[0],),
+                )
+                marked = True
+                cursor.execute(
+                    'UPDATE users SET total_practices = COALESCE(total_practices, 0) + 1 WHERE user_id = %s',
+                    (user_id,),
+                )
+
+        marked = marked or _cascade_challenge_logs_on_done(cursor, user_id, today_moscow) > 0
+        conn.commit()
+        conn.close()
+        return marked
+    except Exception as e:
+        print(f"Ошибка mark_practice_completed_by_practice_id {user_id} {practice_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
 def get_completed_count(user_id: int) -> int:
     """Количество практик, отмеченных как выполненные (completed_at IS NOT NULL)."""
     try:

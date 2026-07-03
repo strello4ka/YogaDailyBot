@@ -66,8 +66,7 @@ from .handlers.help import help_command
 from .handlers.favorites import (
     favorite_command,
     handle_fav_toggle_callback,
-    handle_fav_page_callback,
-    handle_fav_pick_callback,
+    handle_fav_nav_callback,
     handle_fav_noop_callback,
 )
 from .bot_commands import setup_bot_commands
@@ -269,10 +268,9 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_stars_amount_callback, pattern="^stars_"))
 
     # Трекер прогресса: кнопка «✅ Я сделал!» и «Мой прогресс» / сброс
-    application.add_handler(CallbackQueryHandler(handle_practice_done_callback, pattern="^practice_done$"))
+    application.add_handler(CallbackQueryHandler(handle_practice_done_callback, pattern="^practice_done"))
     application.add_handler(CallbackQueryHandler(handle_fav_toggle_callback, pattern="^fav_toggle:"))
-    application.add_handler(CallbackQueryHandler(handle_fav_pick_callback, pattern="^fav_pick:"))
-    application.add_handler(CallbackQueryHandler(handle_fav_page_callback, pattern="^fav_page:"))
+    application.add_handler(CallbackQueryHandler(handle_fav_nav_callback, pattern="^fav_nav:"))
     application.add_handler(CallbackQueryHandler(handle_fav_noop_callback, pattern="^fav_noop$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_callback, pattern="^progress_reset$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_yes_callback, pattern="^progress_reset_yes$"))

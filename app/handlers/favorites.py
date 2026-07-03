@@ -1,14 +1,12 @@
-"""Избранные практики: /favorite, переключатель под практикой, выдача из списка."""
+"""Избранные практики: /favorite (карусель), переключатель под практикой."""
 
 import logging
-import math
 from typing import Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.by_mood.send_utils import deliver_on_demand_practice
-from app.keyboards import get_practice_action_keyboard
+from app.keyboards import get_favorites_carousel_keyboard, get_practice_action_keyboard
 from data.db import (
     add_user_favorite,
     get_yoga_practice_by_id,
@@ -18,9 +16,6 @@ from data.db import (
 )
 
 logger = logging.getLogger(__name__)
-
-FAVORITES_PAGE_SIZE = 6
-TELEGRAM_BUTTON_TEXT_LIMIT = 64
 
 EMPTY_FAVORITES_TEXT = (
     "У тебя пока нет избранных практик.\n"
@@ -34,82 +29,121 @@ FAVORITES_ADD_ALERT = (
 FAVORITES_REMOVE_TOAST = "Удалил практику из избранного"
 
 
-def format_favorite_list_button_label(channel_name: str, title: str, time_practices: int) -> str:
-    """Формат: {канал} · {название} {N} мин (с обрезкой под лимит Telegram)."""
-    channel = (channel_name or "").strip() or "Канал"
-    name = (title or "").strip() or "Практика"
-    suffix = f" {time_practices} мин"
-    prefix = f"{channel} · {name}"
-    label = f"{prefix}{suffix}"
-    if len(label) <= TELEGRAM_BUTTON_TEXT_LIMIT:
-        return label
+def format_favorite_carousel_message(practice_row: tuple) -> str:
+    """Текст карточки практики в карусели избранного."""
+    (
+        _practice_id,
+        title,
+        video_url,
+        time_practices,
+        channel_name,
+        description,
+        _my_description,
+        intensity,
+        _weekday,
+        _created_at,
+        _updated_at,
+    ) = practice_row
 
-    fixed = f"{channel} · "
-    end = suffix
-    available = TELEGRAM_BUTTON_TEXT_LIMIT - len(fixed) - len(end) - 1
-    if available < 1:
-        return label[: TELEGRAM_BUTTON_TEXT_LIMIT - 1] + "…"
-    truncated = name[:available] + ("…" if len(name) > available else "")
-    return f"{fixed}{truncated}{end}"
-
-
-def _favorites_list_keyboard(favorites: list, page: int) -> Optional[InlineKeyboardMarkup]:
-    total = len(favorites)
-    if total == 0:
-        return None
-
-    total_pages = max(1, math.ceil(total / FAVORITES_PAGE_SIZE))
-    page = max(0, min(page, total_pages - 1))
-    start = page * FAVORITES_PAGE_SIZE
-    chunk = favorites[start : start + FAVORITES_PAGE_SIZE]
-
-    rows = []
-    for row in chunk:
-        practice_id, title, *_rest = row
-        time_practices = row[3]
-        channel_name = row[4]
-        label = format_favorite_list_button_label(channel_name, title, time_practices)
-        rows.append([InlineKeyboardButton(label, callback_data=f"fav_pick:{practice_id}")])
-
-    if total_pages > 1:
-        nav = []
-        if page > 0:
-            nav.append(InlineKeyboardButton("⬅️", callback_data=f"fav_page:{page - 1}"))
-        nav.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="fav_noop"))
-        if page < total_pages - 1:
-            nav.append(InlineKeyboardButton("➡️", callback_data=f"fav_page:{page + 1}"))
-        rows.append(nav)
-
-    return InlineKeyboardMarkup(rows)
+    parts = []
+    if title:
+        parts.append(f"*{title}*")
+    if description:
+        parts.append(description)
+    parts.append(f"\n🌀 *время:* {time_practices} мин")
+    if intensity:
+        parts.append(f"🌀 *интенсивность:* {intensity}")
+    parts.append(f"🌀 *канал:* {channel_name}")
+    parts.append(f"\n▶️ [Youtube]({video_url})")
+    return "\n".join(parts)
 
 
-def _favorites_list_text(favorites: list) -> str:
-    if not favorites:
-        return EMPTY_FAVORITES_TEXT
-    return "🧡 Твои любимки"
+def _clamp_carousel_index(index: int, total: int) -> int:
+    if total <= 0:
+        return 0
+    return max(0, min(index, total - 1))
 
 
-async def _send_favorites_list(
+def _index_of_practice(favorites: list, practice_id: int) -> int:
+    for i, row in enumerate(favorites):
+        if row[0] == practice_id:
+            return i
+    return 0
+
+
+def message_is_favorites_carousel(reply_markup: Optional[InlineKeyboardMarkup]) -> bool:
+    if not reply_markup or not reply_markup.inline_keyboard:
+        return False
+    for row in reply_markup.inline_keyboard:
+        for btn in row:
+            data = btn.callback_data or ""
+            if data.startswith("fav_nav:"):
+                return True
+    return False
+
+
+def get_carousel_index_from_markup(reply_markup: Optional[InlineKeyboardMarkup]) -> int:
+    if not reply_markup:
+        return 0
+    for row in reply_markup.inline_keyboard:
+        for btn in row:
+            if btn.callback_data == "fav_noop" and btn.text and " / " in btn.text:
+                try:
+                    return int(btn.text.split(" / ")[0].strip()) - 1
+                except ValueError:
+                    return 0
+    return 0
+
+
+async def render_favorites_carousel(
     *,
     bot,
     chat_id: int,
     user_id: int,
-    page: int = 0,
+    index: int = 0,
     message_id: Optional[int] = None,
 ) -> None:
     favorites = list_user_favorites(user_id)
-    text = _favorites_list_text(favorites)
-    reply_markup = _favorites_list_keyboard(favorites, page)
+    if not favorites:
+        if message_id is not None:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=EMPTY_FAVORITES_TEXT,
+                reply_markup=None,
+            )
+        else:
+            await bot.send_message(chat_id=chat_id, text=EMPTY_FAVORITES_TEXT)
+        return
+
+    total = len(favorites)
+    index = _clamp_carousel_index(index, total)
+    practice = favorites[index]
+    text = format_favorite_carousel_message(practice)
+    reply_markup = get_favorites_carousel_keyboard(
+        practice[0],
+        is_user_favorite(user_id, practice[0]),
+        index,
+        total,
+    )
 
     if message_id is not None:
         await bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
             text=text,
+            parse_mode="Markdown",
+            disable_web_page_preview=False,
             reply_markup=reply_markup,
         )
     else:
-        await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode="Markdown",
+            disable_web_page_preview=False,
+            reply_markup=reply_markup,
+        )
 
 
 async def favorite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -117,7 +151,12 @@ async def favorite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     chat = update.effective_chat
     if not user or not chat:
         return
-    await _send_favorites_list(bot=context.bot, chat_id=chat.id, user_id=user.id, page=0)
+    await render_favorites_carousel(
+        bot=context.bot,
+        chat_id=chat.id,
+        user_id=user.id,
+        index=0,
+    )
 
 
 async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -140,15 +179,42 @@ async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer("Практика больше не доступна.")
         return
 
+    is_carousel = message_is_favorites_carousel(
+        query.message.reply_markup if query.message else None
+    )
+    carousel_index = 0
+    if is_carousel:
+        favorites = list_user_favorites(user.id)
+        carousel_index = _index_of_practice(favorites, practice_id)
+
     if is_user_favorite(user.id, practice_id):
         remove_user_favorite(user.id, practice_id)
         await query.answer(FAVORITES_REMOVE_TOAST)
-        is_fav = False
     else:
         add_user_favorite(user.id, practice_id)
         await query.answer(FAVORITES_ADD_ALERT, show_alert=True)
-        is_fav = True
 
+    if is_carousel and query.message:
+        favorites = list_user_favorites(user.id)
+        if not favorites:
+            await render_favorites_carousel(
+                bot=context.bot,
+                chat_id=query.message.chat_id,
+                user_id=user.id,
+                index=0,
+                message_id=query.message.message_id,
+            )
+        else:
+            await render_favorites_carousel(
+                bot=context.bot,
+                chat_id=query.message.chat_id,
+                user_id=user.id,
+                index=_clamp_carousel_index(carousel_index, len(favorites)),
+                message_id=query.message.message_id,
+            )
+        return
+
+    is_fav = is_user_favorite(user.id, practice_id)
     try:
         await query.edit_message_reply_markup(
             reply_markup=get_practice_action_keyboard(practice_id, is_fav),
@@ -157,7 +223,7 @@ async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAU
         logger.debug("Не удалось обновить клавиатуру избранного: %s", e)
 
 
-async def handle_fav_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_fav_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query or not query.message:
         return
@@ -168,17 +234,17 @@ async def handle_fav_page_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     try:
-        page = int(query.data.split(":", 1)[1])
+        index = int(query.data.split(":", 1)[1])
     except (IndexError, ValueError):
         await query.answer()
         return
 
     await query.answer()
-    await _send_favorites_list(
+    await render_favorites_carousel(
         bot=context.bot,
         chat_id=query.message.chat_id,
         user_id=user.id,
-        page=page,
+        index=index,
         message_id=query.message.message_id,
     )
 
@@ -187,33 +253,3 @@ async def handle_fav_noop_callback(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     if query:
         await query.answer()
-
-
-async def handle_fav_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    if not query:
-        return
-
-    user = update.effective_user
-    chat = update.effective_chat
-    if not user or not chat:
-        await query.answer("Ошибка.")
-        return
-
-    try:
-        practice_id = int(query.data.split(":", 1)[1])
-    except (IndexError, ValueError):
-        await query.answer("Ошибка.")
-        return
-
-    practice = get_yoga_practice_by_id(practice_id)
-    if not practice:
-        await query.answer("Практика больше не доступна.")
-        return
-
-    await query.answer()
-    ok = await deliver_on_demand_practice(
-        context, chat.id, user.id, practice, touch_activity=False
-    )
-    if not ok:
-        await context.bot.send_message(chat.id, "Не удалось отправить практику. Попробуй ещё раз.")
