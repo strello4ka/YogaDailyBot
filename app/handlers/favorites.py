@@ -24,13 +24,13 @@ EMPTY_FAVORITES_TEXT = (
 
 FAVORITES_ADD_TOAST = (
     "Добавил практику в избранное 🧡\n"
-    "Ищи этот раздел в меню ↙️"
+    "Ищи этот раздел в меню"
 )
 FAVORITES_REMOVE_TOAST = "Удалил практику из избранного"
 
 
 def format_favorite_carousel_message(practice_row: tuple) -> str:
-    """Текст карточки практики в карусели избранного (как в By mood, title из БД)."""
+    """Текст карточки практики в карусели избранного: title + метаданные."""
     (
         _practice_id,
         title,
@@ -38,7 +38,7 @@ def format_favorite_carousel_message(practice_row: tuple) -> str:
         time_practices,
         channel_name,
         _description,
-        my_description,
+        _my_description,
         intensity,
         _weekday,
         _created_at,
@@ -46,10 +46,6 @@ def format_favorite_carousel_message(practice_row: tuple) -> str:
     ) = practice_row
 
     parts = [f"*{title}*\n" if title else "*Практика для тебя*\n"]
-    if my_description:
-        parts.append(my_description)
-    else:
-        parts.append("Новая практика ждёт тебя!")
     parts.append(f"\n🌀 *время:* {time_practices} мин")
     if intensity:
         parts.append(f"🌀 *интенсивность:* {intensity}")
