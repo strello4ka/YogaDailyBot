@@ -45,7 +45,7 @@ def format_favorite_carousel_message(practice_row: tuple) -> str:
         _updated_at,
     ) = practice_row
 
-    parts = [f"*{title}*" if title else "*Практика для тебя*"]
+    parts = [f"*{title}*" if title else "*Практика для тебя*", ""]
     parts.append(f"🌀 *время:* {time_practices} мин")
     if intensity:
         parts.append(f"🌀 *интенсивность:* {intensity}")
