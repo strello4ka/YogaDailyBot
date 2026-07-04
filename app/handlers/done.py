@@ -10,12 +10,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.config import DEFAULT_TZ
+from app.handlers.favorites import message_is_favorites_carousel
 from app.handlers.progress import format_progress_stats, format_similar_result_line
-from app.handlers.favorites import (
-    get_carousel_index_from_markup,
-    message_is_favorites_carousel,
-    render_favorites_carousel,
-)
 from data.db import (
     get_completed_count,
     get_similar_result_percent,
@@ -254,16 +250,7 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
     )
 
     if ok:
-        if is_carousel and query.message:
-            index = get_carousel_index_from_markup(query.message.reply_markup)
-            await render_favorites_carousel(
-                bot=context.bot,
-                chat_id=query.message.chat_id,
-                user_id=user_id,
-                index=index,
-                message_id=query.message.message_id,
-            )
-        else:
+        if not is_carousel:
             try:
                 await query.edit_message_reply_markup(reply_markup=None)
             except Exception:

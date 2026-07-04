@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from telegram import InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from app.keyboards import get_favorites_carousel_keyboard, get_practice_action_keyboard
@@ -24,7 +25,6 @@ EMPTY_FAVORITES_TEXT = (
 
 FAVORITES_ADD_TOAST = (
     "Добавил практику в избранное 🧡\n"
-    "Ищи этот раздел в меню"
 )
 FAVORITES_REMOVE_TOAST = "Удалил практику из избранного"
 
@@ -45,8 +45,8 @@ def format_favorite_carousel_message(practice_row: tuple) -> str:
         _updated_at,
     ) = practice_row
 
-    parts = [f"*{title}*\n" if title else "*Практика для тебя*\n"]
-    parts.append(f"\n🌀 *время:* {time_practices} мин")
+    parts = [f"*{title}*" if title else "*Практика для тебя*"]
+    parts.append(f"🌀 *время:* {time_practices} мин")
     if intensity:
         parts.append(f"🌀 *интенсивность:* {intensity}")
     parts.append(f"🌀 *канал:* {channel_name}")
@@ -124,14 +124,18 @@ async def render_favorites_carousel(
     )
 
     if message_id is not None:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            parse_mode="Markdown",
-            disable_web_page_preview=False,
-            reply_markup=reply_markup,
-        )
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                parse_mode="Markdown",
+                disable_web_page_preview=False,
+                reply_markup=reply_markup,
+            )
+        except BadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
     else:
         await bot.send_message(
             chat_id=chat_id,
