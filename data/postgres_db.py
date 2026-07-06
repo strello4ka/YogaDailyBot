@@ -377,6 +377,16 @@ def init_database():
                 print("   ✅ Добавлен столбец last_practice_message_id в таблицу users")
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца last_practice_message_id: {e}")
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'last_practice_id'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE users ADD COLUMN last_practice_id INTEGER')
+                print("   ✅ Добавлен столбец last_practice_id в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца last_practice_id: {e}")
 
         # Миграция: статус паузы рассылки и метаданные напоминаний о паузе
         try:
@@ -940,14 +950,23 @@ def increment_program_position(user_id: int) -> bool:
         return False
 
 
-def set_last_practice_message_id(user_id: int, message_id: int) -> bool:
+def set_last_practice_message_id(user_id: int, message_id: int, practice_id: Optional[int] = None) -> bool:
     """Сохраняет message_id последнего сообщения с практикой (для снятия кнопки при следующей отправке)."""
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users SET last_practice_message_id = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s
-        ''', (message_id, user_id))
+        if practice_id is not None:
+            cursor.execute('''
+                UPDATE users
+                SET last_practice_message_id = %s,
+                    last_practice_id = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = %s
+            ''', (message_id, practice_id, user_id))
+        else:
+            cursor.execute('''
+                UPDATE users SET last_practice_message_id = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s
+            ''', (message_id, user_id))
         ok = cursor.rowcount > 0
         conn.commit()
         conn.close()
@@ -958,6 +977,22 @@ def set_last_practice_message_id(user_id: int, message_id: int) -> bool:
             conn.rollback()
             conn.close()
         return False
+
+
+def get_last_practice_id(user_id: int):
+    """Возвращает practice_id последнего сообщения с практикой или None."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT last_practice_id FROM users WHERE user_id = %s', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row and row[0] is not None else None
+    except Exception as e:
+        print(f"Ошибка get_last_practice_id для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return None
 
 
 def get_last_practice_message_id(user_id: int):

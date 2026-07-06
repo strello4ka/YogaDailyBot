@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 from app.config import DEFAULT_TZ
 from app.handlers.favorites import message_is_favorites_carousel
 from app.handlers.progress import format_progress_stats, format_similar_result_line
+from app.practice_markup import keep_favorite_button_on_message
 from data.db import (
     get_completed_count,
     get_similar_result_percent,
@@ -250,11 +251,15 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
     )
 
     if ok:
-        if not is_carousel:
-            try:
-                await query.edit_message_reply_markup(reply_markup=None)
-            except Exception:
-                pass
+        if not is_carousel and query.message:
+            await keep_favorite_button_on_message(
+                context.bot,
+                query.message.chat_id,
+                query.message.message_id,
+                user_id,
+                reply_markup=query.message.reply_markup,
+                practice_id=practice_id,
+            )
         n = get_completed_count(user_id)
         streak = get_streak_days(user_id)
         similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)

@@ -2,6 +2,8 @@
 Contains all inline keyboards used in the bot interface.
 """
 
+from typing import Optional
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
 
@@ -49,6 +51,39 @@ def get_practice_action_keyboard(practice_id: int, is_favorited: bool) -> Inline
             InlineKeyboardButton("✅ Я сделал!", callback_data=f"practice_done:{practice_id}"),
         ]
     ])
+
+
+def get_practice_favorite_keyboard(practice_id: int, is_favorited: bool) -> InlineKeyboardMarkup:
+    """Только кнопка избранного (после «Я сделал!» или новой практики)."""
+    favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}")],
+    ])
+
+
+def practice_id_from_action_markup(reply_markup: Optional[InlineKeyboardMarkup]) -> Optional[int]:
+    """practice_id из кнопок fav_toggle / practice_done под практикой."""
+    if not reply_markup or not reply_markup.inline_keyboard:
+        return None
+    for row in reply_markup.inline_keyboard:
+        for btn in row:
+            data = btn.callback_data or ""
+            if data.startswith(("fav_toggle:", "practice_done:")):
+                try:
+                    return int(data.split(":", 1)[1])
+                except (IndexError, ValueError):
+                    return None
+    return None
+
+
+def message_has_done_button(reply_markup: Optional[InlineKeyboardMarkup]) -> bool:
+    if not reply_markup or not reply_markup.inline_keyboard:
+        return False
+    for row in reply_markup.inline_keyboard:
+        for btn in row:
+            if (btn.callback_data or "").startswith("practice_done:"):
+                return True
+    return False
 
 
 def get_favorites_carousel_keyboard(

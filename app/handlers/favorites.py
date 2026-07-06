@@ -7,7 +7,12 @@ from telegram import InlineKeyboardMarkup, Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from app.keyboards import get_favorites_carousel_keyboard, get_practice_action_keyboard
+from app.keyboards import (
+    get_favorites_carousel_keyboard,
+    get_practice_action_keyboard,
+    get_practice_favorite_keyboard,
+    message_has_done_button,
+)
 from data.db import (
     add_user_favorite,
     get_yoga_practice_by_id,
@@ -215,9 +220,15 @@ async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAU
         return
 
     is_fav = is_user_favorite(user.id, practice_id)
+    markup = query.message.reply_markup if query.message else None
+    keyboard_fn = (
+        get_practice_action_keyboard
+        if message_has_done_button(markup)
+        else get_practice_favorite_keyboard
+    )
     try:
         await query.edit_message_reply_markup(
-            reply_markup=get_practice_action_keyboard(practice_id, is_fav),
+            reply_markup=keyboard_fn(practice_id, is_fav),
         )
     except Exception as e:
         logger.debug("Не удалось обновить клавиатуру избранного: %s", e)

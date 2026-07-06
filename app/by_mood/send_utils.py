@@ -6,6 +6,7 @@ from typing import Optional
 from telegram.ext import ContextTypes
 
 from app.keyboards import get_practice_action_keyboard
+from app.practice_markup import keep_favorite_button_on_message
 from data.db import (
     BY_MOOD_PRACTICE_LOG_DAY,
     get_last_practice_message_id,
@@ -68,12 +69,9 @@ async def deliver_on_demand_practice(
     try:
         last_message_id = get_last_practice_message_id(user_id)
         if last_message_id is not None:
-            try:
-                await context.bot.edit_message_reply_markup(
-                    chat_id=chat_id, message_id=last_message_id, reply_markup=None
-                )
-            except Exception as edit_err:
-                logger.debug("Не удалось снять кнопку с прошлого сообщения: %s", edit_err)
+            await keep_favorite_button_on_message(
+                context.bot, chat_id, last_message_id, user_id
+            )
 
         if record_seen_filter_key:
             record_by_mood_seen(user_id, record_seen_filter_key, practice_id)
@@ -93,7 +91,7 @@ async def deliver_on_demand_practice(
             disable_web_page_preview=False,
             reply_markup=get_practice_action_keyboard(practice_id, is_fav),
         )
-        set_last_practice_message_id(user_id, msg.message_id)
+        set_last_practice_message_id(user_id, msg.message_id, practice_id)
         set_user_blocked(user_id, False)
         increment_total_practices(user_id)
         if touch_activity:

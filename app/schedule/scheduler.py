@@ -13,6 +13,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo  # Используем таймзону, чтобы сравнивать время корректно
 from telegram.ext import ContextTypes
 from app.keyboards import get_practice_action_keyboard
+from app.practice_markup import keep_favorite_button_on_message
 from data.db import (
     get_users_by_time,
     get_users_pending_for_today,
@@ -85,15 +86,12 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         weekday: день недели (используется только в обычном режиме)
     """
     try:
-        # Снимаем кнопку «✅ Я сделал!» с предыдущего сообщения с практикой
+        # Снимаем «✅ Я сделал!» с предыдущего сообщения, избранное оставляем
         last_message_id = get_last_practice_message_id(user_id)
         if last_message_id is not None:
-            try:
-                await context.bot.edit_message_reply_markup(
-                    chat_id=chat_id, message_id=last_message_id, reply_markup=None
-                )
-            except Exception as edit_err:
-                logger.debug(f"Не удалось снять кнопку с сообщения {last_message_id}: {edit_err}")
+            await keep_favorite_button_on_message(
+                context.bot, chat_id, last_message_id, user_id
+            )
 
         # Вычисляем плановые счётчики, но подтверждаем их только после успешной отправки.
         # Это защищает от скачков прогресса при сетевых таймаутах Telegram API.
@@ -133,7 +131,7 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             disable_web_page_preview=False,
             reply_markup=done_keyboard
         )
-        set_last_practice_message_id(user_id, message.message_id)
+        set_last_practice_message_id(user_id, message.message_id, practice_id)
 
         # Если отправка прошла успешно, снимаем флаг блокировки (если он был)
         set_user_blocked(user_id, False)
@@ -287,12 +285,9 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
 
         last_message_id = get_last_practice_message_id(user_id)
         if last_message_id is not None:
-            try:
-                await context.bot.edit_message_reply_markup(
-                    chat_id=chat_id, message_id=last_message_id, reply_markup=None
-                )
-            except Exception as edit_err:
-                logger.debug(f"Не удалось снять кнопку с сообщения {last_message_id}: {edit_err}")
+            await keep_favorite_button_on_message(
+                context.bot, chat_id, last_message_id, user_id
+            )
 
         program_position = get_program_position(user_id)
         next_position = program_position + 1
@@ -321,7 +316,7 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
             disable_web_page_preview=False,
             reply_markup=done_keyboard
         )
-        set_last_practice_message_id(user_id, message.message_id)
+        set_last_practice_message_id(user_id, message.message_id, practice_id)
 
         increment_program_position(user_id)
         increment_total_practices(user_id)
