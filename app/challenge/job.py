@@ -13,7 +13,6 @@ from app.challenge.messages import (
     SCHEDULE_MINUTE,
     SUMMARY_HOUR,
     SUMMARY_MINUTE,
-    WEEKLY_PROGRESS_DAYS,
     build_weekly_schedule_message,
     collect_summary_data,
     detect_summary_kind,
@@ -63,8 +62,6 @@ def _build_completed_map(participants_raw: list[tuple], kind: str) -> dict[int, 
         challenge_day = int(row[3])
         if kind == "final":
             n = CHALLENGE_DURATION
-        elif kind == "intermediate":
-            n = WEEKLY_PROGRESS_DAYS
         else:
             n = challenge_day
         completed[user_id] = get_challenge_completed_in_last_n_days(user_id, n)

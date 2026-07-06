@@ -14,7 +14,6 @@ SUMMARY_MINUTE = 10
 CHALLENGE_DURATION = 28
 INTERMEDIATE_DAYS = frozenset({8, 15, 22})
 FINAL_DAY = 28
-WEEKLY_PROGRESS_DAYS = 7
 
 SCHEDULE_HOUR = 20
 SCHEDULE_MINUTE = 0
@@ -205,30 +204,11 @@ def build_summary_message(
     return text
 
 
-def build_weekly_progress_rows(
-    participants: list[ChallengeParticipant],
-    completed_by_user_id: dict[int, int],
-) -> list[ProgressRow]:
-    """Прогресс за прошедшую неделю (7 дней) для еженедельной сводки."""
-    rows = [
-        ProgressRow(
-            participant=p,
-            completed=completed_by_user_id.get(p.user_id, 0),
-            total=WEEKLY_PROGRESS_DAYS,
-        )
-        for p in participants
-    ]
-    rows.sort(
-        key=lambda r: (-r.completed, display_name(r.participant.user_nickname, r.participant.user_name))
-    )
-    return rows
-
-
 def build_progress_rows(
     participants: list[ChallengeParticipant],
     completed_by_user_id: dict[int, int],
 ) -> list[ProgressRow]:
-    """Промежуточный прогресс N/M для каждого участника."""
+    """Промежуточный прогресс N/M: выполнено за все прошедшие дни челленджа."""
     rows = [
         ProgressRow(
             participant=p,
@@ -308,7 +288,7 @@ def collect_summary_data(
     progress_rows = None
     final_rows = None
     if kind == "intermediate":
-        progress_rows = build_weekly_progress_rows(participants, completed_by_user_id)
+        progress_rows = build_progress_rows(participants, completed_by_user_id)
     elif kind == "final":
         final_rows = build_final_rows(participants, completed_by_user_id)
 
