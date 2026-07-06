@@ -62,6 +62,8 @@ def _build_completed_map(participants_raw: list[tuple], kind: str) -> dict[int, 
         challenge_day = int(row[3])
         if kind == "final":
             n = CHALLENGE_DURATION
+        elif kind == "intermediate":
+            n = max(0, challenge_day - 1)
         else:
             n = challenge_day
         completed[user_id] = get_challenge_completed_in_last_n_days(user_id, n)

@@ -204,16 +204,16 @@ def build_summary_message(
     return text
 
 
-def build_progress_rows(
+def build_intermediate_progress_rows(
     participants: list[ChallengeParticipant],
     completed_by_user_id: dict[int, int],
 ) -> list[ProgressRow]:
-    """Промежуточный прогресс N/M: выполнено за все прошедшие дни челленджа."""
+    """Промежуточный прогресс N/M без сегодняшнего дня (на 15-й день сводки: N/14)."""
     rows = [
         ProgressRow(
             participant=p,
             completed=completed_by_user_id.get(p.user_id, 0),
-            total=p.challenge_day,
+            total=max(0, p.challenge_day - 1),
         )
         for p in participants
     ]
@@ -288,7 +288,7 @@ def collect_summary_data(
     progress_rows = None
     final_rows = None
     if kind == "intermediate":
-        progress_rows = build_progress_rows(participants, completed_by_user_id)
+        progress_rows = build_intermediate_progress_rows(participants, completed_by_user_id)
     elif kind == "final":
         final_rows = build_final_rows(participants, completed_by_user_id)
 
