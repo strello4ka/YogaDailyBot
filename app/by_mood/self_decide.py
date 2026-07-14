@@ -7,15 +7,16 @@ from data.db import pick_random_combined_mood_pool, remove_extra_practices_inlin
 
 from .send_utils import deliver_by_mood_practice
 
-TIME_LABELS = ["до 10", "10 - 15", "15 - 20", "20 - 25", "больше 25", "любое"]
+TIME_LABELS = ["до 10", "10 - 15", "15 - 20", "20 - 30", "30 - 45", "45 - 60+", "любое"]
 INTENSITY_LABELS = ["низкая", "средняя", "высокая", "любая"]
 
 TIME_TO_KEY = {
     "до 10": "t10",
     "10 - 15": "t10_15",
     "15 - 20": "t15_20",
-    "20 - 25": "t20_25",
-    "больше 25": "t25p",
+    "20 - 30": "t20_30",
+    "30 - 45": "t30_45",
+    "45 - 60+": "t45_60p",
     "любое": "tany",
 }
 KEY_TO_TIME = {value: key for key, value in TIME_TO_KEY.items()}
@@ -38,10 +39,13 @@ def time_keyboard(*, callback_prefix: str = "self_time") -> InlineKeyboardMarkup
             ],
             [
                 InlineKeyboardButton("15 - 20", callback_data=f"{callback_prefix}:t15_20"),
-                InlineKeyboardButton("20 - 25", callback_data=f"{callback_prefix}:t20_25"),
+                InlineKeyboardButton("20 - 30", callback_data=f"{callback_prefix}:t20_30"),
             ],
             [
-                InlineKeyboardButton("больше 25", callback_data=f"{callback_prefix}:t25p"),
+                InlineKeyboardButton("30 - 45", callback_data=f"{callback_prefix}:t30_45"),
+                InlineKeyboardButton("45 - 60+", callback_data=f"{callback_prefix}:t45_60p"),
+            ],
+            [
                 InlineKeyboardButton("любое", callback_data=f"{callback_prefix}:tany"),
             ],
         ]
@@ -70,10 +74,12 @@ def _sql_for_time_choice(label: str) -> tuple[str, tuple]:
         return " AND yp.time_practices > 10 AND yp.time_practices <= 15 ", ()
     if label == "15 - 20":
         return " AND yp.time_practices > 15 AND yp.time_practices <= 20 ", ()
-    if label == "20 - 25":
-        return " AND yp.time_practices > 20 AND yp.time_practices <= 25 ", ()
-    if label == "больше 25":
-        return " AND yp.time_practices > 25 ", ()
+    if label == "20 - 30":
+        return " AND yp.time_practices > 20 AND yp.time_practices <= 30 ", ()
+    if label == "30 - 45":
+        return " AND yp.time_practices > 30 AND yp.time_practices <= 45 ", ()
+    if label == "45 - 60+":
+        return " AND yp.time_practices > 45 ", ()
     return "", ()
 
 
