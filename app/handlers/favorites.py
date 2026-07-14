@@ -13,9 +13,11 @@ from app.keyboards import (
     get_practice_favorite_keyboard,
     message_has_done_button,
 )
+from app.practice_ref import parse_practice_callback
 from data.db import (
+    PRACTICE_CATALOG_YOGA,
     add_user_favorite,
-    get_yoga_practice_by_id,
+    get_practice_by_catalog,
     is_user_favorite,
     list_user_favorites,
     remove_user_favorite,
@@ -65,9 +67,9 @@ def _clamp_carousel_index(index: int, total: int) -> int:
     return max(0, min(index, total - 1))
 
 
-def _index_of_practice(favorites: list, practice_id: int) -> int:
+def _index_of_practice(favorites: list, practice_id: int, practice_catalog: str) -> int:
     for i, row in enumerate(favorites):
-        if row[0] == practice_id:
+        if row[0] == practice_id and row[11] == practice_catalog:
             return i
     return 0
 
@@ -120,12 +122,15 @@ async def render_favorites_carousel(
     total = len(favorites)
     index = _clamp_carousel_index(index, total)
     practice = favorites[index]
+    practice_id = practice[0]
+    practice_catalog = practice[11] if len(practice) > 11 else PRACTICE_CATALOG_YOGA
     text = format_favorite_carousel_message(practice)
     reply_markup = get_favorites_carousel_keyboard(
-        practice[0],
-        is_user_favorite(user_id, practice[0]),
+        practice_id,
+        is_user_favorite(user_id, practice_id, practice_catalog),
         index,
         total,
+        practice_catalog,
     )
 
     if message_id is not None:
@@ -174,13 +179,12 @@ async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer("Ошибка.")
         return
 
-    try:
-        practice_id = int(query.data.split(":", 1)[1])
-    except (IndexError, ValueError):
+    practice_id, practice_catalog = parse_practice_callback(query.data, "fav_toggle")
+    if practice_id is None:
         await query.answer("Ошибка.")
         return
 
-    if not get_yoga_practice_by_id(practice_id):
+    if not get_practice_by_catalog(practice_id, practice_catalog):
         await query.answer("Практика больше не доступна.")
         return
 
@@ -190,13 +194,13 @@ async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAU
     carousel_index = 0
     if is_carousel:
         favorites = list_user_favorites(user.id)
-        carousel_index = _index_of_practice(favorites, practice_id)
+        carousel_index = _index_of_practice(favorites, practice_id, practice_catalog)
 
-    if is_user_favorite(user.id, practice_id):
-        remove_user_favorite(user.id, practice_id)
+    if is_user_favorite(user.id, practice_id, practice_catalog):
+        remove_user_favorite(user.id, practice_id, practice_catalog)
         await query.answer(FAVORITES_REMOVE_TOAST)
     else:
-        add_user_favorite(user.id, practice_id)
+        add_user_favorite(user.id, practice_id, practice_catalog)
         await query.answer(FAVORITES_ADD_TOAST)
 
     if is_carousel and query.message:
@@ -219,7 +223,7 @@ async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAU
             )
         return
 
-    is_fav = is_user_favorite(user.id, practice_id)
+    is_fav = is_user_favorite(user.id, practice_id, practice_catalog)
     markup = query.message.reply_markup if query.message else None
     keyboard_fn = (
         get_practice_action_keyboard
@@ -228,7 +232,7 @@ async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAU
     )
     try:
         await query.edit_message_reply_markup(
-            reply_markup=keyboard_fn(practice_id, is_fav),
+            reply_markup=keyboard_fn(practice_id, is_fav, practice_catalog),
         )
     except Exception as e:
         logger.debug("Не удалось обновить клавиатуру избранного: %s", e)

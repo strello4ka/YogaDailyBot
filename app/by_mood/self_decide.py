@@ -3,7 +3,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from data.db import pick_random_by_mood_practice, remove_extra_practices_inline_message
+from data.db import pick_random_combined_mood_pool, remove_extra_practices_inline_message
 
 from .send_utils import deliver_by_mood_practice
 
@@ -168,7 +168,7 @@ async def handle_intensity_callback(
     filter_key = f"self_{time_key}_{intensity_key}"
     wh_time, par_time = _sql_for_time_choice(time_label)
     wh_int, par_int = _sql_for_intensity_choice(intensity_label)
-    row = pick_random_by_mood_practice(user.id, filter_key, wh_time + wh_int, par_time + par_int)
+    row = pick_random_combined_mood_pool(user.id, filter_key, wh_time + wh_int, par_time + par_int)
     if not row:
         await query.message.reply_text(
             "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое» время или «любая» интенсивность)."

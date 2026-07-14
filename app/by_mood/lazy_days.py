@@ -3,7 +3,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from data.db import pick_random_by_mood_practice
+from data.db import pick_random_combined_mood_pool
 
 from .send_utils import deliver_by_mood_practice
 
@@ -16,7 +16,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
     if not user or not chat:
         return
-    row = pick_random_by_mood_practice(user.id, FILTER_KEY, WHERE, ())
+    row = pick_random_combined_mood_pool(
+        user.id,
+        FILTER_KEY,
+        WHERE,
+        (),
+        mood_tag_key=FILTER_KEY,
+        include_mood_rule=False,
+    )
     if not row:
         await update.message.reply_text(
             "Не нашлось практик с очень низкой интенсивностью. Попробуй другой фильтр."

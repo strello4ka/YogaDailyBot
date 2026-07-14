@@ -9,6 +9,7 @@ from app.keyboards import get_practice_action_keyboard
 from app.practice_markup import keep_favorite_button_on_message
 from data.db import (
     BY_MOOD_PRACTICE_LOG_DAY,
+    split_practice_row_with_catalog,
     get_last_practice_message_id,
     increment_total_practices,
     is_user_favorite,
@@ -52,6 +53,7 @@ async def deliver_on_demand_practice(
     touch_activity: bool = True,
 ) -> bool:
     """Отправляет практику по запросу (By mood, избранное и т.п.)."""
+    practice_row, practice_catalog = split_practice_row_with_catalog(practice_row)
     (
         practice_id,
         _title,
@@ -74,7 +76,9 @@ async def deliver_on_demand_practice(
             )
 
         if record_seen_filter_key:
-            record_by_mood_seen(user_id, record_seen_filter_key, practice_id)
+            record_by_mood_seen(
+                user_id, record_seen_filter_key, practice_id, practice_catalog
+            )
 
         text = format_by_mood_practice_message(
             my_description or "",
@@ -83,20 +87,26 @@ async def deliver_on_demand_practice(
             channel_name,
             video_url,
         )
-        is_fav = is_user_favorite(user_id, practice_id)
+        is_fav = is_user_favorite(user_id, practice_id, practice_catalog)
         msg = await context.bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode="Markdown",
             disable_web_page_preview=False,
-            reply_markup=get_practice_action_keyboard(practice_id, is_fav),
+            reply_markup=get_practice_action_keyboard(
+                practice_id, is_fav, practice_catalog
+            ),
         )
-        set_last_practice_message_id(user_id, msg.message_id, practice_id)
+        set_last_practice_message_id(
+            user_id, msg.message_id, practice_id, practice_catalog
+        )
         set_user_blocked(user_id, False)
         increment_total_practices(user_id)
         if touch_activity:
             touch_by_mood_activity(user_id)
-        log_id = log_practice_sent(user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY)
+        log_id = log_practice_sent(
+            user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY, practice_catalog
+        )
         if log_id:
             from app.handlers.done import schedule_done_reminders
 
@@ -117,7 +127,7 @@ async def deliver_by_mood_practice(
     filter_key: str,
     practice_row: tuple,
 ) -> bool:
-    """practice_row — кортеж как из pick_random_by_mood_practice."""
+    """practice_row — кортеж из pick_random_* (11 полей + practice_catalog)."""
     return await deliver_on_demand_practice(
         context,
         chat_id,

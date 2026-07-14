@@ -13,6 +13,7 @@ from app.config import DEFAULT_TZ
 from app.handlers.favorites import message_is_favorites_carousel
 from app.handlers.progress import format_progress_stats, format_similar_result_line
 from app.practice_markup import keep_favorite_button_on_message
+from app.practice_ref import parse_practice_callback
 from data.db import (
     get_completed_count,
     get_similar_result_percent,
@@ -231,15 +232,17 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
 
     data = query.data or ""
     practice_id = None
+    practice_catalog = None
     if data.startswith("practice_done:"):
-        try:
-            practice_id = int(data.split(":", 1)[1])
-        except (IndexError, ValueError):
+        practice_id, practice_catalog = parse_practice_callback(data, "practice_done")
+        if practice_id is None:
             await query.answer("Ошибка.")
             return
 
     if practice_id is not None:
-        ok = mark_practice_completed_by_practice_id(user_id, practice_id)
+        ok = mark_practice_completed_by_practice_id(
+            user_id, practice_id, practice_catalog or "yoga"
+        )
     else:
         ok = mark_practice_completed_today(user_id)
 

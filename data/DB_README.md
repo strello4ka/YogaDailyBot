@@ -18,6 +18,17 @@
 | `created_at` | TIMESTAMP | Дата добавления записи |
 | `updated_at` | TIMESTAMP | Дата последнего обновления |
 
+### `mood_practices`
+
+Отдельный каталог практик для фильтров By mood (не участвуют в Daily/Challenge).
+
+Поля совпадают с `yoga_practices` (без `weekday`), плюс:
+- `button_key` — технический ключ фильтра (`lazy`, `five`, `hard`, `no_mat` и т.д.; задаётся в коде бота)
+
+**Допустимые `button_key`:** `lazy`, `five`, `hard`, `no_mat` — привязка практики к конкретному фильтру. Кнопки клавиатуры и их тексты настраиваются в коде (`app/keyboards.py`, `app/handlers/reply_handlers.py`).
+
+**Правило:** `video_url` не должен дублироваться в `yoga_practices`. Если видео уже в расписании — оно доступно фильтрам через `yoga_practices`, в `mood_practices` не добавляем.
+
 ### `bonus_practices`
 
 Таблица для хранения бонусных практик, которые отправляются вместе с основной практикой:

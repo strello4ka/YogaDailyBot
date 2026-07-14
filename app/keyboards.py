@@ -6,6 +6,8 @@ from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
+from app.practice_ref import format_practice_callback
+
 
 def get_mode_choice_keyboard():
     """Inline: выбор режима после /start или /change_mode."""
@@ -42,22 +44,41 @@ def get_welcome_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_practice_action_keyboard(practice_id: int, is_favorited: bool) -> InlineKeyboardMarkup:
+def get_practice_action_keyboard(
+    practice_id: int,
+    is_favorited: bool,
+    practice_catalog: str = "yoga",
+) -> InlineKeyboardMarkup:
     """Клавиатура под практикой: избранное + «✅ Я сделал!»."""
     favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}"),
-            InlineKeyboardButton("✅ Я сделал!", callback_data=f"practice_done:{practice_id}"),
+            InlineKeyboardButton(
+                favorite_label,
+                callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
+            ),
+            InlineKeyboardButton(
+                "✅ Я сделал!",
+                callback_data=format_practice_callback("practice_done", practice_id, practice_catalog),
+            ),
         ]
     ])
 
 
-def get_practice_favorite_keyboard(practice_id: int, is_favorited: bool) -> InlineKeyboardMarkup:
+def get_practice_favorite_keyboard(
+    practice_id: int,
+    is_favorited: bool,
+    practice_catalog: str = "yoga",
+) -> InlineKeyboardMarkup:
     """Только кнопка избранного (после «Я сделал!» или новой практики)."""
     favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}")],
+        [
+            InlineKeyboardButton(
+                favorite_label,
+                callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
+            )
+        ],
     ])
 
 
@@ -69,10 +90,8 @@ def practice_id_from_action_markup(reply_markup: Optional[InlineKeyboardMarkup])
         for btn in row:
             data = btn.callback_data or ""
             if data.startswith(("fav_toggle:", "practice_done:")):
-                try:
-                    return int(data.split(":", 1)[1])
-                except (IndexError, ValueError):
-                    return None
+                from app.practice_ref import practice_id_from_callback_data
+                return practice_id_from_callback_data(data)
     return None
 
 
@@ -91,13 +110,20 @@ def get_favorites_carousel_keyboard(
     is_favorited: bool,
     index: int,
     total: int,
+    practice_catalog: str = "yoga",
 ) -> InlineKeyboardMarkup:
     """Карусель избранного: действия с практикой + навигация."""
     favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
     rows = [
         [
-            InlineKeyboardButton(favorite_label, callback_data=f"fav_toggle:{practice_id}"),
-            InlineKeyboardButton("✅ Я сделал!", callback_data=f"practice_done:{practice_id}"),
+            InlineKeyboardButton(
+                favorite_label,
+                callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
+            ),
+            InlineKeyboardButton(
+                "✅ Я сделал!",
+                callback_data=format_practice_callback("practice_done", practice_id, practice_catalog),
+            ),
         ],
     ]
     if total > 1:

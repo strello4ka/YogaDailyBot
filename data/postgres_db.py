@@ -5,7 +5,7 @@ import os
 import logging
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo  # Нужен для вычисления дня недели с учётом таймзоны
-from typing import Optional  # Для типов, совместимых с Python 3.9
+from typing import Optional, Tuple  # Для типов, совместимых с Python 3.9
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -48,6 +48,70 @@ def _decode_bonus_practice_row(row: Optional[tuple]) -> Optional[tuple]:
     if len(row_list) > 7:
         row_list[7] = _decode_my_description(row_list[7])
     return tuple(row_list)
+
+
+PRACTICE_CATALOG_YOGA = "yoga"
+PRACTICE_CATALOG_MOOD = "mood"
+
+
+def _decode_mood_practice_row(row: Optional[tuple]) -> Optional[tuple]:
+    """Строка mood_practices в формате как yoga_practices (weekday = NULL)."""
+    if not row:
+        return row
+    row_list = list(row)
+    if len(row_list) > 6:
+        row_list[6] = _decode_my_description(row_list[6])
+    return tuple(row_list)
+
+
+def _migrate_mood_practices_without_button_fk(cursor) -> None:
+    """Убирает FK mood_practices.button_key → mood_button (кнопки задаются в коде)."""
+    cursor.execute(
+        "ALTER TABLE mood_practices DROP CONSTRAINT IF EXISTS mood_practices_button_key_fkey"
+    )
+
+
+def _migrate_practice_catalog_support(cursor) -> None:
+    """Расширяет таблицы для различения yoga_practices и mood_practices."""
+    cursor.execute(
+        "ALTER TABLE by_mood_seen ADD COLUMN IF NOT EXISTS practice_catalog TEXT NOT NULL DEFAULT 'yoga'"
+    )
+    cursor.execute(
+        "ALTER TABLE by_mood_seen DROP CONSTRAINT IF EXISTS by_mood_seen_practice_id_fkey"
+    )
+    cursor.execute("ALTER TABLE by_mood_seen DROP CONSTRAINT IF EXISTS by_mood_seen_pkey")
+    cursor.execute(
+        """
+        ALTER TABLE by_mood_seen
+        ADD PRIMARY KEY (user_id, filter_key, practice_id, practice_catalog)
+        """
+    )
+
+    cursor.execute(
+        "ALTER TABLE user_favorites ADD COLUMN IF NOT EXISTS practice_catalog TEXT NOT NULL DEFAULT 'yoga'"
+    )
+    cursor.execute(
+        "ALTER TABLE user_favorites DROP CONSTRAINT IF EXISTS user_favorites_practice_id_fkey"
+    )
+    cursor.execute("ALTER TABLE user_favorites DROP CONSTRAINT IF EXISTS user_favorites_pkey")
+    cursor.execute(
+        """
+        ALTER TABLE user_favorites
+        ADD PRIMARY KEY (user_id, practice_id, practice_catalog)
+        """
+    )
+
+    cursor.execute(
+        "ALTER TABLE practice_logs ADD COLUMN IF NOT EXISTS practice_catalog TEXT NOT NULL DEFAULT 'yoga'"
+    )
+    cursor.execute(
+        "ALTER TABLE practice_logs DROP CONSTRAINT IF EXISTS practice_logs_practice_id_fkey"
+    )
+
+    cursor.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_practice_catalog TEXT DEFAULT 'yoga'"
+    )
+
 
 def get_connection():
     """Создает подключение к PostgreSQL базе данных.
@@ -611,6 +675,42 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при удалении устаревших столбцов ранга: {e}")
 
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS mood_practices (
+                    mood_practice_id SERIAL PRIMARY KEY,
+                    button_key TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    video_url TEXT NOT NULL UNIQUE,
+                    time_practices INTEGER NOT NULL,
+                    channel_name TEXT NOT NULL,
+                    description TEXT,
+                    my_description TEXT,
+                    intensity TEXT,
+                    without_mat BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            _migrate_mood_practices_without_button_fk(cursor)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_mood_practices_button_key "
+                "ON mood_practices(button_key)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_mood_practices_video_url "
+                "ON mood_practices(video_url)"
+            )
+            print("   ✅ Таблица mood_practices готова")
+        except Exception as e:
+            print(f"⚠️ Ошибка при создании mood_practices: {e}")
+
+        try:
+            _migrate_practice_catalog_support(cursor)
+            print("   ✅ Миграция practice_catalog выполнена")
+        except Exception as e:
+            print(f"⚠️ Ошибка миграции practice_catalog: {e}")
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS system_state (
                 key TEXT PRIMARY KEY,
@@ -950,23 +1050,36 @@ def increment_program_position(user_id: int) -> bool:
         return False
 
 
-def set_last_practice_message_id(user_id: int, message_id: int, practice_id: Optional[int] = None) -> bool:
+def set_last_practice_message_id(
+    user_id: int,
+    message_id: int,
+    practice_id: Optional[int] = None,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> bool:
     """Сохраняет message_id последнего сообщения с практикой (для снятия кнопки при следующей отправке)."""
     try:
         conn = get_connection()
         cursor = conn.cursor()
         if practice_id is not None:
-            cursor.execute('''
+            cursor.execute(
+                '''
                 UPDATE users
                 SET last_practice_message_id = %s,
                     last_practice_id = %s,
+                    last_practice_catalog = %s,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = %s
-            ''', (message_id, practice_id, user_id))
+                ''',
+                (message_id, practice_id, practice_catalog, user_id),
+            )
         else:
-            cursor.execute('''
-                UPDATE users SET last_practice_message_id = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s
-            ''', (message_id, user_id))
+            cursor.execute(
+                '''
+                UPDATE users SET last_practice_message_id = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = %s
+                ''',
+                (message_id, user_id),
+            )
         ok = cursor.rowcount > 0
         conn.commit()
         conn.close()
@@ -993,6 +1106,24 @@ def get_last_practice_id(user_id: int):
         if conn:
             conn.close()
         return None
+
+
+def get_last_practice_catalog(user_id: int) -> str:
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT COALESCE(last_practice_catalog, %s) FROM users WHERE user_id = %s',
+            (PRACTICE_CATALOG_YOGA, user_id),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else PRACTICE_CATALOG_YOGA
+    except Exception as e:
+        print(f"Ошибка get_last_practice_catalog для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return PRACTICE_CATALOG_YOGA
 
 
 def get_last_practice_message_id(user_id: int):
@@ -2054,14 +2185,29 @@ def _by_mood_reset_seen(user_id: int, filter_key: str) -> None:
     conn.close()
 
 
+def _practice_row_with_catalog(row: tuple, catalog: str) -> tuple:
+  return row + (catalog,)
+
+
+def split_practice_row_with_catalog(practice_row: tuple) -> Tuple[tuple, str]:
+    if len(practice_row) >= 12:
+        return practice_row[:11], practice_row[11]
+    return practice_row, PRACTICE_CATALOG_YOGA
+
+
 def pick_random_by_mood_practice(
     user_id: int, filter_key: str, extra_where_sql: str, extra_params: tuple = ()
 ) -> Optional[tuple]:
-    """Случайная практика по фильтру; исключает уже выданные в рамках filter_key, при исчерпании сбрасывает пул.
+    """Случайная практика из yoga_practices; возвращает 11 полей + practice_catalog."""
+    row = _pick_random_yoga_by_mood(user_id, filter_key, extra_where_sql, extra_params)
+    if row is None:
+        return None
+    return _practice_row_with_catalog(row, PRACTICE_CATALOG_YOGA)
 
-    extra_where_sql — только внутренние фрагменты WHERE (без пользовательского ввода).
-    Возвращает полную строку yoga_practices как в других выборках.
-    """
+
+def _pick_random_yoga_by_mood(
+    user_id: int, filter_key: str, extra_where_sql: str, extra_params: tuple = ()
+) -> Optional[tuple]:
     try:
         def _fetch():
             c = get_connection()
@@ -2075,13 +2221,15 @@ def pick_random_by_mood_practice(
             tail = """
                 AND NOT EXISTS (
                   SELECT 1 FROM by_mood_seen b
-                  WHERE b.user_id = %s AND b.filter_key = %s AND b.practice_id = yp.practices_id
+                  WHERE b.user_id = %s AND b.filter_key = %s
+                    AND b.practice_id = yp.practices_id
+                    AND b.practice_catalog = %s
                 )
                 ORDER BY RANDOM() LIMIT 1
             """
             cur.execute(
                 base + extra_where_sql + tail,
-                extra_params + (user_id, filter_key),
+                extra_params + (user_id, filter_key, PRACTICE_CATALOG_YOGA),
             )
             r = cur.fetchone()
             c.close()
@@ -2093,22 +2241,253 @@ def pick_random_by_mood_practice(
             row = _fetch()
         return row
     except Exception as e:
-        print(f"Ошибка pick_random_by_mood_practice {user_id} {filter_key}: {e}")
+        print(f"Ошибка _pick_random_yoga_by_mood {user_id} {filter_key}: {e}")
         return None
 
 
-def add_user_favorite(user_id: int, practice_id: int) -> bool:
+def _pick_random_mood_practice_by_button_key(
+    user_id: int, filter_key: str, button_key: str
+) -> Optional[tuple]:
+    try:
+        def _fetch():
+            c = get_connection()
+            cur = c.cursor()
+            cur.execute(
+                """
+                SELECT mood_practice_id, title, video_url, time_practices, channel_name,
+                       description, my_description, intensity, NULL::INTEGER AS weekday,
+                       created_at, updated_at
+                FROM mood_practices mp
+                WHERE mp.button_key = %s
+                  AND NOT EXISTS (
+                    SELECT 1 FROM by_mood_seen b
+                    WHERE b.user_id = %s AND b.filter_key = %s
+                      AND b.practice_id = mp.mood_practice_id
+                      AND b.practice_catalog = %s
+                  )
+                ORDER BY RANDOM() LIMIT 1
+                """,
+                (button_key, user_id, filter_key, PRACTICE_CATALOG_MOOD),
+            )
+            r = cur.fetchone()
+            c.close()
+            return _decode_mood_practice_row(r)
+
+        row = _fetch()
+        if row is None:
+            _by_mood_reset_seen(user_id, filter_key)
+            row = _fetch()
+        return row
+    except Exception as e:
+        print(f"Ошибка _pick_random_mood_practice_by_button_key {user_id} {filter_key}: {e}")
+        return None
+
+
+def pick_random_mood_practice_by_button_key(
+    user_id: int, filter_key: str, button_key: str
+) -> Optional[tuple]:
+    row = _pick_random_mood_practice_by_button_key(user_id, filter_key, button_key)
+    if row is None:
+        return None
+    return _practice_row_with_catalog(row, PRACTICE_CATALOG_MOOD)
+
+
+def _pick_random_mood_by_rule(
+    user_id: int, filter_key: str, extra_where_sql: str, extra_params: tuple = ()
+) -> Optional[tuple]:
+    """Случайная практика из mood_practices по SQL-правилу (префикс mp.)."""
+    mood_where = extra_where_sql.replace("yp.", "mp.")
+    try:
+        def _fetch():
+            c = get_connection()
+            cur = c.cursor()
+            base = """
+                SELECT mood_practice_id, title, video_url, time_practices, channel_name,
+                       description, my_description, intensity, NULL::INTEGER AS weekday,
+                       created_at, updated_at
+                FROM mood_practices mp
+                WHERE 1=1
+            """
+            tail = """
+                AND NOT EXISTS (
+                  SELECT 1 FROM by_mood_seen b
+                  WHERE b.user_id = %s AND b.filter_key = %s
+                    AND b.practice_id = mp.mood_practice_id
+                    AND b.practice_catalog = %s
+                )
+                ORDER BY RANDOM() LIMIT 1
+            """
+            cur.execute(
+                base + mood_where + tail,
+                extra_params + (user_id, filter_key, PRACTICE_CATALOG_MOOD),
+            )
+            r = cur.fetchone()
+            c.close()
+            return _decode_mood_practice_row(r)
+
+        row = _fetch()
+        if row is None:
+            _by_mood_reset_seen(user_id, filter_key)
+            row = _fetch()
+        return row
+    except Exception as e:
+        print(f"Ошибка _pick_random_mood_by_rule {user_id} {filter_key}: {e}")
+        return None
+
+
+def pick_random_combined_mood_pool(
+    user_id: int,
+    filter_key: str,
+    extra_where_sql: str,
+    extra_params: tuple = (),
+    *,
+    mood_tag_key: Optional[str] = None,
+    include_mood_rule: bool = True,
+) -> Optional[tuple]:
+    """Объединённый пул: yoga_practices по правилу + mood_practices (по тегу и/или правилу)."""
+    import random
+
+    candidates: list[tuple[tuple, str, str]] = []
+    yoga_row = _pick_random_yoga_by_mood(user_id, filter_key, extra_where_sql, extra_params)
+    if yoga_row:
+        candidates.append((yoga_row, PRACTICE_CATALOG_YOGA, yoga_row[2]))
+
+    if mood_tag_key:
+        mood_tag_row = _pick_random_mood_practice_by_button_key(user_id, filter_key, mood_tag_key)
+        if mood_tag_row:
+            candidates.append((mood_tag_row, PRACTICE_CATALOG_MOOD, mood_tag_row[2]))
+
+    if include_mood_rule:
+        mood_rule_row = _pick_random_mood_by_rule(user_id, filter_key, extra_where_sql, extra_params)
+        if mood_rule_row:
+            candidates.append((mood_rule_row, PRACTICE_CATALOG_MOOD, mood_rule_row[2]))
+
+    if not candidates:
+        return None
+
+    seen_urls = set()
+    unique: list[tuple[tuple, str]] = []
+    for row, catalog, url in candidates:
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        unique.append((row, catalog))
+
+    if not unique:
+        return None
+
+    row, catalog = random.choice(unique)
+    return _practice_row_with_catalog(row, catalog)
+
+
+def add_mood_practice(
+    button_key: str,
+    title: str,
+    video_url: str,
+    time_practices: int,
+    channel_name: str,
+    description: str = None,
+    my_description: str = None,
+    intensity: str = None,
+    without_mat: bool = False,
+) -> Tuple[bool, str]:
+    """Добавляет практику в mood_practices. Запрещает video_url из yoga_practices."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM yoga_practices WHERE video_url = %s",
+            (video_url,),
+        )
+        if cursor.fetchone():
+            return (False, f"Видео {video_url} уже есть в yoga_practices — в mood_practices не добавляем.")
+
+        my_description = _decode_my_description(my_description)
+        if description and len(description) > 500:
+            description = description[:500]
+
+        cursor.execute(
+            """
+            INSERT INTO mood_practices (
+                button_key, title, video_url, time_practices, channel_name,
+                description, my_description, intensity, without_mat
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING mood_practice_id
+            """,
+            (
+                button_key,
+                title,
+                video_url,
+                time_practices,
+                channel_name,
+                description,
+                my_description,
+                intensity,
+                without_mat,
+            ),
+        )
+        new_id = cursor.fetchone()[0]
+        conn.commit()
+        conn.close()
+        return (True, f"Mood-практика добавлена (id={new_id}): {title}")
+    except psycopg2.IntegrityError:
+        return (False, f"Видео с URL {video_url} уже существует в mood_practices")
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        return (False, f"Ошибка добавления mood-практики: {e}")
+
+
+def get_mood_practice_by_id(mood_practice_id: int) -> Optional[tuple]:
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO user_favorites (user_id, practice_id)
-            VALUES (%s, %s)
-            ON CONFLICT (user_id, practice_id) DO NOTHING
+            SELECT mood_practice_id, title, video_url, time_practices, channel_name,
+                   description, my_description, intensity, NULL::INTEGER AS weekday,
+                   created_at, updated_at
+            FROM mood_practices
+            WHERE mood_practice_id = %s
             """,
-            (user_id, practice_id),
+            (mood_practice_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return _decode_mood_practice_row(row)
+    except Exception as e:
+        print(f"Ошибка get_mood_practice_by_id {mood_practice_id}: {e}")
+        if conn:
+            conn.close()
+        return None
+
+
+def get_practice_by_catalog(practice_id: int, practice_catalog: str) -> Optional[tuple]:
+    if practice_catalog == PRACTICE_CATALOG_MOOD:
+        return get_mood_practice_by_id(practice_id)
+    return get_yoga_practice_by_id(practice_id)
+
+
+def add_user_favorite(
+    user_id: int,
+    practice_id: int,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> bool:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO user_favorites (user_id, practice_id, practice_catalog)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, practice_id, practice_catalog) DO NOTHING
+            """,
+            (user_id, practice_id, practice_catalog),
         )
         conn.commit()
         conn.close()
@@ -2121,14 +2500,21 @@ def add_user_favorite(user_id: int, practice_id: int) -> bool:
         return False
 
 
-def remove_user_favorite(user_id: int, practice_id: int) -> bool:
+def remove_user_favorite(
+    user_id: int,
+    practice_id: int,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> bool:
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM user_favorites WHERE user_id = %s AND practice_id = %s",
-            (user_id, practice_id),
+            """
+            DELETE FROM user_favorites
+            WHERE user_id = %s AND practice_id = %s AND practice_catalog = %s
+            """,
+            (user_id, practice_id, practice_catalog),
         )
         conn.commit()
         conn.close()
@@ -2141,14 +2527,21 @@ def remove_user_favorite(user_id: int, practice_id: int) -> bool:
         return False
 
 
-def is_user_favorite(user_id: int, practice_id: int) -> bool:
+def is_user_favorite(
+    user_id: int,
+    practice_id: int,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> bool:
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT 1 FROM user_favorites WHERE user_id = %s AND practice_id = %s",
-            (user_id, practice_id),
+            """
+            SELECT 1 FROM user_favorites
+            WHERE user_id = %s AND practice_id = %s AND practice_catalog = %s
+            """,
+            (user_id, practice_id, practice_catalog),
         )
         row = cursor.fetchone()
         conn.close()
@@ -2164,8 +2557,7 @@ def list_user_favorites(user_id: int) -> list:
     """Избранные практики пользователя, новые сверху.
 
     Returns:
-        list[tuple]: (practices_id, title, video_url, time_practices, channel_name,
-                      description, my_description, intensity, weekday, created_at, updated_at)
+        list[tuple]: (practices_id, title, ..., updated_at, practice_catalog)
     """
     conn = None
     try:
@@ -2173,19 +2565,40 @@ def list_user_favorites(user_id: int) -> list:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT yp.practices_id, yp.title, yp.video_url, yp.time_practices, yp.channel_name,
-                   yp.description, yp.my_description, yp.intensity, yp.weekday,
-                   yp.created_at, yp.updated_at
+            SELECT
+                COALESCE(yp.practices_id, mp.mood_practice_id),
+                COALESCE(yp.title, mp.title),
+                COALESCE(yp.video_url, mp.video_url),
+                COALESCE(yp.time_practices, mp.time_practices),
+                COALESCE(yp.channel_name, mp.channel_name),
+                COALESCE(yp.description, mp.description),
+                COALESCE(yp.my_description, mp.my_description),
+                COALESCE(yp.intensity, mp.intensity),
+                yp.weekday,
+                COALESCE(yp.created_at, mp.created_at),
+                COALESCE(yp.updated_at, mp.updated_at),
+                uf.practice_catalog
             FROM user_favorites uf
-            JOIN yoga_practices yp ON yp.practices_id = uf.practice_id
+            LEFT JOIN yoga_practices yp
+                ON uf.practice_catalog = %s AND yp.practices_id = uf.practice_id
+            LEFT JOIN mood_practices mp
+                ON uf.practice_catalog = %s AND mp.mood_practice_id = uf.practice_id
             WHERE uf.user_id = %s
             ORDER BY uf.added_at DESC
             """,
-            (user_id,),
+            (PRACTICE_CATALOG_YOGA, PRACTICE_CATALOG_MOOD, user_id),
         )
         rows = cursor.fetchall()
         conn.close()
-        return [_decode_practice_row(row) for row in rows]
+        decoded = []
+        for row in rows:
+            row_list = list(row)
+            if row_list[11] == PRACTICE_CATALOG_MOOD:
+                row_list[6] = _decode_my_description(row_list[6])
+            else:
+                row_list[6] = _decode_my_description(row_list[6])
+            decoded.append(tuple(row_list))
+        return decoded
     except Exception as e:
         print(f"Ошибка list_user_favorites {user_id}: {e}")
         if conn:
@@ -2193,18 +2606,23 @@ def list_user_favorites(user_id: int) -> list:
         return []
 
 
-def record_by_mood_seen(user_id: int, filter_key: str, practice_id: int) -> bool:
+def record_by_mood_seen(
+    user_id: int,
+    filter_key: str,
+    practice_id: int,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> bool:
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
             '''
-            INSERT INTO by_mood_seen (user_id, filter_key, practice_id)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (user_id, filter_key, practice_id) DO NOTHING
+            INSERT INTO by_mood_seen (user_id, filter_key, practice_id, practice_catalog)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id, filter_key, practice_id, practice_catalog) DO NOTHING
             ''',
-            (user_id, filter_key, practice_id),
+            (user_id, filter_key, practice_id, practice_catalog),
         )
         conn.commit()
         conn.close()
@@ -3088,7 +3506,12 @@ def get_weekday_statistics() -> dict:
 
 # Функции для логирования отправленных практик
 
-def log_practice_sent(user_id: int, practice_id: int, day_number: int) -> Optional[int]:
+def log_practice_sent(
+    user_id: int,
+    practice_id: int,
+    day_number: int,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> Optional[int]:
     """Логирует отправку практики пользователю.
 
     Returns:
@@ -3101,11 +3524,11 @@ def log_practice_sent(user_id: int, practice_id: int, day_number: int) -> Option
 
         cursor.execute(
             '''
-            INSERT INTO practice_logs (user_id, practice_id, day_number)
-            VALUES (%s, %s, %s)
+            INSERT INTO practice_logs (user_id, practice_id, day_number, practice_catalog)
+            VALUES (%s, %s, %s, %s)
             RETURNING log_id
             ''',
-            (user_id, practice_id, day_number),
+            (user_id, practice_id, day_number, practice_catalog),
         )
         row = cursor.fetchone()
         conn.commit()
@@ -3377,7 +3800,11 @@ def mark_practice_completed_today(user_id: int) -> bool:
         return False
 
 
-def mark_practice_completed_by_practice_id(user_id: int, practice_id: int) -> bool:
+def mark_practice_completed_by_practice_id(
+    user_id: int,
+    practice_id: int,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> bool:
     """Отмечает конкретную практику выполненной (карусель избранного и явный practice_id)."""
     conn = None
     try:
@@ -3390,22 +3817,23 @@ def mark_practice_completed_by_practice_id(user_id: int, practice_id: int) -> bo
             UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
             WHERE log_id = (
                 SELECT log_id FROM practice_logs
-                WHERE user_id = %s AND practice_id = %s AND completed_at IS NULL
+                WHERE user_id = %s AND practice_id = %s AND practice_catalog = %s
+                  AND completed_at IS NULL
                 ORDER BY sent_at DESC LIMIT 1
             )
             ''',
-            (user_id, practice_id),
+            (user_id, practice_id, practice_catalog),
         )
         marked = cursor.rowcount > 0
 
         if not marked:
             cursor.execute(
                 '''
-                INSERT INTO practice_logs (user_id, practice_id, day_number)
-                VALUES (%s, %s, %s)
+                INSERT INTO practice_logs (user_id, practice_id, day_number, practice_catalog)
+                VALUES (%s, %s, %s, %s)
                 RETURNING log_id
                 ''',
-                (user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY),
+                (user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY, practice_catalog),
             )
             row = cursor.fetchone()
             if row:
