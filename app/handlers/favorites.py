@@ -38,6 +38,7 @@ FAVORITES_REMOVE_TOAST = "Удалил практику из избранног�
 
 def format_favorite_carousel_message(practice_row: tuple) -> str:
     """Текст карточки практики в карусели избранного: title + метаданные."""
+    row = practice_row[:11]
     (
         _practice_id,
         title,
@@ -50,7 +51,7 @@ def format_favorite_carousel_message(practice_row: tuple) -> str:
         _weekday,
         _created_at,
         _updated_at,
-    ) = practice_row
+    ) = row
 
     parts = [f"*{title}*" if title else "*Практика для тебя*", ""]
     parts.append(f"🌀 *время:* {time_practices} мин")

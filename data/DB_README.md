@@ -22,10 +22,11 @@
 
 Отдельный каталог практик для фильтров By mood (не участвуют в Daily/Challenge).
 
-Поля совпадают с `yoga_practices` (без `weekday`), плюс:
-- `button_key` — технический ключ фильтра (`lazy`, `five`, `hard`, `no_mat` и т.д.; задаётся в коде бота)
-
-**Допустимые `button_key`:** `lazy`, `five`, `hard`, `no_mat` — привязка практики к конкретному фильтру. Кнопки клавиатуры и их тексты настраиваются в коде (`app/keyboards.py`, `app/handlers/reply_handlers.py`).
+Поля совпадают с `yoga_practices` (без `weekday`). Фильтры By mood находят mood-практики по тем же признакам:
+- **Ленивые дни** — `intensity` = `сверх низкая`
+- **Мини** — `time_practices` ≤ 8 минут
+- **Хард** — `intensity` = `сверх высокая`
+- **Без коврика** — `without_mat` = true
 
 **Правило:** `video_url` не должен дублироваться в `yoga_practices`. Если видео уже в расписании — оно доступно фильтрам через `yoga_practices`, в `mood_practices` не добавляем.
 

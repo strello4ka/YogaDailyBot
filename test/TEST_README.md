@@ -91,6 +91,8 @@ psql postgres -c "CREATE DATABASE yogadaily_test;"
 
 - **Основные практики** (из `app/content/yoga_practices.csv`):  
   `./test/add_practices.sh`
+- **Mood-практики для фильтров By mood** (из `app/content/mood_practices.csv`):  
+  `./test/add_mood_practices.sh`
 - **Бонусные практики** (из `app/content/bonus_practices.csv`):  
   `./test/add_bonus_practices.sh`
 

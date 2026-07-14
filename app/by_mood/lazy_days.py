@@ -16,14 +16,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
     if not user or not chat:
         return
-    row = pick_random_combined_mood_pool(
-        user.id,
-        FILTER_KEY,
-        WHERE,
-        (),
-        mood_tag_key=FILTER_KEY,
-        include_mood_rule=False,
-    )
+    row = pick_random_combined_mood_pool(user.id, FILTER_KEY, WHERE, ())
     if not row:
         await update.message.reply_text(
             "Не нашлось практик с очень низкой интенсивностью. Попробуй другой фильтр."

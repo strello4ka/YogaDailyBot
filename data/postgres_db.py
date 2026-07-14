@@ -64,11 +64,13 @@ def _decode_mood_practice_row(row: Optional[tuple]) -> Optional[tuple]:
     return tuple(row_list)
 
 
-def _migrate_mood_practices_without_button_fk(cursor) -> None:
-    """Убирает FK mood_practices.button_key → mood_button (кнопки задаются в коде)."""
+def _migrate_mood_practices_drop_button_key(cursor) -> None:
+    """Убирает устаревший столбец button_key из mood_practices."""
     cursor.execute(
         "ALTER TABLE mood_practices DROP CONSTRAINT IF EXISTS mood_practices_button_key_fkey"
     )
+    cursor.execute("DROP INDEX IF EXISTS idx_mood_practices_button_key")
+    cursor.execute("ALTER TABLE mood_practices DROP COLUMN IF EXISTS button_key")
 
 
 def _migrate_practice_catalog_support(cursor) -> None:
@@ -679,7 +681,6 @@ def init_database():
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS mood_practices (
                     mood_practice_id SERIAL PRIMARY KEY,
-                    button_key TEXT NOT NULL,
                     title TEXT NOT NULL,
                     video_url TEXT NOT NULL UNIQUE,
                     time_practices INTEGER NOT NULL,
@@ -692,11 +693,7 @@ def init_database():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            _migrate_mood_practices_without_button_fk(cursor)
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_mood_practices_button_key "
-                "ON mood_practices(button_key)"
-            )
+            _migrate_mood_practices_drop_button_key(cursor)
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_mood_practices_video_url "
                 "ON mood_practices(video_url)"
@@ -2174,12 +2171,15 @@ def clear_by_mood_seen_for_user(user_id: int) -> bool:
         return False
 
 
-def _by_mood_reset_seen(user_id: int, filter_key: str) -> None:
+def _by_mood_reset_seen(user_id: int, filter_key: str, practice_catalog: str) -> None:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "DELETE FROM by_mood_seen WHERE user_id = %s AND filter_key = %s",
-        (user_id, filter_key),
+        """
+        DELETE FROM by_mood_seen
+        WHERE user_id = %s AND filter_key = %s AND practice_catalog = %s
+        """,
+        (user_id, filter_key, practice_catalog),
     )
     conn.commit()
     conn.close()
@@ -2237,59 +2237,12 @@ def _pick_random_yoga_by_mood(
 
         row = _fetch()
         if row is None:
-            _by_mood_reset_seen(user_id, filter_key)
+            _by_mood_reset_seen(user_id, filter_key, PRACTICE_CATALOG_YOGA)
             row = _fetch()
         return row
     except Exception as e:
         print(f"Ошибка _pick_random_yoga_by_mood {user_id} {filter_key}: {e}")
         return None
-
-
-def _pick_random_mood_practice_by_button_key(
-    user_id: int, filter_key: str, button_key: str
-) -> Optional[tuple]:
-    try:
-        def _fetch():
-            c = get_connection()
-            cur = c.cursor()
-            cur.execute(
-                """
-                SELECT mood_practice_id, title, video_url, time_practices, channel_name,
-                       description, my_description, intensity, NULL::INTEGER AS weekday,
-                       created_at, updated_at
-                FROM mood_practices mp
-                WHERE mp.button_key = %s
-                  AND NOT EXISTS (
-                    SELECT 1 FROM by_mood_seen b
-                    WHERE b.user_id = %s AND b.filter_key = %s
-                      AND b.practice_id = mp.mood_practice_id
-                      AND b.practice_catalog = %s
-                  )
-                ORDER BY RANDOM() LIMIT 1
-                """,
-                (button_key, user_id, filter_key, PRACTICE_CATALOG_MOOD),
-            )
-            r = cur.fetchone()
-            c.close()
-            return _decode_mood_practice_row(r)
-
-        row = _fetch()
-        if row is None:
-            _by_mood_reset_seen(user_id, filter_key)
-            row = _fetch()
-        return row
-    except Exception as e:
-        print(f"Ошибка _pick_random_mood_practice_by_button_key {user_id} {filter_key}: {e}")
-        return None
-
-
-def pick_random_mood_practice_by_button_key(
-    user_id: int, filter_key: str, button_key: str
-) -> Optional[tuple]:
-    row = _pick_random_mood_practice_by_button_key(user_id, filter_key, button_key)
-    if row is None:
-        return None
-    return _practice_row_with_catalog(row, PRACTICE_CATALOG_MOOD)
 
 
 def _pick_random_mood_by_rule(
@@ -2327,7 +2280,7 @@ def _pick_random_mood_by_rule(
 
         row = _fetch()
         if row is None:
-            _by_mood_reset_seen(user_id, filter_key)
+            _by_mood_reset_seen(user_id, filter_key, PRACTICE_CATALOG_MOOD)
             row = _fetch()
         return row
     except Exception as e:
@@ -2340,11 +2293,8 @@ def pick_random_combined_mood_pool(
     filter_key: str,
     extra_where_sql: str,
     extra_params: tuple = (),
-    *,
-    mood_tag_key: Optional[str] = None,
-    include_mood_rule: bool = True,
 ) -> Optional[tuple]:
-    """Объединённый пул: yoga_practices по правилу + mood_practices (по тегу и/или правилу)."""
+    """Объединённый пул: yoga_practices и mood_practices по одному SQL-правилу."""
     import random
 
     candidates: list[tuple[tuple, str, str]] = []
@@ -2352,15 +2302,9 @@ def pick_random_combined_mood_pool(
     if yoga_row:
         candidates.append((yoga_row, PRACTICE_CATALOG_YOGA, yoga_row[2]))
 
-    if mood_tag_key:
-        mood_tag_row = _pick_random_mood_practice_by_button_key(user_id, filter_key, mood_tag_key)
-        if mood_tag_row:
-            candidates.append((mood_tag_row, PRACTICE_CATALOG_MOOD, mood_tag_row[2]))
-
-    if include_mood_rule:
-        mood_rule_row = _pick_random_mood_by_rule(user_id, filter_key, extra_where_sql, extra_params)
-        if mood_rule_row:
-            candidates.append((mood_rule_row, PRACTICE_CATALOG_MOOD, mood_rule_row[2]))
+    mood_rule_row = _pick_random_mood_by_rule(user_id, filter_key, extra_where_sql, extra_params)
+    if mood_rule_row:
+        candidates.append((mood_rule_row, PRACTICE_CATALOG_MOOD, mood_rule_row[2]))
 
     if not candidates:
         return None
@@ -2381,7 +2325,6 @@ def pick_random_combined_mood_pool(
 
 
 def add_mood_practice(
-    button_key: str,
     title: str,
     video_url: str,
     time_practices: int,
@@ -2410,14 +2353,13 @@ def add_mood_practice(
         cursor.execute(
             """
             INSERT INTO mood_practices (
-                button_key, title, video_url, time_practices, channel_name,
+                title, video_url, time_practices, channel_name,
                 description, my_description, intensity, without_mat
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING mood_practice_id
             """,
             (
-                button_key,
                 title,
                 video_url,
                 time_practices,
@@ -3146,6 +3088,24 @@ def get_practice_count() -> int:
         if conn:
             conn.close()
         return 0
+
+
+def get_mood_practice_count() -> int:
+    """Количество практик в mood_practices."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM mood_practices")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else 0
+    except Exception as e:
+        print(f"Ошибка получения количества mood-практик: {e}")
+        if conn:
+            conn.close()
+        return 0
+
 
 def get_yoga_practice_by_weekday_order(weekday: int, day_number: int) -> tuple:
     """Получает йога практику для определенного дня недели по порядку.

@@ -21,6 +21,7 @@ from data.db import (
     append_extra_practices_inline_message,
     get_user_bot_mode,
     pick_random_by_mood_practice,
+    pick_random_combined_mood_pool,
     remove_extra_practices_inline_message,
     take_and_clear_extra_practices_inline_messages,
 )
@@ -176,7 +177,10 @@ async def handle_extra_mood_callback(update: Update, context: ContextTypes.DEFAU
         return
 
     _cb_slug, filter_key, where_sql, params, empty_msg = spec
-    row = pick_random_by_mood_practice(user.id, filter_key, where_sql, params)
+    if slug == "day":
+        row = pick_random_by_mood_practice(user.id, filter_key, where_sql, params)
+    else:
+        row = pick_random_combined_mood_pool(user.id, filter_key, where_sql, params)
     if not row:
         await query.message.reply_text(empty_msg)
         return
