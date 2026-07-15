@@ -84,7 +84,7 @@ _EXTRA_FILTER_ROWS: tuple[tuple[str, str, str, tuple, str], ...] = (
         "strello4ka",
         strello4ka.FILTER_KEY,
         strello4ka.WHERE,
-        (),
+        strello4ka.PARAMS,
         "Не нашлось практик от strello4ka. Попробуй другой фильтр.",
     ),
     (
@@ -103,12 +103,8 @@ def get_extra_practices_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Практика дня", callback_data=f"{EXTRA_MOOD_PREFIX}day"),
-                InlineKeyboardButton("Без коврика", callback_data=f"{EXTRA_MOOD_PREFIX}no_mat"),
-            ],
-            [
                 InlineKeyboardButton("Ленивые дни", callback_data=f"{EXTRA_MOOD_PREFIX}lazy"),
-                InlineKeyboardButton("Мини", callback_data=f"{EXTRA_MOOD_PREFIX}five"),
+                InlineKeyboardButton("Без коврика", callback_data=f"{EXTRA_MOOD_PREFIX}no_mat"),
             ],
             [
                 InlineKeyboardButton("Хард", callback_data=f"{EXTRA_MOOD_PREFIX}hard"),
@@ -116,8 +112,10 @@ def get_extra_practices_inline_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton("Длинные", callback_data=f"{EXTRA_MOOD_PREFIX}long"),
+                InlineKeyboardButton("Мини", callback_data=f"{EXTRA_MOOD_PREFIX}five"),
             ],
             [
+                InlineKeyboardButton("Практика дня", callback_data=f"{EXTRA_MOOD_PREFIX}day"),
                 InlineKeyboardButton("САМ решу", callback_data=f"{EXTRA_MOOD_PREFIX}self_start"),
             ],
         ]

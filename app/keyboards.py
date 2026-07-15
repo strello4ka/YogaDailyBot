@@ -154,12 +154,8 @@ def get_by_mood_reply_keyboard():
     """Reply-клавиатура режима By mood: фильтры по запросу."""
     keyboard = [
         [
-            KeyboardButton("Практика дня"),
-            KeyboardButton("Без коврика"),
-        ],
-        [
             KeyboardButton("Ленивые дни"),
-            KeyboardButton("Мини"),
+            KeyboardButton("Без коврика"),
         ],
         [
             KeyboardButton("Хард"),
@@ -167,8 +163,10 @@ def get_by_mood_reply_keyboard():
         ],
         [
             KeyboardButton("Длинные"),
+            KeyboardButton("Мини"),
         ],
         [
+            KeyboardButton("Практика дня"),
             KeyboardButton("САМ решу"),
         ],
     ]
