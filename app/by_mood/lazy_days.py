@@ -8,7 +8,10 @@ from data.db import pick_random_combined_mood_pool
 from .send_utils import deliver_by_mood_practice
 
 FILTER_KEY = "lazy"
-WHERE = " AND LOWER(TRIM(COALESCE(yp.intensity, ''))) = 'сверх низкая' "
+WHERE = (
+    " AND LOWER(TRIM(COALESCE(yp.intensity, ''))) = 'сверх низкая' "
+    " AND yp.time_practices <= 30 AND yp.time_practices > 0 "
+)
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
