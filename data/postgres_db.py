@@ -1167,18 +1167,19 @@ def delete_user(user_id: int) -> bool:
         return False
 
 def get_all_users() -> list:
-    """Получает список всех пользователей с их данными.
-    
+    """Получает список пользователей для рассылки (без заблокировавших бота).
+
     Returns:
         list: Список кортежей (user_id, chat_id, notify_time, user_name, user_nickname, total_practices)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute('''
             SELECT user_id, chat_id, notify_time, user_name, user_nickname, total_practices
             FROM users
+            WHERE COALESCE(is_blocked, FALSE) = FALSE
             ORDER BY user_id
         ''')
         

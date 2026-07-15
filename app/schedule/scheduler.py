@@ -29,7 +29,6 @@ from data.db import (
     log_practice_sent,
     get_current_weekday,
     get_bonus_practices_by_parent,
-    set_user_blocked,
     is_user_favorite,
 )
 from app.challenge.challenge_commands import get_practice_for_daily_send
@@ -133,9 +132,6 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         )
         set_last_practice_message_id(user_id, message.message_id, practice_id)
 
-        # Если отправка прошла успешно, снимаем флаг блокировки (если он был)
-        set_user_blocked(user_id, False)
-
         # Подтверждаем прогресс только после успешной отправки пользователю.
         if is_challenge:
             increment_challenge_day(user_id)
@@ -174,13 +170,7 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             logger.info(f"Бонусная практика {bonus_id} отправлена пользователю {user_id} вместе с {practice_id}")
         
     except Exception as e:
-        # Если пользователь заблокировал бота - помечаем его как is_blocked, чтобы не слать дальше
-        error_text = str(e)
-        if "bot was blocked by the user" in error_text or "Forbidden: bot was blocked by the user" in error_text:
-            set_user_blocked(user_id, True)
-            logger.info(f"Пользователь {user_id} заблокировал бота, помечаем is_blocked=True")
-        else:
-            logger.error(f"Ошибка отправки практики пользователю {user_id}: {e}")
+        logger.error(f"Ошибка отправки практики пользователю {user_id}: {e}")
 
 
 def format_practice_message(title: str, my_description: str, time_practices: int,

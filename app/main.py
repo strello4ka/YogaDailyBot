@@ -5,7 +5,7 @@ Main application file that initializes the bot and registers all handlers.
 import asyncio
 import logging
 import re
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, ChatMemberHandler, filters, ContextTypes
 from telegram import Update
 
 from .config import BOT_TOKEN
@@ -45,6 +45,7 @@ from .handlers.secret import (
     secret_edit_command,
     handle_secret_edit_input,
 )
+from .block import handle_user_block_event
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
 from .challenge.job import schedule_challenge_summary
 from .challenge.admin import (
@@ -224,6 +225,12 @@ def main():
         .token(BOT_TOKEN)
         .post_init(setup_bot_commands)
         .build()
+    )
+
+    # Блокировка / разблокировка бота пользователем
+    application.add_handler(
+        ChatMemberHandler(handle_user_block_event, ChatMemberHandler.MY_CHAT_MEMBER),
+        group=-1,
     )
 
     # Регистрируем обработчики команд

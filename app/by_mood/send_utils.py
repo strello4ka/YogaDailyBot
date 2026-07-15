@@ -16,7 +16,6 @@ from data.db import (
     log_practice_sent,
     record_by_mood_seen,
     set_last_practice_message_id,
-    set_user_blocked,
     touch_by_mood_activity,
 )
 
@@ -100,7 +99,6 @@ async def deliver_on_demand_practice(
         set_last_practice_message_id(
             user_id, msg.message_id, practice_id, practice_catalog
         )
-        set_user_blocked(user_id, False)
         increment_total_practices(user_id)
         if touch_activity:
             touch_by_mood_activity(user_id)
@@ -113,9 +111,6 @@ async def deliver_on_demand_practice(
             await schedule_done_reminders(context, chat_id, user_id, log_id)
         return True
     except Exception as e:
-        err = str(e)
-        if "bot was blocked by the user" in err or "Forbidden: bot was blocked by the user" in err:
-            set_user_blocked(user_id, True)
         logger.error("Ошибка deliver_on_demand_practice user=%s: %s", user_id, e)
         return False
 
