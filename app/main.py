@@ -291,7 +291,9 @@ def main():
         "Ленивые дни",
         "Мини",
         "Хард",
-        "Сам решу",
+        "САМ решу",
+        "strello4ka",
+        "Длинные",
     ]
     escaped = [re.escape(b) for b in reply_buttons]
     application.add_handler(

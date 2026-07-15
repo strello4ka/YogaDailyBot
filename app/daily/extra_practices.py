@@ -12,7 +12,7 @@ from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.by_mood import five_min, hard, lazy_days, no_mat, practice_of_day
+from app.by_mood import five_min, hard, lazy_days, long_practices, no_mat, practice_of_day, strello4ka
 from app.by_mood.self_decide import time_keyboard
 from app.by_mood.self_decide import handle_intensity_callback as self_handle_intensity
 from app.by_mood.self_decide import handle_time_callback as self_handle_time
@@ -80,6 +80,20 @@ _EXTRA_FILTER_ROWS: tuple[tuple[str, str, str, tuple, str], ...] = (
         (),
         "Не нашлось практик со сверх высокой интенсивностью. Попробуй другой фильтр.",
     ),
+    (
+        "strello4ka",
+        strello4ka.FILTER_KEY,
+        strello4ka.WHERE,
+        (),
+        "Не нашлось практик от strello4ka. Попробуй другой фильтр.",
+    ),
+    (
+        "long",
+        long_practices.FILTER_KEY,
+        long_practices.WHERE,
+        (),
+        "Не нашлось практик длиннее 45 минут. Попробуй другой фильтр.",
+    ),
 )
 
 _EXTRA_SLUG_MAP = {row[0]: row for row in _EXTRA_FILTER_ROWS}
@@ -98,7 +112,13 @@ def get_extra_practices_inline_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton("Хард", callback_data=f"{EXTRA_MOOD_PREFIX}hard"),
-                InlineKeyboardButton("Сам решу", callback_data=f"{EXTRA_MOOD_PREFIX}self_start"),
+                InlineKeyboardButton("strello4ka", callback_data=f"{EXTRA_MOOD_PREFIX}strello4ka"),
+            ],
+            [
+                InlineKeyboardButton("Длинные", callback_data=f"{EXTRA_MOOD_PREFIX}long"),
+            ],
+            [
+                InlineKeyboardButton("САМ решу", callback_data=f"{EXTRA_MOOD_PREFIX}self_start"),
             ],
         ]
     )

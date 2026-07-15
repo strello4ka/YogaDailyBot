@@ -163,7 +163,13 @@ def get_by_mood_reply_keyboard():
         ],
         [
             KeyboardButton("Хард"),
-            KeyboardButton("Сам решу"),
+            KeyboardButton("strello4ka"),
+        ],
+        [
+            KeyboardButton("Длинные"),
+        ],
+        [
+            KeyboardButton("САМ решу"),
         ],
     ]
     return ReplyKeyboardMarkup(

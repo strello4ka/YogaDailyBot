@@ -1,4 +1,4 @@
-"""Сценарий «Сам решу»: время → интенсивность → случайная практика."""
+"""Сценарий «САМ решу»: время → интенсивность → случайная практика."""
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -123,7 +123,7 @@ async def handle_time_callback(
     time_key = data[len(pfx) :]
     if time_key not in KEY_TO_TIME:
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text("Что-то пошло не так. Нажми «Сам решу» ещё раз.")
+        await query.message.reply_text("Что-то пошло не так. Нажми «САМ решу» ещё раз.")
         return
 
     await query.edit_message_text(
@@ -152,14 +152,14 @@ async def handle_intensity_callback(
         time_key, intensity_key = rest.split(":", 1)
     except ValueError:
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text("Что-то пошло не так. Нажми «Сам решу» ещё раз.")
+        await query.message.reply_text("Что-то пошло не так. Нажми «САМ решу» ещё раз.")
         return
 
     time_label = KEY_TO_TIME.get(time_key)
     intensity_label = KEY_TO_INTENSITY.get(intensity_key)
     if not time_label or not intensity_label:
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text("Что-то пошло не так. Нажми «Сам решу» ещё раз.")
+        await query.message.reply_text("Что-то пошло не так. Нажми «САМ решу» ещё раз.")
         return
 
     await query.edit_message_reply_markup(reply_markup=None)

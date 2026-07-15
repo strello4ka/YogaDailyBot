@@ -8,7 +8,16 @@ from telegram.ext import ContextTypes
 from data.db import get_user_bot_mode
 
 _BY_MOOD_LABELS = frozenset(
-    {"Практика дня", "Без коврика", "Ленивые дни", "Мини", "Хард", "Сам решу"}
+    {
+        "Практика дня",
+        "Без коврика",
+        "Ленивые дни",
+        "Мини",
+        "Хард",
+        "САМ решу",
+        "strello4ka",
+        "Длинные",
+    }
 )
 
 
@@ -91,7 +100,13 @@ async def _dispatch_by_mood_button(update: Update, context: ContextTypes.DEFAULT
     elif text == "Хард":
         from app.by_mood import hard
         await hard.handle(update, context)
-    elif text == "Сам решу":
+    elif text == "САМ решу":
         from app.by_mood.self_decide import start_flow
         await start_flow(update, context)
+    elif text == "strello4ka":
+        from app.by_mood import strello4ka
+        await strello4ka.handle(update, context)
+    elif text == "Длинные":
+        from app.by_mood import long_practices
+        await long_practices.handle(update, context)
 
