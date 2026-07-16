@@ -29,6 +29,14 @@ def get_start_onboarding_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_restart_confirm_keyboard():
+    """Подтверждение повторного /start: полный сброс прогресса и избранного."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Да, перезапустить", callback_data="start_restart_yes")],
+        [InlineKeyboardButton("Нет", callback_data="start_restart_no")],
+    ])
+
+
 def get_choose_mode_keyboard():
     """Кнопка под примером практики для перехода к выбору режима."""
     return InlineKeyboardMarkup(

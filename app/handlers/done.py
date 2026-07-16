@@ -18,8 +18,11 @@ from data.db import (
     get_completed_count,
     get_similar_result_percent,
     get_streak_days,
-    is_pending_practice_log,
+    has_completed_practice_today,
+    has_uncompleted_practice_sent_today,
     is_user_eligible_for_done_reminder,
+    list_completed_today_practice_messages,
+    list_stale_done_button_messages,
     mark_practice_completed_by_practice_id,
     mark_practice_completed_today,
 )
@@ -79,22 +82,23 @@ STREAK_ACHIEVEMENT_MESSAGES = {
 
 
 def _display_name(user) -> str:
-    """Имя для ачивки: first_name → @username → «Ты»."""
+    """Имя для ачивки: имя в Telegram → @ник → пусто (тогда «Ты супер»)."""
     if not user:
-        return "Ты"
+        return ""
     first_name = (user.first_name or "").strip()
     if first_name:
         return first_name
     username = (user.username or "").strip()
     if username:
         return f"@{username}"
-    return "Ты"
+    return ""
 
 
 def _format_achievement_text(template: str, name: str) -> str:
     """Подставляет {name} в шаблон ачивки, если плейсхолдер есть."""
     if "{name}" in template:
-        return template.format(name=name)
+        # Если имени/ника нет — не подставляем пустоту в спец-ачивки
+        return template.format(name=name or "Ты")
     return template
 
 
@@ -102,7 +106,12 @@ def _achievement_title(n: int, streak: int, name: str) -> str:
     """Заголовок после «Я сделал!»: веха по серии важнее вехи по числу практик."""
     if streak in STREAK_ACHIEVEMENT_MESSAGES:
         return _format_achievement_text(STREAK_ACHIEVEMENT_MESSAGES[streak], name)
-    template = ACHIEVEMENT_MESSAGES.get(n, "Ты супер🧡")
+    template = ACHIEVEMENT_MESSAGES.get(n)
+    if template is None:
+        # Стандартный текст: «Катя, ты супер» / «@nick, ты супер» / «Ты супер»
+        if name:
+            return f"{name}, ты супер🧡"
+        return "Ты супер🧡"
     return _format_achievement_text(template, name)
 
 
@@ -153,14 +162,61 @@ async def cancel_done_reminders(context: ContextTypes.DEFAULT_TYPE, user_id: int
             pass
 
 
+async def _strip_done_button_targets(bot, targets) -> int:
+    """Снимает «Я сделал!» с переданных сообщений. Возвращает число успешных снятий."""
+    stripped = 0
+    for user_id, chat_id, message_id, practice_id, practice_catalog in targets:
+        try:
+            await keep_favorite_button_on_message(
+                bot,
+                chat_id,
+                message_id,
+                user_id,
+                practice_id=practice_id,
+                practice_catalog=practice_catalog,
+            )
+            stripped += 1
+        except Exception as e:
+            logger.debug(
+                "strip_done_buttons user=%s msg=%s: %s",
+                user_id,
+                message_id,
+                e,
+            )
+    return stripped
+
+
+async def strip_previous_day_done_button(
+    bot,
+    chat_id: int,
+    user_id: int,
+) -> None:
+    """Снимает «Я сделал!» со ВСЕХ неотмеченных практик пользователя не за сегодня.
+
+    Вызывается при каждой новой отправке: в списке только сообщения не за сегодня,
+    сегодняшние кнопки не трогаем. Нужно как fallback, если полночь не отработала
+    (например, локальный тест), и чтобы дочистить хвосты после прошлых багов.
+    """
+    targets = [t for t in list_stale_done_button_messages() if t[0] == user_id]
+    if not targets:
+        return
+    stripped = await _strip_done_button_targets(bot, targets)
+    if stripped:
+        logger.info(
+            "Снято кнопок «Я сделал!» (fallback при отправке) user=%s: %s",
+            user_id,
+            stripped,
+        )
+
+
 async def _send_done_reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """19:30 МСК — одно напоминание, если сегодня ещё ни одна практика не отмечена."""
     job = context.job
     data = job.data or {}
     user_id = data.get("user_id")
     chat_id = data.get("chat_id")
-    log_id = data.get("log_id")
     sent_date = data.get("sent_date")
-    if not all((user_id, chat_id, log_id, sent_date)):
+    if not all((user_id, chat_id, sent_date)):
         return
 
     now = _now_moscow()
@@ -168,7 +224,9 @@ async def _send_done_reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if not is_user_eligible_for_done_reminder(user_id):
         return
-    if not is_pending_practice_log(user_id, log_id):
+    if has_completed_practice_today(user_id):
+        return
+    if not has_uncompleted_practice_sent_today(user_id):
         return
 
     try:
@@ -178,7 +236,7 @@ async def _send_done_reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="Markdown",
         )
     except Exception as e:
-        logger.error("Ошибка напоминания о практике user=%s log=%s: %s", user_id, log_id, e)
+        logger.error("Ошибка напоминания о практике user=%s: %s", user_id, e)
 
 
 async def schedule_done_reminders(
@@ -187,7 +245,7 @@ async def schedule_done_reminders(
     user_id: int,
     log_id: int,
 ) -> None:
-    """Напоминание в 19:30 МСК, если практика не отмечена (практика пришла до 19:30)."""
+    """Планирует одно напоминание в 19:30 МСК (если практика пришла до 19:30)."""
     if not log_id or not getattr(context, "job_queue", None):
         if not getattr(context, "job_queue", None):
             logger.warning("JobQueue недоступен — напоминания «Я сделал» не запланированы")
@@ -214,9 +272,68 @@ async def schedule_done_reminders(
         )
 
 
+async def strip_stale_done_buttons_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """В 00:00 МСК снимает «Я сделал!» со всех неотмеченных практик не за сегодня."""
+    targets = list_stale_done_button_messages()
+    if not targets:
+        return
+
+    stripped = await _strip_done_button_targets(context.bot, targets)
+    logger.info("Снято кнопок «Я сделал!» после полуночи: %s из %s", stripped, len(targets))
+
+
+def schedule_strip_done_buttons_midnight(application) -> None:
+    """Снятие «Я сделал!» каждый день в 00:00 МСК (прод всегда онлайн)."""
+    try:
+        job_queue = application.job_queue
+        if not job_queue:
+            logger.error("JobQueue недоступен — снятие кнопок «Я сделал!» не запланировано")
+            return
+        job_queue.run_daily(
+            strip_stale_done_buttons_job,
+            time=time(0, 0, tzinfo=MOSCOW_TZ),
+            name="strip_done_buttons_midnight",
+        )
+        logger.info("Снятие кнопок «Я сделал!» запланировано на 00:00 МСК")
+    except Exception as e:
+        logger.error("Ошибка планирования снятия кнопок «Я сделал!»: %s", e)
+
+
 def _done_text(n: int, streak: int, similar_line: str, name: str) -> str:
     title = _achievement_title(n, streak, name)
     return f"{title}\n\n{format_progress_stats(n, streak)}{similar_line}"
+
+
+async def _strip_done_on_completed_messages(
+    bot,
+    user_id: int,
+    fallback_chat_id: Optional[int] = None,
+    fallback_message_id: Optional[int] = None,
+    fallback_practice_id: Optional[int] = None,
+    fallback_reply_markup=None,
+) -> None:
+    """Снимает «Я сделал!» со всех отмеченных сегодня сообщений (+ нажатое сообщение)."""
+    seen = set()
+    targets = list_completed_today_practice_messages(user_id)
+    if fallback_chat_id and fallback_message_id:
+        targets = list(targets) + [
+            (fallback_chat_id, fallback_message_id, fallback_practice_id, None)
+        ]
+
+    for chat_id, message_id, practice_id, practice_catalog in targets:
+        key = (chat_id, message_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        await keep_favorite_button_on_message(
+            bot,
+            chat_id,
+            message_id,
+            user_id,
+            reply_markup=fallback_reply_markup if message_id == fallback_message_id else None,
+            practice_id=practice_id,
+            practice_catalog=practice_catalog,
+        )
 
 
 async def handle_practice_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -239,30 +356,40 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
             await query.answer("Ошибка.")
             return
 
-    if practice_id is not None:
-        ok = mark_practice_completed_by_practice_id(
-            user_id, practice_id, practice_catalog or "yoga"
-        )
-    else:
-        ok = mark_practice_completed_today(user_id)
-
-    await cancel_done_reminders(context, user_id)
-    await query.answer()
-
     is_carousel = message_is_favorites_carousel(
         query.message.reply_markup if query.message else None
     )
 
+    if practice_id is not None:
+        ok = mark_practice_completed_by_practice_id(
+            user_id,
+            practice_id,
+            practice_catalog or "yoga",
+            only_sent_today=not is_carousel,
+            allow_create_log=is_carousel,
+            telegram_message_id=(
+                query.message.message_id if query.message and not is_carousel else None
+            ),
+        )
+    else:
+        ok = mark_practice_completed_today(user_id)
+
+    await query.answer()
+
     if ok:
+        await cancel_done_reminders(context, user_id)
         if not is_carousel and query.message:
-            await keep_favorite_button_on_message(
+            await _strip_done_on_completed_messages(
                 context.bot,
-                query.message.chat_id,
-                query.message.message_id,
                 user_id,
-                reply_markup=query.message.reply_markup,
-                practice_id=practice_id,
+                fallback_chat_id=query.message.chat_id,
+                fallback_message_id=query.message.message_id,
+                fallback_practice_id=practice_id,
+                fallback_reply_markup=query.message.reply_markup,
             )
+        elif is_carousel:
+            await _strip_done_on_completed_messages(context.bot, user_id)
+
         n = get_completed_count(user_id)
         streak = get_streak_days(user_id)
         similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)
@@ -273,4 +400,15 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
             chat_id=query.message.chat_id,
             text=text,
             parse_mode="Markdown",
+        )
+    elif not is_carousel and query.message:
+        # Вчерашняя кнопка или уже отмечено — убираем «Я сделал!»
+        await keep_favorite_button_on_message(
+            context.bot,
+            query.message.chat_id,
+            query.message.message_id,
+            user_id,
+            reply_markup=query.message.reply_markup,
+            practice_id=practice_id,
+            practice_catalog=practice_catalog,
         )

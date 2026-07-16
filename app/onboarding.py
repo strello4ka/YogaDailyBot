@@ -19,8 +19,18 @@ from .keyboards import (
     get_by_mood_reply_keyboard,
     get_choose_mode_keyboard,
     get_mode_choice_keyboard,
+    get_restart_confirm_keyboard,
     get_start_onboarding_keyboard,
     get_welcome_keyboard,
+)
+
+START_RESTART_WARNING = (
+    "🚨 Точно хочешь перезапустить бота?\n"
+    "Твой прогресс и избранное обнулятся"
+)
+START_RESTART_CANCELLED = (
+    "Понял, оставляем всё как есть 🧡\n"
+    "Если есть вопросы, жми кнопку \"Помощь\" в меню ↙️ или пиши @strello4ka"
 )
 
 MODE_CHOICE_INTRO_MARKDOWN = (
@@ -519,7 +529,51 @@ async def remove_callback_keyboard(query):
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик /start: сброс и первый экран онбординга."""
+    """Обработчик /start: для новых — онбординг, для знакомых — подтверждение сброса."""
+    user = update.effective_user
+    msg = update.effective_message
+    if not user or not msg:
+        return
+
+    from data.db import user_exists
+
+    if user_exists(user.id):
+        await msg.reply_text(
+            START_RESTART_WARNING,
+            reply_markup=get_restart_confirm_keyboard(),
+        )
+        return
+
+    await _begin_start_onboarding(update, context)
+
+
+async def start_restart_yes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждение повторного /start: полный сброс и онбординг."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    try:
+        await query.message.delete()
+    except Exception:
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+    await _begin_start_onboarding(update, context)
+
+
+async def start_restart_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена повторного /start: ничего не меняем."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    await query.edit_message_text(START_RESTART_CANCELLED)
+
+
+async def _begin_start_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сброс состояния и первый экран онбординга после /start (или подтверждения)."""
     context.user_data.pop('waiting_for_practice_suggestion', None)
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('is_time_change', None)
@@ -531,6 +585,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.effective_user
     chat_id = update.effective_chat.id
+    if not user or chat_id is None:
+        return
 
     from data.db import set_user_onboarding_required
     from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
@@ -560,11 +616,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Далее ты можешь посмотреть пример практики или сразу *перейти к выбору режима* 👇"
     )
 
-    msg = update.effective_message
-    if not msg:
-        return
-    clear_keyboard_message = await msg.reply_text(
-        "...",
+    clear_keyboard_message = await context.bot.send_message(
+        chat_id=chat_id,
+        text="...",
         reply_markup=ReplyKeyboardRemove(),
     )
     try:
@@ -574,8 +628,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         pass
-    intro_message = await msg.reply_text(
-        intro,
+    intro_message = await context.bot.send_message(
+        chat_id=chat_id,
+        text=intro,
         reply_markup=get_start_onboarding_keyboard(),
         parse_mode='Markdown',
     )

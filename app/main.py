@@ -11,6 +11,8 @@ from telegram import Update
 from .config import BOT_TOKEN
 from .onboarding import (
     start_command,
+    start_restart_yes_callback,
+    start_restart_no_callback,
     want_start_callback,
     handle_time_input,
     onboarding_open_mode_choice_callback,
@@ -29,7 +31,7 @@ from .handlers.donations import (
     handle_pre_checkout_query,
     handle_successful_payment
 )
-from .handlers.done import handle_practice_done_callback
+from .handlers.done import handle_practice_done_callback, schedule_strip_done_buttons_midnight
 from .daily.pause import schedule_pause_reminders
 from .by_mood.reminders import schedule_by_mood_reminders
 from .handlers.change_mode import change_mode_command
@@ -254,6 +256,8 @@ def main():
     application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/challenge(?:@[\w_]+)?\d+$"), challenge_compact_command))
     
     # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
+    application.add_handler(CallbackQueryHandler(start_restart_yes_callback, pattern="^start_restart_yes$"))
+    application.add_handler(CallbackQueryHandler(start_restart_no_callback, pattern="^start_restart_no$"))
     application.add_handler(CallbackQueryHandler(onboarding_show_example_callback, pattern="^onboarding_show_example$"))
     application.add_handler(CallbackQueryHandler(onboarding_open_mode_choice_callback, pattern="^onboarding_open_mode_choice$"))
     application.add_handler(CallbackQueryHandler(mode_pick_daily_callback, pattern="^mode_pick_daily$"))
@@ -347,6 +351,8 @@ def main():
     # Планируем напоминания неактивным пользователям в режиме By mood
     schedule_by_mood_reminders(application)
     schedule_challenge_summary(application)
+    # В 00:00 МСК снимаем «Я сделал!» со вчерашних (и более старых) неотмеченных практик
+    schedule_strip_done_buttons_midnight(application)
     
     # Запускаем бота
     logger.info("Запускаем YogaDailyBot с JobQueue...")

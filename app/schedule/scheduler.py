@@ -13,7 +13,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo  # Используем таймзону, чтобы сравнивать время корректно
 from telegram.ext import ContextTypes
 from app.keyboards import get_practice_action_keyboard
-from app.practice_markup import keep_favorite_button_on_message
 from data.db import (
     get_users_by_time,
     get_users_pending_for_today,
@@ -25,7 +24,6 @@ from data.db import (
     get_user_challenge_day,
     increment_challenge_day,
     set_last_practice_message_id,
-    get_last_practice_message_id,
     log_practice_sent,
     get_current_weekday,
     get_bonus_practices_by_parent,
@@ -85,12 +83,10 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         weekday: день недели (используется только в обычном режиме)
     """
     try:
-        # Снимаем «✅ Я сделал!» с предыдущего сообщения, избранное оставляем
-        last_message_id = get_last_practice_message_id(user_id)
-        if last_message_id is not None:
-            await keep_favorite_button_on_message(
-                context.bot, chat_id, last_message_id, user_id
-            )
+        # Снимаем «Я сделал!» только если предыдущая практика не за сегодня
+        from app.handlers.done import strip_previous_day_done_button
+
+        await strip_previous_day_done_button(context.bot, chat_id, user_id)
 
         # Вычисляем плановые счётчики, но подтверждаем их только после успешной отправки.
         # Это защищает от скачков прогресса при сетевых таймаутах Telegram API.
@@ -140,7 +136,13 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         increment_total_practices(user_id)
 
         # Логируем отправку основной практики
-        log_id = log_practice_sent(user_id, practice_id, total_practices)
+        log_id = log_practice_sent(
+            user_id,
+            practice_id,
+            total_practices,
+            chat_id=chat_id,
+            message_id=message.message_id,
+        )
         if log_id:
             from app.handlers.done import schedule_done_reminders
 
@@ -273,11 +275,9 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
     try:
         logger.info(f"Отправка тестовой практики пользователю {user_id}")
 
-        last_message_id = get_last_practice_message_id(user_id)
-        if last_message_id is not None:
-            await keep_favorite_button_on_message(
-                context.bot, chat_id, last_message_id, user_id
-            )
+        from app.handlers.done import strip_previous_day_done_button
+
+        await strip_previous_day_done_button(context.bot, chat_id, user_id)
 
         program_position = get_program_position(user_id)
         next_position = program_position + 1
@@ -311,7 +311,13 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
         increment_program_position(user_id)
         increment_total_practices(user_id)
 
-        log_id = log_practice_sent(user_id, practice_id, total_practices)
+        log_id = log_practice_sent(
+            user_id,
+            practice_id,
+            total_practices,
+            chat_id=chat_id,
+            message_id=message.message_id,
+        )
         if log_id:
             from app.handlers.done import schedule_done_reminders
 

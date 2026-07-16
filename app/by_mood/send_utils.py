@@ -6,11 +6,9 @@ from typing import Optional
 from telegram.ext import ContextTypes
 
 from app.keyboards import get_practice_action_keyboard
-from app.practice_markup import keep_favorite_button_on_message
 from data.db import (
     BY_MOOD_PRACTICE_LOG_DAY,
     split_practice_row_with_catalog,
-    get_last_practice_message_id,
     increment_total_practices,
     is_user_favorite,
     log_practice_sent,
@@ -68,11 +66,9 @@ async def deliver_on_demand_practice(
     ) = practice_row
 
     try:
-        last_message_id = get_last_practice_message_id(user_id)
-        if last_message_id is not None:
-            await keep_favorite_button_on_message(
-                context.bot, chat_id, last_message_id, user_id
-            )
+        from app.handlers.done import strip_previous_day_done_button
+
+        await strip_previous_day_done_button(context.bot, chat_id, user_id)
 
         if record_seen_filter_key:
             record_by_mood_seen(
@@ -103,7 +99,12 @@ async def deliver_on_demand_practice(
         if touch_activity:
             touch_by_mood_activity(user_id)
         log_id = log_practice_sent(
-            user_id, practice_id, BY_MOOD_PRACTICE_LOG_DAY, practice_catalog
+            user_id,
+            practice_id,
+            BY_MOOD_PRACTICE_LOG_DAY,
+            practice_catalog,
+            chat_id=chat_id,
+            message_id=msg.message_id,
         )
         if log_id:
             from app.handlers.done import schedule_done_reminders

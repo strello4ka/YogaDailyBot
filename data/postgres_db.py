@@ -568,6 +568,19 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца done_reminder_dismissed: {e}")
 
+        # message_id/chat_id в логе — чтобы снимать «Я сделал!» в полночь со всех сегодняшних сообщений
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'practice_logs' AND column_name = 'telegram_message_id'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE practice_logs ADD COLUMN telegram_message_id BIGINT')
+                cursor.execute('ALTER TABLE practice_logs ADD COLUMN telegram_chat_id BIGINT')
+                print("   ✅ Добавлены telegram_message_id / telegram_chat_id в practice_logs")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении telegram_message_id/chat_id: {e}")
+
         # Миграция: режим бота (Daily / By mood), флаг активной ежедневной рассылки, признак «без коврика»
         try:
             cursor.execute("""
@@ -1818,6 +1831,23 @@ def get_user_notify_time(user_id: int):
         return None
 
 
+def user_exists(user_id: int) -> bool:
+    """True, если пользователь уже есть в базе (уже пользовался ботом)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT 1 FROM users WHERE user_id = %s', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        print(f"Ошибка user_exists для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
 def is_user_onboarding_required(user_id: int) -> bool:
     """Возвращает True, если пользователь должен завершить/повторить онбординг (после /start)."""
     conn = None
@@ -1847,7 +1877,7 @@ def set_user_onboarding_required(
     """Создает/помечает пользователя как требующего выбора режима после /start.
 
     Сбрасывает зависящие от старого состояния поля: challenge_start_id, challenge_day, total_practices, program_position,
-    is_paused (с датами/шагом напоминаний о паузе), а также обнуляет отметки выполненных практик (completed_at)
+    is_paused (с датами/шагом напоминаний о паузе), избранное, а также обнуляет отметки выполненных практик (completed_at)
     для полного "старта с нуля".
     """
     conn = None
@@ -1898,6 +1928,7 @@ def set_user_onboarding_required(
                 WHERE user_id = %s
             ''', (user_id,))
         cursor.execute('DELETE FROM by_mood_seen WHERE user_id = %s', (user_id,))
+        cursor.execute('DELETE FROM user_favorites WHERE user_id = %s', (user_id,))
         cursor.execute(
             'UPDATE practice_logs SET completed_at = NULL WHERE user_id = %s',
             (user_id,)
@@ -3472,8 +3503,12 @@ def log_practice_sent(
     practice_id: int,
     day_number: int,
     practice_catalog: str = PRACTICE_CATALOG_YOGA,
+    chat_id: Optional[int] = None,
+    message_id: Optional[int] = None,
 ) -> Optional[int]:
     """Логирует отправку практики пользователю.
+
+    chat_id/message_id нужны, чтобы снимать кнопку «Я сделал!» в полночь.
 
     Returns:
         Optional[int]: log_id новой записи или None при ошибке
@@ -3485,11 +3520,14 @@ def log_practice_sent(
 
         cursor.execute(
             '''
-            INSERT INTO practice_logs (user_id, practice_id, day_number, practice_catalog)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO practice_logs (
+                user_id, practice_id, day_number, practice_catalog,
+                telegram_chat_id, telegram_message_id
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING log_id
             ''',
-            (user_id, practice_id, day_number, practice_catalog),
+            (user_id, practice_id, day_number, practice_catalog, chat_id, message_id),
         )
         row = cursor.fetchone()
         conn.commit()
@@ -3595,6 +3633,201 @@ def is_pending_practice_log(user_id: int, log_id: int) -> bool:
             conn.close()
         return False
 
+
+def has_completed_practice_today(user_id: int) -> bool:
+    """Есть ли у пользователя хотя бы одна отмеченная практика за сегодня (МСК)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        # Как в get_users_pending_for_today: ::date + NOW() в DEFAULT_TZ.
+        # Не UTC→МСК: локальная БД хранит wall-clock Москвы в TIMESTAMP.
+        cursor.execute(
+            '''
+            SELECT EXISTS (
+                SELECT 1 FROM practice_logs
+                WHERE user_id = %s
+                  AND completed_at IS NOT NULL
+                  AND completed_at::date = (NOW() AT TIME ZONE %s)::date
+            )
+            ''',
+            (user_id, DEFAULT_TZ),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row and row[0])
+    except Exception as e:
+        print(f"Ошибка has_completed_practice_today {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
+def has_uncompleted_practice_sent_today(user_id: int) -> bool:
+    """Есть ли неотмеченная практика, отправленная сегодня (МСК)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT EXISTS (
+                SELECT 1 FROM practice_logs
+                WHERE user_id = %s
+                  AND completed_at IS NULL
+                  AND COALESCE(done_reminder_dismissed, FALSE) = FALSE
+                  AND sent_at::date = (NOW() AT TIME ZONE %s)::date
+            )
+            ''',
+            (user_id, DEFAULT_TZ),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row and row[0])
+    except Exception as e:
+        print(f"Ошибка has_uncompleted_practice_sent_today {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
+def is_last_practice_log_from_today(user_id: int) -> bool:
+    """Последняя отправленная практика пользователя — за сегодня (МСК)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT sent_at::date = (NOW() AT TIME ZONE %s)::date
+            FROM practice_logs
+            WHERE user_id = %s
+            ORDER BY sent_at DESC
+            LIMIT 1
+            ''',
+            (DEFAULT_TZ, user_id),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row and row[0])
+    except Exception as e:
+        print(f"Ошибка is_last_practice_log_from_today {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
+def list_stale_done_button_messages() -> list:
+    """Сообщения с неотмеченными практиками не за сегодня — для снятия «Я сделал!» в полночь.
+
+    Returns:
+        list[tuple]: (user_id, chat_id, message_id, practice_id, practice_catalog)
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''
+            SELECT pl.user_id,
+                   COALESCE(pl.telegram_chat_id, u.chat_id),
+                   pl.telegram_message_id,
+                   pl.practice_id,
+                   COALESCE(pl.practice_catalog, 'yoga')
+            FROM practice_logs pl
+            JOIN users u ON u.user_id = pl.user_id
+            WHERE pl.completed_at IS NULL
+              AND pl.telegram_message_id IS NOT NULL
+              AND pl.sent_at::date < (NOW() AT TIME ZONE %s)::date
+            ''',
+            (DEFAULT_TZ,),
+        )
+        rows = cursor.fetchall()
+
+        # Запасной путь: last_practice_message_id без telegram_message_id в логе
+        cursor.execute(
+            '''
+            SELECT DISTINCT ON (u.user_id)
+                   u.user_id,
+                   u.chat_id,
+                   u.last_practice_message_id,
+                   COALESCE(u.last_practice_id, pl.practice_id),
+                   COALESCE(u.last_practice_catalog, pl.practice_catalog, 'yoga')
+            FROM users u
+            JOIN practice_logs pl ON pl.user_id = u.user_id
+            WHERE u.last_practice_message_id IS NOT NULL
+              AND pl.completed_at IS NULL
+              AND pl.sent_at::date < (NOW() AT TIME ZONE %s)::date
+              AND pl.sent_at = (
+                  SELECT MAX(pl2.sent_at) FROM practice_logs pl2 WHERE pl2.user_id = u.user_id
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM practice_logs pl3
+                  WHERE pl3.user_id = u.user_id
+                    AND pl3.telegram_message_id = u.last_practice_message_id
+              )
+            ORDER BY u.user_id
+            ''',
+            (DEFAULT_TZ,),
+        )
+        fallback_rows = cursor.fetchall()
+        conn.close()
+
+        seen = set()
+        result = []
+        for row in list(rows) + list(fallback_rows):
+            user_id, chat_id, message_id, practice_id, catalog = row
+            if not chat_id or not message_id:
+                continue
+            key = (user_id, chat_id, message_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append((user_id, chat_id, message_id, practice_id, catalog))
+        return result
+    except Exception as e:
+        print(f"Ошибка list_stale_done_button_messages: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
+def list_completed_today_practice_messages(user_id: int) -> list:
+    """Сообщения практик, отмеченных сегодня — чтобы снять с них «Я сделал!» (в т.ч. каскад челленджа).
+
+    Returns:
+        list[tuple]: (chat_id, message_id, practice_id, practice_catalog)
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT COALESCE(pl.telegram_chat_id, u.chat_id),
+                   pl.telegram_message_id,
+                   pl.practice_id,
+                   COALESCE(pl.practice_catalog, 'yoga')
+            FROM practice_logs pl
+            JOIN users u ON u.user_id = pl.user_id
+            WHERE pl.user_id = %s
+              AND pl.completed_at IS NOT NULL
+              AND pl.telegram_message_id IS NOT NULL
+              AND pl.completed_at::date = (NOW() AT TIME ZONE %s)::date
+            ''',
+            (user_id, DEFAULT_TZ),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [(r[0], r[1], r[2], r[3]) for r in rows if r[0] and r[1]]
+    except Exception as e:
+        print(f"Ошибка list_completed_today_practice_messages {user_id}: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
 def get_user_practice_history(user_id: int, limit: int = 10) -> list:
     """Получает историю отправленных практик пользователю.
     
@@ -3694,7 +3927,7 @@ def _cascade_challenge_logs_on_done(cursor, user_id: int, today_moscow: date) ->
           AND day_number >= 1
           AND {sent_moscow} = %s
         ''',
-        (DEFAULT_TZ, user_id, today_moscow),
+        (user_id, DEFAULT_TZ, today_moscow),
     )
     updated += cursor.rowcount
 
@@ -3707,7 +3940,7 @@ def _cascade_challenge_logs_on_done(cursor, user_id: int, today_moscow: date) ->
               AND {sent_moscow} = %s
         )
         ''',
-        (DEFAULT_TZ, user_id, today_moscow),
+        (user_id, DEFAULT_TZ, today_moscow),
     )
     challenge_sent_today = bool(cursor.fetchone()[0])
 
@@ -3765,29 +3998,92 @@ def mark_practice_completed_by_practice_id(
     user_id: int,
     practice_id: int,
     practice_catalog: str = PRACTICE_CATALOG_YOGA,
+    *,
+    only_sent_today: bool = False,
+    allow_create_log: bool = True,
+    telegram_message_id: Optional[int] = None,
 ) -> bool:
-    """Отмечает конкретную практику выполненной (карусель избранного и явный practice_id)."""
+    """Отмечает конкретную практику выполненной (сообщение практики или карусель избранного).
+
+    only_sent_today=True — только лог, отправленный сегодня (кнопка под сообщением).
+    allow_create_log=False — не создавать новую запись, если открытого лога нет.
+    telegram_message_id — если передан, сначала ищем лог этого сообщения (точнее при дублях).
+    """
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         today_moscow = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
+        marked = False
 
-        cursor.execute(
-            '''
-            UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
-            WHERE log_id = (
-                SELECT log_id FROM practice_logs
-                WHERE user_id = %s AND practice_id = %s AND practice_catalog = %s
-                  AND completed_at IS NULL
-                ORDER BY sent_at DESC LIMIT 1
+        if telegram_message_id is not None:
+            if only_sent_today:
+                cursor.execute(
+                    '''
+                    UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
+                    WHERE log_id = (
+                        SELECT log_id FROM practice_logs
+                        WHERE user_id = %s
+                          AND telegram_message_id = %s
+                          AND completed_at IS NULL
+                          AND sent_at::date = (NOW() AT TIME ZONE %s)::date
+                        ORDER BY sent_at DESC LIMIT 1
+                    )
+                    ''',
+                    (user_id, telegram_message_id, DEFAULT_TZ),
+                )
+            else:
+                cursor.execute(
+                    '''
+                    UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
+                    WHERE log_id = (
+                        SELECT log_id FROM practice_logs
+                        WHERE user_id = %s
+                          AND telegram_message_id = %s
+                          AND completed_at IS NULL
+                        ORDER BY sent_at DESC LIMIT 1
+                    )
+                    ''',
+                    (user_id, telegram_message_id),
+                )
+            marked = cursor.rowcount > 0
+
+        if not marked and only_sent_today:
+            cursor.execute(
+                '''
+                UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
+                WHERE log_id = (
+                    SELECT log_id FROM practice_logs
+                    WHERE user_id = %s AND practice_id = %s AND practice_catalog = %s
+                      AND completed_at IS NULL
+                      AND sent_at::date = (NOW() AT TIME ZONE %s)::date
+                    ORDER BY sent_at DESC LIMIT 1
+                )
+                ''',
+                (user_id, practice_id, practice_catalog, DEFAULT_TZ),
             )
-            ''',
-            (user_id, practice_id, practice_catalog),
-        )
-        marked = cursor.rowcount > 0
+            marked = cursor.rowcount > 0
+        elif not marked:
+            cursor.execute(
+                '''
+                UPDATE practice_logs SET completed_at = CURRENT_TIMESTAMP
+                WHERE log_id = (
+                    SELECT log_id FROM practice_logs
+                    WHERE user_id = %s AND practice_id = %s AND practice_catalog = %s
+                      AND completed_at IS NULL
+                    ORDER BY sent_at DESC LIMIT 1
+                )
+                ''',
+                (user_id, practice_id, practice_catalog),
+            )
+            marked = cursor.rowcount > 0
 
-        if not marked:
+        if only_sent_today and not marked:
+            conn.commit()
+            conn.close()
+            return False
+
+        if not marked and allow_create_log and not only_sent_today:
             cursor.execute(
                 '''
                 INSERT INTO practice_logs (user_id, practice_id, day_number, practice_catalog)
