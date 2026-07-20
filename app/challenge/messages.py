@@ -13,7 +13,7 @@ SUMMARY_HOUR = 10
 SUMMARY_MINUTE = 10
 CHALLENGE_DURATION = 28
 INTERMEDIATE_DAYS = frozenset({8, 15, 22})
-FINAL_DAY = 28
+FINAL_SUMMARY_DAY = 29
 
 SCHEDULE_HOUR = 20
 SCHEDULE_MINUTE = 0
@@ -69,11 +69,11 @@ def detect_summary_kind(group_challenge_day: int, stopped: bool) -> Optional[Sum
     """Определяет тип утреннего поста по challenge_day группы."""
     if stopped:
         return None
-    if group_challenge_day == FINAL_DAY:
+    if group_challenge_day == FINAL_SUMMARY_DAY:
         return "final"
     if group_challenge_day in INTERMEDIATE_DAYS:
         return "intermediate"
-    if group_challenge_day < FINAL_DAY:
+    if group_challenge_day < FINAL_SUMMARY_DAY:
         return "daily"
     return None
 
@@ -94,8 +94,19 @@ def challenge_day_weekday_label(challenge_day: int) -> str:
     return WEEKDAY_FULL_LABELS[(challenge_day - 1) % 7]
 
 
+def _final_place_label(rank: int) -> str:
+    """Медали для топ-3, для остальных — только номер места."""
+    if rank == 1:
+        return "🥇 1 место"
+    if rank == 2:
+        return "🥈 2 место"
+    if rank == 3:
+        return "🥉 3 место"
+    return f"{rank} место"
+
+
 def rank_final_results(progress_rows: list[ProgressRow]) -> list[FinalRankRow]:
-    """Competition ranking: при равенстве — общее место; топ-2 с номером, остальные «молодец»."""
+    """Ранжирование: при равенстве — одно место; следующий результат — следующий номер (1, 2, 3…)."""
     sorted_rows = sorted(
         progress_rows,
         key=lambda r: (-r.completed, display_name(r.participant.user_nickname, r.participant.user_name)),
@@ -107,9 +118,9 @@ def rank_final_results(progress_rows: list[ProgressRow]) -> list[FinalRankRow]:
         j = i + 1
         while j < len(sorted_rows) and sorted_rows[j].completed == sorted_rows[i].completed:
             j += 1
+        label = _final_place_label(rank)
         for k in range(i, j):
             row = sorted_rows[k]
-            label = f"{rank} место" if rank <= 2 else "молодец"
             ranked.append(
                 FinalRankRow(
                     participant=row.participant,
@@ -119,7 +130,7 @@ def rank_final_results(progress_rows: list[ProgressRow]) -> list[FinalRankRow]:
                     label=label,
                 )
             )
-        rank = j + 1
+        rank += 1
         i = j
     return ranked
 
@@ -150,7 +161,10 @@ def build_summary_message(
     max_names_length: int = 3500,
 ) -> str:
     """Собирает текст утренней сводки по типу."""
-    text = "Доброе утро, йоги ☀️\n\n"
+    if kind == "final":
+        text = ""
+    else:
+        text = "Доброе утро, йоги ☀️\n\n"
 
     if kind == "daily":
         total = len(participants)
@@ -189,14 +203,15 @@ def build_summary_message(
 
     if kind == "final" and final_rows is not None:
         final_lines = "\n".join(
-            f"• {display_name(row.participant.user_nickname, row.participant.user_name)}"
-            f" — {row.completed}/{row.total} дней — {row.label}"
+            f"• {display_name(row.participant.user_nickname, row.participant.user_name)}:"
+            f" {row.completed}/{row.total} дней — {row.label}"
             for row in final_rows
         )
         text += (
-            f"Поздравляю всех с окончанием челленджа ✨\n"
+            f"Поздравляю всех с окончанием челленджа ✨\n\n"
             f"Итоги:\n"
-            f"{final_lines}"
+            f"{final_lines}\n\n"
+            f"Хорошо провели время , до новых встреч 🧡"
         )
 
     if len(text) > TELEGRAM_MESSAGE_LIMIT:
