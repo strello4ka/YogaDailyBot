@@ -33,6 +33,21 @@ START_RESTART_CANCELLED = (
     "Если есть вопросы, жми кнопку \"Помощь\" в меню ↙️ или пиши @strello4ka"
 )
 
+# Параметр из t.me/Bot?start=метка (ограничения Telegram deep link)
+_TRAFFIC_SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _parse_traffic_source(context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
+    """Метка источника из /start args или None, если нет / невалидна."""
+    args = getattr(context, "args", None) or []
+    if not args:
+        return None
+    raw = (args[0] or "").strip()
+    if not raw or not _TRAFFIC_SOURCE_RE.fullmatch(raw):
+        return None
+    return raw
+
+
 MODE_CHOICE_INTRO_MARKDOWN = (
     "*Выбери режим работы бота:*\n\n"
     "🌀 Режим *Daily* — для тех, кто хочет мягко внедрить привычку заниматься *ежедневно* и не перегорать, ведь неделя содержит сбалансированный набор практик.\n"
@@ -596,6 +611,7 @@ async def _begin_start_onboarding(update: Update, context: ContextTypes.DEFAULT_
         chat_id,
         user_name=user.first_name,
         user_nickname=user.username,
+        traffic_source=_parse_traffic_source(context),
     )
     await cancel_done_reminders(context, user.id)
     dismiss_done_reminders(user.id)

@@ -721,6 +721,22 @@ def init_database():
         except Exception as e:
             print(f"⚠️ Ошибка миграции practice_catalog: {e}")
 
+        # Миграция: источник первого входа (метка из t.me/Bot?start=...)
+        try:
+            cursor.execute(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS traffic_source TEXT"
+            )
+            cursor.execute(
+                "ALTER TABLE users DROP COLUMN IF EXISTS traffic_source_at"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_users_traffic_source "
+                "ON users(traffic_source)"
+            )
+            print("   ✅ Столбец traffic_source в users готов")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении traffic_source: {e}")
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS system_state (
                 key TEXT PRIMARY KEY,
@@ -1869,12 +1885,16 @@ def set_user_onboarding_required(
     chat_id: int = None,
     user_name: str = None,
     user_nickname: str = None,
+    traffic_source: str = None,
 ) -> bool:
     """Создает/помечает пользователя как требующего выбора режима после /start.
 
     Сбрасывает зависящие от старого состояния поля: challenge_start_id, challenge_day, total_practices, program_position,
     is_paused (с датами/шагом напоминаний о паузе), избранное, а также обнуляет отметки выполненных практик (completed_at)
     для полного "старта с нуля".
+
+    traffic_source пишется только при INSERT (первый вход). При повторном /start
+    (ON CONFLICT) поле traffic_source не меняется.
     """
     conn = None
     try:
@@ -1886,9 +1906,14 @@ def set_user_onboarding_required(
                     user_id, chat_id, notify_time, user_name, user_nickname, total_practices,
                     onboarding_required, bot_mode, daily_schedule_enabled,
                     challenge_start_id, challenge_day, is_paused, paused_at, last_pause_reminder_at,
-                    pause_reminder_step, program_position
+                    pause_reminder_step, program_position,
+                    traffic_source
                 )
-                VALUES (%s, %s, '00:00', %s, %s, 0, TRUE, 'pending', FALSE, NULL, 0, FALSE, NULL, NULL, 0, 0)
+                VALUES (
+                    %s, %s, '00:00', %s, %s, 0, TRUE, 'pending', FALSE,
+                    NULL, 0, FALSE, NULL, NULL, 0, 0,
+                    %s
+                )
                 ON CONFLICT (user_id) DO UPDATE SET
                     chat_id = EXCLUDED.chat_id,
                     user_name = COALESCE(EXCLUDED.user_name, users.user_name),
@@ -1905,7 +1930,7 @@ def set_user_onboarding_required(
                     bot_mode = 'pending',
                     daily_schedule_enabled = FALSE,
                     updated_at = CURRENT_TIMESTAMP
-            ''', (user_id, chat_id, user_name, user_nickname))
+            ''', (user_id, chat_id, user_name, user_nickname, traffic_source))
         else:
             cursor.execute('''
                 UPDATE users
