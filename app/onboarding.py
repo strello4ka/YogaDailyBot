@@ -882,7 +882,7 @@ async def want_start_callback(update: Update, context: CallbackContext):
     print(f"Callback data: {query.data}")
 
     user_id = update.effective_user.id
-    from app.challenge.challenge_commands import (
+    from app.challenge.flow.start_flow import (
         PENDING_CHALLENGE_PRACTICE_KEY,
         handle_challenge_time_choice_callback,
     )

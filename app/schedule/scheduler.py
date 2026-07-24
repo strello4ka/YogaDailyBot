@@ -14,22 +14,24 @@ from zoneinfo import ZoneInfo  # Используем таймзону, чтоб
 from telegram.ext import ContextTypes
 from app.keyboards import get_practice_action_keyboard
 from data.db import (
-    get_users_by_time,
     get_users_pending_for_today,
     get_yoga_practice_by_weekday_order,
+    get_yoga_practice_by_challenge_order,
+    get_user_challenge_start_id,
     increment_total_practices,
     get_total_practices,
     get_program_position,
     increment_program_position,
     get_user_challenge_day,
     increment_challenge_day,
+    set_user_challenge_day,
     set_last_practice_message_id,
     log_practice_sent,
     get_current_weekday,
     get_bonus_practices_by_parent,
     is_user_favorite,
 )
-from app.challenge.challenge_commands import get_practice_for_daily_send
+from app.challenge.cohort import get_cohort_challenge_day, is_cohort_configured
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
 
 logger = logging.getLogger(__name__)
@@ -73,7 +75,7 @@ async def send_daily_practice(context: ContextTypes.DEFAULT_TYPE):
 async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, weekday: int):
     """Отправляет практику конкретному пользователю.
     
-    Если у пользователя включён режим челленджа — практика по порядку id (app.challenge.challenge_commands).
+    Если у пользователя включён режим челленджа — практика по challenge_start_id и дню потока.
     Иначе — практика по дню недели и счётчику дней.
     
     Args:
@@ -93,12 +95,26 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         program_position = get_program_position(user_id)
         next_position = program_position + 1
         total_practices = get_total_practices(user_id) + 1
-        challenge_day = get_user_challenge_day(user_id) + 1
+        if is_cohort_configured():
+            challenge_day = get_cohort_challenge_day()
+            if challenge_day < 1 or challenge_day > 28:
+                logger.info(
+                    "Пропуск челлендж-рассылки user=%s: день потока=%s",
+                    user_id,
+                    challenge_day,
+                )
+                return
+        else:
+            challenge_day = get_user_challenge_day(user_id) + 1
 
-        # Daily выбирается по program_position; Challenge — по отдельному challenge_day.
-        practice, is_challenge = get_practice_for_daily_send(user_id, weekday, challenge_day)
-        if not is_challenge:
+        # Daily выбирается по program_position; Challenge — по стартовому id потока и дню.
+        start_id = get_user_challenge_start_id(user_id)
+        if start_id is not None:
+            practice = get_yoga_practice_by_challenge_order(start_id, challenge_day)
+            is_challenge = True
+        else:
             practice = get_yoga_practice_by_weekday_order(weekday, next_position)
+            is_challenge = False
         if not practice:
             if is_challenge:
                 logger.error(f"Не найдена практика челленджа для пользователя {user_id}, день {challenge_day}")
@@ -130,7 +146,10 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
 
         # Подтверждаем прогресс только после успешной отправки пользователю.
         if is_challenge:
-            increment_challenge_day(user_id)
+            if is_cohort_configured():
+                set_user_challenge_day(user_id, challenge_day)
+            else:
+                increment_challenge_day(user_id)
         else:
             increment_program_position(user_id)
         increment_total_practices(user_id)

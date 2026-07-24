@@ -1578,6 +1578,32 @@ def get_user_challenge_day(user_id: int) -> int:
         return 0
 
 
+def set_user_challenge_day(user_id: int, challenge_day: int) -> bool:
+    """Устанавливает challenge_day пользователя (для синхронизации с днём потока)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET challenge_day = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (max(0, int(challenge_day)), user_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка set_user_challenge_day {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
 def increment_challenge_day(user_id: int) -> bool:
     """Увеличивает день челленджа на 1 после успешной отправки практики."""
     conn = None
@@ -1663,7 +1689,12 @@ def complete_user_challenge_setup(
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        first_send_date = _tomorrow_date_moscow()
+        from app.challenge.cohort import get_first_send_date_for_enrollment, is_cohort_configured
+
+        if is_cohort_configured():
+            first_send_date = get_first_send_date_for_enrollment()
+        else:
+            first_send_date = _tomorrow_date_moscow()
         cursor.execute(
             '''
             UPDATE users
@@ -1695,41 +1726,6 @@ def complete_user_challenge_setup(
         return True
     except Exception as e:
         print(f"Ошибка complete_user_challenge_setup {user_id}: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
-        return False
-
-
-def set_user_challenge(user_id: int, challenge_start_id: int) -> bool:
-    """Включает режим челленджа: задаёт стартовый id и обнуляет только день челленджа.
-    
-    Returns:
-        bool: True при успехе
-    """
-    conn = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users 
-            SET challenge_start_id = %s,
-                challenge_day = 0,
-                bot_mode = 'challenge',
-                daily_schedule_enabled = TRUE,
-                onboarding_required = FALSE,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = %s
-        ''', (challenge_start_id, user_id))
-        if cursor.rowcount == 0:
-            conn.close()
-            return False
-        conn.commit()
-        conn.close()
-        print(f"Пользователь {user_id}: режим челленджа с id={challenge_start_id}, день челленджа обнулён")
-        return True
-    except Exception as e:
-        print(f"Ошибка set_user_challenge {user_id}: {e}")
         if conn:
             conn.rollback()
             conn.close()
@@ -4456,6 +4452,7 @@ def delete_latest_broadcast() -> bool:
 CHALLENGE_SUMMARY_LAST_SENT_KEY = "challenge_summary_last_sent_date"
 CHALLENGE_SUMMARY_STOPPED_KEY = "challenge_summary_stopped"
 CHALLENGE_WEEKLY_SCHEDULE_SENT_KEY = "challenge_weekly_schedule_last_sent_date"
+CHALLENGE_AUTO_EXIT_SENT_KEY = "challenge_auto_exit_sent_on"
 
 
 def _get_system_state(key: str) -> Optional[str]:
@@ -4544,7 +4541,12 @@ def get_active_challenge_participants() -> list:
 
 
 def get_group_challenge_day() -> int:
-    """Максимальный challenge_day среди активных участников челленджа."""
+    """День потока: календарный при cohort, иначе MAX(challenge_day) участников."""
+    from app.challenge.cohort import get_cohort_challenge_day, is_cohort_configured
+
+    if is_cohort_configured():
+        return get_cohort_challenge_day()
+
     conn = None
     try:
         conn = get_connection()
@@ -4571,7 +4573,12 @@ def get_group_challenge_day() -> int:
 
 
 def get_group_challenge_start_id() -> Optional[int]:
-    """challenge_start_id потока: значение у большинства активных участников."""
+    """challenge_start_id потока: из env при cohort, иначе у большинства участников."""
+    from app.challenge.cohort import get_challenge_start_practice_id, is_cohort_configured
+
+    if is_cohort_configured():
+        return get_challenge_start_practice_id()
+
     conn = None
     try:
         conn = get_connection()
@@ -4718,5 +4725,81 @@ def reset_challenge_summary_state() -> bool:
     ok1 = _delete_system_state(CHALLENGE_SUMMARY_LAST_SENT_KEY)
     ok2 = _delete_system_state(CHALLENGE_SUMMARY_STOPPED_KEY)
     ok3 = _delete_system_state(CHALLENGE_WEEKLY_SCHEDULE_SENT_KEY)
-    return ok1 and ok2 and ok3
+    ok4 = _delete_system_state(CHALLENGE_AUTO_EXIT_SENT_KEY)
+    return ok1 and ok2 and ok3 and ok4
+
+
+def find_user_for_challenge_enroll(token: str) -> Optional[tuple]:
+    """Ищет пользователя по user_id или @nickname (без учёта регистра).
+
+    Returns:
+        (user_id, chat_id, user_name, user_nickname) или None
+    """
+    raw = (token or "").strip().lstrip("@")
+    if not raw:
+        return None
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        if raw.isdigit():
+            cursor.execute(
+                '''
+                SELECT user_id, chat_id, user_name, user_nickname
+                FROM users
+                WHERE user_id = %s
+                ''',
+                (int(raw),),
+            )
+        else:
+            cursor.execute(
+                '''
+                SELECT user_id, chat_id, user_name, user_nickname
+                FROM users
+                WHERE LOWER(TRIM(LEADING '@' FROM COALESCE(user_nickname, ''))) = LOWER(%s)
+                LIMIT 1
+                ''',
+                (raw,),
+            )
+        row = cursor.fetchone()
+        conn.close()
+        return row if row else None
+    except Exception as e:
+        print(f"Ошибка find_user_for_challenge_enroll({token!r}): {e}")
+        if conn:
+            conn.close()
+        return None
+
+
+def get_challenge_users_for_auto_exit() -> list:
+    """Все с bot_mode=challenge (включая паузу) для автозавершения дня 29."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT user_id, chat_id, user_name, user_nickname
+            FROM users
+            WHERE COALESCE(bot_mode, 'daily') = 'challenge'
+              AND COALESCE(is_blocked, FALSE) = FALSE
+            ORDER BY user_id
+            '''
+        )
+        results = cursor.fetchall()
+        conn.close()
+        return results
+    except Exception as e:
+        print(f"Ошибка get_challenge_users_for_auto_exit: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
+def is_challenge_auto_exit_sent_on(sent_date: date) -> bool:
+    return _get_system_state(CHALLENGE_AUTO_EXIT_SENT_KEY) == sent_date.isoformat()
+
+
+def mark_challenge_auto_exit_sent(sent_date: date) -> bool:
+    return _set_system_state(CHALLENGE_AUTO_EXIT_SENT_KEY, sent_date.isoformat())
 

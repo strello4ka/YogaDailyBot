@@ -1,31 +1,17 @@
-"""Формирование текста утренней сводки челленджа."""
+"""Тексты утренних сводок челленджа в группе."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from telegram.helpers import escape_markdown
+from app.challenge.cohort import (
+    CHALLENGE_DURATION,
+    FINAL_SUMMARY_DAY,
+    INTERMEDIATE_DAYS,
+)
 
 SummaryKind = Literal["daily", "intermediate", "final"]
-
-SUMMARY_HOUR = 10
-SUMMARY_MINUTE = 10
-CHALLENGE_DURATION = 28
-INTERMEDIATE_DAYS = frozenset({8, 15, 22})
-FINAL_SUMMARY_DAY = 29
-
-SCHEDULE_HOUR = 20
-SCHEDULE_MINUTE = 0
-WEEKDAY_FULL_LABELS = (
-    "Понедельник",
-    "Вторник",
-    "Среда",
-    "Четверг",
-    "Пятница",
-    "Суббота",
-    "Воскресенье",
-)
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 
@@ -66,7 +52,7 @@ def display_name(user_nickname: Optional[str], user_name: Optional[str]) -> str:
 
 
 def detect_summary_kind(group_challenge_day: int, stopped: bool) -> Optional[SummaryKind]:
-    """Определяет тип утреннего поста по challenge_day группы."""
+    """Определяет тип утреннего поста по дню потока."""
     if stopped:
         return None
     if group_challenge_day == FINAL_SUMMARY_DAY:
@@ -78,24 +64,7 @@ def detect_summary_kind(group_challenge_day: int, stopped: bool) -> Optional[Sum
     return None
 
 
-def get_upcoming_week_day_range(group_challenge_day: int) -> Optional[tuple[int, int]]:
-    """Диапазон дней челленджа на ближайшую неделю (для воскресного расписания)."""
-    if group_challenge_day >= CHALLENGE_DURATION:
-        return None
-    from_day = group_challenge_day + 1
-    if from_day > CHALLENGE_DURATION:
-        return None
-    to_day = min(group_challenge_day + 7, CHALLENGE_DURATION)
-    return from_day, to_day
-
-
-def challenge_day_weekday_label(challenge_day: int) -> str:
-    """Название дня недели: день 1 = Понедельник, день 2 = Вторник, …"""
-    return WEEKDAY_FULL_LABELS[(challenge_day - 1) % 7]
-
-
 def _final_place_label(rank: int) -> str:
-    """Медали для топ-3, для остальных — только номер места."""
     if rank == 1:
         return "🥇 1 место"
     if rank == 2:
@@ -106,7 +75,7 @@ def _final_place_label(rank: int) -> str:
 
 
 def rank_final_results(progress_rows: list[ProgressRow]) -> list[FinalRankRow]:
-    """Ранжирование: при равенстве — одно место; следующий результат — следующий номер (1, 2, 3…)."""
+    """Ранжирование: при равенстве — одно место; следующий результат — следующий номер."""
     sorted_rows = sorted(
         progress_rows,
         key=lambda r: (-r.completed, display_name(r.participant.user_nickname, r.participant.user_name)),
@@ -211,7 +180,7 @@ def build_summary_message(
             f"Поздравляю всех с окончанием челленджа ✨\n\n"
             f"Итоги:\n"
             f"{final_lines}\n\n"
-            f"Хорошо провели время , до новых встреч 🧡"
+            f"Хорошо провели время, до новых встреч 🧡"
         )
 
     if len(text) > TELEGRAM_MESSAGE_LIMIT:
@@ -252,28 +221,6 @@ def build_final_rows(
         for p in participants
     ]
     return rank_final_results(progress)
-
-
-def build_weekly_schedule_message(
-    from_day: int,
-    to_day: int,
-    practices: list[tuple[int, str, str, int]],
-) -> str:
-    """Расписание на неделю: день и длительность (жирным), заголовок, канал."""
-    day_blocks: list[str] = []
-    for day, title, channel_name, minutes in practices:
-        weekday = challenge_day_weekday_label(day)
-        title_text = escape_markdown((title or "Практика").strip(), version=1)
-        channel_text = escape_markdown((channel_name or "—").strip(), version=1)
-        day_blocks.append(
-            f"*🌀{weekday}: {minutes} мин*\n"
-            f"{title_text}\n"
-            f"{channel_text}"
-        )
-    body = "\n\n".join(day_blocks)
-    if not body:
-        return "📅 Расписание на неделю:"
-    return f"📅 Расписание на неделю:\n\n{body}"
 
 
 def collect_summary_data(

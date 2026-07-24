@@ -49,17 +49,23 @@ from .handlers.secret import (
 )
 from .block import handle_user_block_event
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
-from .challenge.job import schedule_challenge_summary
-from .challenge.admin import (
+from .challenge.jobs import schedule_challenge_jobs
+from .challenge.summary.commands import (
     challenge_summary_preview_command,
     challenge_summary_reset_command,
-    challenge_schedule_preview_command,
 )
-from .challenge.challenge_commands import (
-    CHALLENGE_TIME_FLOW_KEY,
+from .challenge.week_schedule.commands import challenge_schedule_preview_command
+from .challenge.flow.flow_add_command import (
+    flow_add_command,
+    handle_flow_add_input,
+    WAITING_FOR_FLOW_ADD_KEY,
+)
+from .challenge.flow.hand_commands import (
     challenge_command,
-    challenge_compact_command,
     challenge_off_command,
+)
+from .challenge.flow.start_flow import (
+    CHALLENGE_TIME_FLOW_KEY,
     handle_challenge_time_input,
 )
 from .handlers.suggest_practice import handle_suggest_practice_callback
@@ -116,6 +122,10 @@ async def handle_text_input(update: Update, context):
         print("=== DEBUG: Переадресация на handle_secret_input ===")
         await handle_secret_input(update, context)
         return
+
+    if context.user_data.get(WAITING_FOR_FLOW_ADD_KEY):
+        await handle_flow_add_input(update, context)
+        return
     
     # Проверяем состояние ожидания предложения практики
     if context.user_data.get('waiting_for_practice_suggestion'):
@@ -169,6 +179,7 @@ async def handle_text_input(update: Update, context):
     context.user_data.pop('waiting_for_time', None)
     context.user_data.pop('waiting_for_secret', None)
     context.user_data.pop('waiting_for_secret_edit', None)
+    context.user_data.pop(WAITING_FOR_FLOW_ADD_KEY, None)
 
 # Настройка логирования
 logging.basicConfig(
@@ -250,10 +261,10 @@ def main():
     application.add_handler(CommandHandler("secret_edit", secret_edit_command))
     application.add_handler(CommandHandler("challenge", challenge_command))
     application.add_handler(CommandHandler("challenge_off", challenge_off_command))
+    application.add_handler(CommandHandler("flow_add", flow_add_command))
     application.add_handler(CommandHandler("challenge_summary_preview", challenge_summary_preview_command))
     application.add_handler(CommandHandler("challenge_summary_reset", challenge_summary_reset_command))
     application.add_handler(CommandHandler("challenge_schedule_preview", challenge_schedule_preview_command))
-    application.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r"^/challenge(?:@[\w_]+)?\d+$"), challenge_compact_command))
     
     # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
     application.add_handler(CallbackQueryHandler(start_restart_yes_callback, pattern="^start_restart_yes$"))
@@ -350,7 +361,7 @@ def main():
     schedule_pause_reminders(application)
     # Планируем напоминания неактивным пользователям в режиме By mood
     schedule_by_mood_reminders(application)
-    schedule_challenge_summary(application)
+    schedule_challenge_jobs(application)
     # В 00:00 МСК снимаем «Я сделал!» со вчерашних (и более старых) неотмеченных практик
     schedule_strip_done_buttons_midnight(application)
     

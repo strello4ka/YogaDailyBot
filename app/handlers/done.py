@@ -11,7 +11,11 @@ from telegram.ext import ContextTypes
 
 from app.config import DEFAULT_TZ
 from app.handlers.favorites import message_is_favorites_carousel
-from app.handlers.progress import format_progress_stats, format_similar_result_line
+from app.handlers.progress import (
+    format_challenge_progress_line,
+    format_progress_stats,
+    format_similar_result_line,
+)
 from app.practice_markup import keep_favorite_button_on_message
 from app.practice_ref import parse_practice_callback
 from data.db import (
@@ -299,9 +303,10 @@ def schedule_strip_done_buttons_midnight(application) -> None:
         logger.error("Ошибка планирования снятия кнопок «Я сделал!»: %s", e)
 
 
-def _done_text(n: int, streak: int, similar_line: str, name: str) -> str:
+def _done_text(n: int, streak: int, similar_line: str, name: str, user_id: int) -> str:
     title = _achievement_title(n, streak, name)
-    return f"{title}\n\n{format_progress_stats(n, streak)}{similar_line}"
+    challenge_line = format_challenge_progress_line(user_id)
+    return f"{title}\n\n{format_progress_stats(n, streak, challenge_line)}{similar_line}"
 
 
 async def _strip_done_on_completed_messages(
@@ -395,7 +400,7 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
         similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)
         similar_line = format_similar_result_line(n, similar_percent)
         name = _display_name(update.effective_user)
-        text = _done_text(n, streak, similar_line, name)
+        text = _done_text(n, streak, similar_line, name, user_id)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=text,

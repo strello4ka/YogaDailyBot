@@ -3,7 +3,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.challenge.challenge_commands import CHALLENGE_TIME_FLOW_KEY, PENDING_CHALLENGE_PRACTICE_KEY
+from app.challenge.flow.start_flow import CHALLENGE_TIME_FLOW_KEY, PENDING_CHALLENGE_PRACTICE_KEY
 from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
 from app.keyboards import get_mode_choice_keyboard
 from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN, schedule_mode_pick_reminders

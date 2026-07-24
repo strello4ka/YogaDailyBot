@@ -43,6 +43,10 @@ test/.env.test
 tools/.env.broadcast
 !app/config.py
 
+# Telethon session (логин личного аккаунта — не коммитить)
+*.session
+*.session-journal
+
 # База данных
 *.db
 *.sqlite
