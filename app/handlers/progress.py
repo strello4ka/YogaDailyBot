@@ -14,12 +14,10 @@ from data.db import (
 )
 
 
-def format_streak_line(n: int, streak: int) -> str:
-    """Строка про непрерывную серию дней."""
-    if n == 0:
+def format_streak_line(streak: int) -> str:
+    """Строка про непрерывную серию дней; пустая, если серии нет."""
+    if streak <= 0:
         return ""
-    if streak == 0:
-        return "непрерывная серия дней ждет тебя, приходи завтра!"
     return f"Непрерывная серия дней: *{streak}*"
 
 
@@ -32,8 +30,8 @@ def format_challenge_progress_line(user_id: int) -> str:
 
 
 def format_progress_stats(n: int, streak: int, challenge_line: str = "") -> str:
-    """Строки прогресса: всего выполнено, серия, опционально челлендж."""
-    streak_line = format_streak_line(n, streak)
+    """Строки прогресса: всего выполнено, серия (если > 0), опционально челлендж."""
+    streak_line = format_streak_line(streak)
     lines = [f"Выполнено всего практик: *{n}*"]
     if streak_line:
         lines.append(streak_line)

@@ -21,11 +21,10 @@ def build_challenge_finished_text(completed: Optional[int] = None) -> str:
     if completed is not None:
         result_line = f"Твой результат: *{completed}/{CHALLENGE_DURATION}* дней\n"
     return (
-        "Челлендж завершен ✔️\n"
+        "*Челлендж завершен* ✔️\n\n"
         f"{result_line}"
         "Какими бы ни были цифры, я так рад, что ты участвовал!\n"
         "Продолжай пользоваться мной, чтобы сохранить привычку. \n"
-        "Твой прогресс челленджа будет сохранен.\n\n"
         "Выбери, как дальше работать с ботом 👇"
     )
 

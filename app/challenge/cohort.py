@@ -83,15 +83,6 @@ def get_cohort_challenge_day(for_date: Optional[date] = None) -> int:
     return (today - start).days + 1
 
 
-def is_challenge_enrollment_open(for_date: Optional[date] = None) -> bool:
-    """Окно записи: старт − 2 дня … старт включительно."""
-    start = get_challenge_start_date()
-    if start is None:
-        return False
-    today = _today_moscow(for_date)
-    return (start - timedelta(days=2)) <= today <= start
-
-
 def get_first_send_date_for_enrollment(for_date: Optional[date] = None) -> date:
     """Первая дата рассылки после записи в поток."""
     start = get_challenge_start_date()
@@ -124,6 +115,7 @@ def challenge_day_weekday_label(challenge_day: int) -> str:
 
 
 def enrollment_closed_message() -> str:
+    """Текст пользователю, если поток не настроен (без технических деталей env)."""
     return (
         "Запись в текущий поток челленджа сейчас закрыта.\n"
         "Если нужна помощь — напиши админу."

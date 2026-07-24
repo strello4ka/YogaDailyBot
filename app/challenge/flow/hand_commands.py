@@ -11,7 +11,6 @@ from app.challenge.cohort import (
     CHALLENGE_DURATION,
     enrollment_closed_message,
     get_challenge_start_practice_id,
-    is_challenge_enrollment_open,
     is_cohort_configured,
 )
 from app.challenge.flow.exit_flow import finish_challenge_for_user
@@ -29,9 +28,10 @@ async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Запасной ручной запуск челленджа для одного пользователя (/challenge).
 
     Основной способ записи — `/flow_add`. Id практики только из env.
+    Доступна, пока поток настроен (CHALLENGE_START_*); без календарного окна записи.
     """
     user_id = update.effective_user.id
-    if not is_cohort_configured() or not is_challenge_enrollment_open():
+    if not is_cohort_configured():
         await update.message.reply_text(enrollment_closed_message())
         return
 

@@ -39,7 +39,7 @@ async def flow_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data[WAITING_FOR_FLOW_ADD_KEY] = True
     await update.message.reply_text(
-        "📋 *Массовая запись в челлендж*\n\n"
+        "📋 *Добавляем участников в поток*\n\n"
         f"Стартовая практика потока: *{practice_id}*\n\n"
         "Пришли следующим сообщением список участников — *по одному на строку*:\n"
         "• `@nickname` или `nickname`\n"

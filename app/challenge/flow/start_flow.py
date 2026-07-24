@@ -9,6 +9,7 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from app.challenge.cohort import get_challenge_start_date
 from app.keyboards import get_main_reply_keyboard, get_welcome_keyboard
 from data.db import complete_user_challenge_setup, start_user_challenge_setup
 
@@ -17,15 +18,21 @@ logger = logging.getLogger(__name__)
 PENDING_CHALLENGE_PRACTICE_KEY = "pending_challenge_practice_id"
 CHALLENGE_TIME_FLOW_KEY = "waiting_for_challenge_time"
 
-CHALLENGE_WELCOME_TEXT = (
-    "*Ура, ты в челлендже* 🧡\n\n"
-    "Давай *выберем время*, в которое ты хочешь получать ежедневные практики, начиная с завтрашнего дня"
-)
-
 CHALLENGE_TIME_INPUT_TEXT = (
     "*Введи время в формате ЧЧ.ММ (например, 09.30)*\n\n"
     "PS. Время учитывается по МСК"
 )
+
+
+def build_challenge_welcome_text() -> str:
+    """Приветствие с датой старта потока в формате ДД.ММ."""
+    start = get_challenge_start_date()
+    start_label = start.strftime("%d.%m") if start else "даты старта"
+    return (
+        "*Ура, ты в потоке* 🧡\n\n"
+        "Давай *выберем время*, в которое ты хочешь получать ежедневные практики, "
+        f"начиная с {start_label}"
+    )
 
 
 async def send_challenge_welcome_dm(
@@ -50,7 +57,7 @@ async def send_challenge_welcome_dm(
     try:
         time_choice_message = await context.bot.send_message(
             chat_id=chat_id,
-            text=CHALLENGE_WELCOME_TEXT,
+            text=build_challenge_welcome_text(),
             reply_markup=get_welcome_keyboard(),
             parse_mode="Markdown",
         )
