@@ -10,9 +10,9 @@ from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN, schedule_mode_pick_remind
 from data.db import get_user_bot_mode
 
 CHALLENGE_CHANGE_MODE_BLOCKED_TEXT = (
-    "Сейчас ты в *челлендже* 🧡\n"
+    "Сейчас ты в челлендже 🧡\n"
     "Когда челлендж закончится, ты сможешь выбрать Daily или By mood.\n"
-    "Если ты хочешь завершить челлендж досрочно, вевди /challenge_off"
+    "Если хочешь завершить челлендж досрочно — введи /challenge_off"
 )
 
 
@@ -20,10 +20,7 @@ async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Показывает выбор режима. Прогресс не трогаем — полный сброс только по /start."""
     user_id = update.effective_user.id if update.effective_user else None
     if user_id and get_user_bot_mode(user_id) == "challenge":
-        await update.message.reply_text(
-            CHALLENGE_CHANGE_MODE_BLOCKED_TEXT,
-            parse_mode="Markdown",
-        )
+        await update.message.reply_text(CHALLENGE_CHANGE_MODE_BLOCKED_TEXT)
         return
 
     time_choice_chat_id = context.user_data.pop("daily_time_choice_chat_id", None)
