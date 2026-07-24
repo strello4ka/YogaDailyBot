@@ -7,11 +7,25 @@ from app.challenge.flow.start_flow import CHALLENGE_TIME_FLOW_KEY, PENDING_CHALL
 from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
 from app.keyboards import get_mode_choice_keyboard
 from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN, schedule_mode_pick_reminders
+from data.db import get_user_bot_mode
+
+CHALLENGE_CHANGE_MODE_BLOCKED_TEXT = (
+    "Сейчас ты в *челлендже* 🧡\n"
+    "Когда челлендж закончится, ты сможешь выбрать Daily или By mood.\n"
+    "Если ты хочешь завершить челлендж досрочно, вевди /challenge_off"
+)
 
 
 async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает выбор режима. Прогресс не трогаем — полный сброс только по /start."""
     user_id = update.effective_user.id if update.effective_user else None
+    if user_id and get_user_bot_mode(user_id) == "challenge":
+        await update.message.reply_text(
+            CHALLENGE_CHANGE_MODE_BLOCKED_TEXT,
+            parse_mode="Markdown",
+        )
+        return
+
     time_choice_chat_id = context.user_data.pop("daily_time_choice_chat_id", None)
     time_choice_message_id = context.user_data.pop("daily_time_choice_message_id", None)
     if time_choice_chat_id and time_choice_message_id:

@@ -26,7 +26,7 @@ def format_challenge_progress_line(user_id: int) -> str:
     if get_user_bot_mode(user_id) != "challenge":
         return ""
     completed = get_challenge_completed_in_last_n_days(user_id, CHALLENGE_DURATION)
-    return f"Прогресс в челлендже: *{completed}/{CHALLENGE_DURATION}* дней"
+    return f"Прогресс в челлендже: *{completed}/{CHALLENGE_DURATION}*"
 
 
 def format_progress_stats(n: int, streak: int, challenge_line: str = "") -> str:

@@ -36,7 +36,7 @@ async def challenge_summary_reset_command(update: Update, context: ContextTypes.
         return
 
     if reset_challenge_summary_state():
-        await update.message.reply_text("✅ Состояние утренней сводки сброшено. Рассылка снова активна.")
+        await update.message.reply_text("✅ Флаги сводок и расписания сброшены.")
         logger.info("Админ %s сбросил состояние сводки челленджа", user_id)
     else:
         await update.message.reply_text("❌ Не удалось сбросить состояние сводки.")
