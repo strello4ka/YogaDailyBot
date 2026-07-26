@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 from app.challenge.flow.start_flow import CHALLENGE_TIME_FLOW_KEY, PENDING_CHALLENGE_PRACTICE_KEY
 from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
 from app.keyboards import get_mode_choice_keyboard
-from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN, schedule_mode_pick_reminders
+from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN
 from data.db import get_user_bot_mode
 
 CHALLENGE_CHANGE_MODE_BLOCKED_TEXT = (
@@ -46,7 +46,6 @@ async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.pop(CHALLENGE_TIME_FLOW_KEY, None)
     context.user_data.pop(PENDING_CHALLENGE_PRACTICE_KEY, None)
 
-    chat_id = update.effective_chat.id
     if user_id:
         await cancel_done_reminders(context, user_id)
         dismiss_done_reminders(user_id)
@@ -56,8 +55,4 @@ async def change_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup=get_mode_choice_keyboard(),
         parse_mode="Markdown",
     )
-
-    if user_id:
-        await schedule_mode_pick_reminders(
-            context, chat_id, user_id, from_change_mode=True
-        )
+    # Напоминания не планируем: если режим не выбран, остаётся текущий — бот уже работает.

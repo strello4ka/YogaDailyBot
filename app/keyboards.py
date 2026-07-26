@@ -119,21 +119,28 @@ def get_favorites_carousel_keyboard(
     index: int,
     total: int,
     practice_catalog: str = "yoga",
+    *,
+    show_done: bool = True,
 ) -> InlineKeyboardMarkup:
-    """Карусель избранного: действия с практикой + навигация."""
+    """Карусель избранного: действия с практикой + навигация.
+
+    show_done=False — после отметки или на следующий день (кнопка «Я сделал!» снята).
+    """
     favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
-    rows = [
-        [
-            InlineKeyboardButton(
-                favorite_label,
-                callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
-            ),
+    action_row = [
+        InlineKeyboardButton(
+            favorite_label,
+            callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
+        ),
+    ]
+    if show_done:
+        action_row.append(
             InlineKeyboardButton(
                 "✅ Я сделал!",
                 callback_data=format_practice_callback("practice_done", practice_id, practice_catalog),
             ),
-        ],
-    ]
+        )
+    rows = [action_row]
     if total > 1:
         nav = []
         if index > 0:

@@ -79,6 +79,15 @@ async def send_challenge_group_summary(context: ContextTypes.DEFAULT_TYPE, *, fo
         return False
 
     group_challenge_day = get_group_challenge_day()
+    # До дня 2 нет смысла в автосводке: день 0 — до старта, день 1 — «вчера» ещё вне потока.
+    # Preview (force) может обойти это, если detect_summary_kind что-то вернёт.
+    if group_challenge_day < 2 and not force:
+        logger.info(
+            "Сводка пропущена: рано для утреннего отчёта (challenge_day=%s)",
+            group_challenge_day,
+        )
+        return False
+
     kind = detect_summary_kind(group_challenge_day, stopped=False if force else stopped)
     if kind is None:
         logger.info(

@@ -10,7 +10,10 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.config import DEFAULT_TZ
-from app.handlers.favorites import message_is_favorites_carousel
+from app.handlers.favorites import (
+    message_is_favorites_carousel,
+    strip_done_from_favorites_carousel,
+)
 from app.handlers.progress import (
     format_challenge_progress_line,
     format_progress_stats,
@@ -19,6 +22,7 @@ from app.handlers.progress import (
 from app.practice_markup import keep_favorite_button_on_message
 from app.practice_ref import parse_practice_callback
 from data.db import (
+    clear_last_favorites_carousel_message,
     get_completed_count,
     get_similar_result_percent,
     get_streak_days,
@@ -27,6 +31,7 @@ from data.db import (
     is_user_eligible_for_done_reminder,
     list_completed_today_practice_messages,
     list_stale_done_button_messages,
+    list_stale_favorites_carousel_messages,
     mark_practice_completed_by_practice_id,
     mark_practice_completed_today,
 )
@@ -190,6 +195,29 @@ async def _strip_done_button_targets(bot, targets) -> int:
     return stripped
 
 
+async def _strip_stale_favorites_carousels(bot, user_id: Optional[int] = None) -> int:
+    """Снимает «Я сделал!» с каруселей /favorite не за сегодня."""
+    targets = list_stale_favorites_carousel_messages()
+    if user_id is not None:
+        targets = [t for t in targets if t[0] == user_id]
+    stripped = 0
+    for uid, chat_id, message_id, practice_id, practice_catalog in targets:
+        try:
+            await strip_done_from_favorites_carousel(
+                bot, chat_id, message_id, uid, practice_id, practice_catalog
+            )
+            clear_last_favorites_carousel_message(uid)
+            stripped += 1
+        except Exception as e:
+            logger.debug(
+                "strip_favorites_done user=%s msg=%s: %s",
+                uid,
+                message_id,
+                e,
+            )
+    return stripped
+
+
 async def strip_previous_day_done_button(
     bot,
     chat_id: int,
@@ -202,14 +230,16 @@ async def strip_previous_day_done_button(
     (например, локальный тест), и чтобы дочистить хвосты после прошлых багов.
     """
     targets = [t for t in list_stale_done_button_messages() if t[0] == user_id]
-    if not targets:
-        return
-    stripped = await _strip_done_button_targets(bot, targets)
-    if stripped:
+    stripped = 0
+    if targets:
+        stripped = await _strip_done_button_targets(bot, targets)
+    fav_stripped = await _strip_stale_favorites_carousels(bot, user_id=user_id)
+    total = stripped + fav_stripped
+    if total:
         logger.info(
             "Снято кнопок «Я сделал!» (fallback при отправке) user=%s: %s",
             user_id,
-            stripped,
+            total,
         )
 
 
@@ -279,11 +309,14 @@ async def schedule_done_reminders(
 async def strip_stale_done_buttons_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """В 00:00 МСК снимает «Я сделал!» со всех неотмеченных практик не за сегодня."""
     targets = list_stale_done_button_messages()
-    if not targets:
-        return
-
-    stripped = await _strip_done_button_targets(context.bot, targets)
-    logger.info("Снято кнопок «Я сделал!» после полуночи: %s из %s", stripped, len(targets))
+    stripped = await _strip_done_button_targets(context.bot, targets) if targets else 0
+    fav_stripped = await _strip_stale_favorites_carousels(context.bot)
+    logger.info(
+        "Снято кнопок «Я сделал!» после полуночи: практики %s из %s, избранное %s",
+        stripped,
+        len(targets),
+        fav_stripped,
+    )
 
 
 def schedule_strip_done_buttons_midnight(application) -> None:
@@ -392,7 +425,15 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
                 fallback_practice_id=practice_id,
                 fallback_reply_markup=query.message.reply_markup,
             )
-        elif is_carousel:
+        elif is_carousel and query.message and practice_id is not None:
+            await strip_done_from_favorites_carousel(
+                context.bot,
+                query.message.chat_id,
+                query.message.message_id,
+                user_id,
+                practice_id,
+                practice_catalog or "yoga",
+            )
             await _strip_done_on_completed_messages(context.bot, user_id)
 
         n = get_completed_count(user_id)
@@ -405,6 +446,16 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
             chat_id=query.message.chat_id,
             text=text,
             parse_mode="Markdown",
+        )
+    elif is_carousel and query.message and practice_id is not None:
+        # Уже отмечено / вчерашняя кнопка в избранном — убираем «Я сделал!», навигация остаётся
+        await strip_done_from_favorites_carousel(
+            context.bot,
+            query.message.chat_id,
+            query.message.message_id,
+            user_id,
+            practice_id,
+            practice_catalog or "yoga",
         )
     elif not is_carousel and query.message:
         # Вчерашняя кнопка или уже отмечено — убираем «Я сделал!»

@@ -52,14 +52,19 @@ def display_name(user_nickname: Optional[str], user_name: Optional[str]) -> str:
 
 
 def detect_summary_kind(group_challenge_day: int, stopped: bool) -> Optional[SummaryKind]:
-    """Определяет тип утреннего поста по дню потока."""
+    """Определяет тип утреннего поста по дню потока.
+
+    Ежедневные «итоги за вчера» — только с дня 2 (вчера = день 1 потока).
+    День 0–1: без сводки. Промежуточные (8/15/22) и финал (29) — по своим дням.
+    """
     if stopped:
         return None
     if group_challenge_day == FINAL_SUMMARY_DAY:
         return "final"
     if group_challenge_day in INTERMEDIATE_DAYS:
         return "intermediate"
-    if group_challenge_day < FINAL_SUMMARY_DAY:
+    # День 1: «за вчера» ещё не из потока; день 0: до старта.
+    if 2 <= group_challenge_day < FINAL_SUMMARY_DAY:
         return "daily"
     return None
 

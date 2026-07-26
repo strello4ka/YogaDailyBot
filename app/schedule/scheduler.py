@@ -95,26 +95,29 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         program_position = get_program_position(user_id)
         next_position = program_position + 1
         total_practices = get_total_practices(user_id) + 1
-        if is_cohort_configured():
-            challenge_day = get_cohort_challenge_day()
-            if challenge_day < 1 or challenge_day > 28:
-                logger.info(
-                    "Пропуск челлендж-рассылки user=%s: день потока=%s",
-                    user_id,
-                    challenge_day,
-                )
-                return
-        else:
-            challenge_day = get_user_challenge_day(user_id) + 1
 
-        # Daily выбирается по program_position; Challenge — по стартовому id потока и дню.
+        # Challenge — только у кого задан challenge_start_id.
+        # Окно дня потока (1–28) касается только их; Daily не зависит от CHALLENGE_START_DATE.
         start_id = get_user_challenge_start_id(user_id)
-        if start_id is not None:
+        is_challenge = start_id is not None
+        challenge_day = 0
+
+        if is_challenge:
+            if is_cohort_configured():
+                challenge_day = get_cohort_challenge_day()
+                if challenge_day < 1 or challenge_day > 28:
+                    logger.info(
+                        "Пропуск челлендж-рассылки user=%s: день потока=%s",
+                        user_id,
+                        challenge_day,
+                    )
+                    return
+            else:
+                challenge_day = get_user_challenge_day(user_id) + 1
             practice = get_yoga_practice_by_challenge_order(start_id, challenge_day)
-            is_challenge = True
         else:
             practice = get_yoga_practice_by_weekday_order(weekday, next_position)
-            is_challenge = False
+
         if not practice:
             if is_challenge:
                 logger.error(f"Не найдена практика челленджа для пользователя {user_id}, день {challenge_day}")

@@ -113,6 +113,19 @@ def _migrate_practice_catalog_support(cursor) -> None:
     cursor.execute(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_practice_catalog TEXT DEFAULT 'yoga'"
     )
+    # Карусель /favorite: чтобы в полночь снять «Я сделал!» с сообщения избранного
+    cursor.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_favorites_message_id BIGINT"
+    )
+    cursor.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_favorites_practice_id INTEGER"
+    )
+    cursor.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_favorites_catalog TEXT DEFAULT 'yoga'"
+    )
+    cursor.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_favorites_shown_at TIMESTAMP"
+    )
 
 
 def get_connection():
@@ -1166,6 +1179,109 @@ def get_last_practice_message_id(user_id: int):
         if conn:
             conn.close()
         return None
+
+
+def set_last_favorites_carousel_message(
+    user_id: int,
+    message_id: int,
+    practice_id: int,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> bool:
+    """Запоминает сообщение карусели /favorite (для снятия «Я сделал!» на следующий день)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET last_favorites_message_id = %s,
+                last_favorites_practice_id = %s,
+                last_favorites_catalog = %s,
+                last_favorites_shown_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (message_id, practice_id, practice_catalog, user_id),
+        )
+        ok = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception as e:
+        print(f"Ошибка set_last_favorites_carousel_message для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def clear_last_favorites_carousel_message(user_id: int) -> bool:
+    """Сбрасывает трекинг карусели после снятия «Я сделал!»."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET last_favorites_message_id = NULL,
+                last_favorites_practice_id = NULL,
+                last_favorites_shown_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        ok = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return ok
+    except Exception as e:
+        print(f"Ошибка clear_last_favorites_carousel_message для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def list_stale_favorites_carousel_messages() -> list:
+    """Сообщения карусели /favorite не за сегодня — снять «Я сделал!» в полночь.
+
+    Returns:
+        list[tuple]: (user_id, chat_id, message_id, practice_id, practice_catalog)
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT user_id,
+                   chat_id,
+                   last_favorites_message_id,
+                   last_favorites_practice_id,
+                   COALESCE(last_favorites_catalog, 'yoga')
+            FROM users
+            WHERE last_favorites_message_id IS NOT NULL
+              AND last_favorites_practice_id IS NOT NULL
+              AND last_favorites_shown_at IS NOT NULL
+              AND last_favorites_shown_at::date < (NOW() AT TIME ZONE %s)::date
+            ''',
+            (DEFAULT_TZ,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        result = []
+        for user_id, chat_id, message_id, practice_id, catalog in rows:
+            if chat_id and message_id and practice_id:
+                result.append((user_id, chat_id, message_id, practice_id, catalog))
+        return result
+    except Exception as e:
+        print(f"Ошибка list_stale_favorites_carousel_messages: {e}")
+        if conn:
+            conn.close()
+        return []
 
 
 def delete_user(user_id: int) -> bool:

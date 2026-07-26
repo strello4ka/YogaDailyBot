@@ -21,6 +21,7 @@ from data.db import (
     is_user_favorite,
     list_user_favorites,
     remove_user_favorite,
+    set_last_favorites_carousel_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ async def render_favorites_carousel(
     user_id: int,
     index: int = 0,
     message_id: Optional[int] = None,
+    show_done: bool = True,
 ) -> None:
     favorites = list_user_favorites(user_id)
     if not favorites:
@@ -132,6 +134,7 @@ async def render_favorites_carousel(
         index,
         total,
         practice_catalog,
+        show_done=show_done,
     )
 
     if message_id is not None:
@@ -147,14 +150,61 @@ async def render_favorites_carousel(
         except BadRequest as e:
             if "message is not modified" not in str(e).lower():
                 raise
+        result_message_id = message_id
     else:
-        await bot.send_message(
+        message = await bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode="Markdown",
             disable_web_page_preview=False,
             reply_markup=reply_markup,
         )
+        result_message_id = message.message_id
+
+    set_last_favorites_carousel_message(
+        user_id, result_message_id, practice_id, practice_catalog
+    )
+
+
+async def strip_done_from_favorites_carousel(
+    bot,
+    chat_id: int,
+    message_id: int,
+    user_id: int,
+    practice_id: int,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> None:
+    """Убирает «Я сделал!» с карусели, оставляя избранное и навигацию."""
+    favorites = list_user_favorites(user_id)
+    if not favorites:
+        try:
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+        except Exception as e:
+            logger.debug("strip favorites empty markup msg=%s: %s", message_id, e)
+        return
+
+    index = _index_of_practice(favorites, practice_id, practice_catalog)
+    total = len(favorites)
+    practice = favorites[index]
+    pid = practice[0]
+    catalog = practice[11] if len(practice) > 11 else PRACTICE_CATALOG_YOGA
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=get_favorites_carousel_keyboard(
+                pid,
+                is_user_favorite(user_id, pid, catalog),
+                index,
+                total,
+                catalog,
+                show_done=False,
+            ),
+        )
+    except Exception as e:
+        logger.debug("strip favorites done msg=%s: %s", message_id, e)
 
 
 async def favorite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

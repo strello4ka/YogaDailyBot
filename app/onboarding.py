@@ -108,13 +108,10 @@ def _is_mode_choice_pending(user_id: int) -> bool:
 
 
 def _should_send_mode_pick_reminder(user_id: int, job_data: dict) -> bool:
-    """Напоминание на экране Daily/By mood: онбординг или зависание на /change_mode."""
+    """Напоминание на экране Daily/By mood — только пока режим ещё не выбран (pending)."""
     from data.db import get_user_bot_mode
 
-    if get_user_bot_mode(user_id) == "pending":
-        return True
-    scheduled_mode = job_data.get("scheduled_at_mode")
-    return scheduled_mode is not None and get_user_bot_mode(user_id) == scheduled_mode
+    return get_user_bot_mode(user_id) == "pending"
 
 
 def _is_daily_time_onboarding_pending(user_id: int) -> bool:
@@ -419,10 +416,8 @@ async def schedule_mode_pick_reminders(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
     user_id: int,
-    *,
-    from_change_mode: bool = False,
 ):
-    """Напоминания через 1 и 24 ч после «Выбрать режим» (экран Daily / By mood)."""
+    """Напоминания через 1 и 24 ч после экрана Daily / By mood (только для pending)."""
     if not hasattr(context, "job_queue") or context.job_queue is None:
         return
 
@@ -430,10 +425,6 @@ async def schedule_mode_pick_reminders(
     await _cancel_named_jobs(context, _mode_pick_job_names(user_id))
 
     job_data = {"chat_id": chat_id, "user_id": user_id}
-    if from_change_mode:
-        from data.db import get_user_bot_mode
-
-        job_data["scheduled_at_mode"] = get_user_bot_mode(user_id)
     try:
         context.job_queue.run_once(
             send_mode_pick_reminder_1h,
