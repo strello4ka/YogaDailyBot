@@ -1382,8 +1382,10 @@ def get_users_pending_for_today(current_time: str) -> list:
     Для тех, кто уже получал запланированные практики (day_number >= 1 в логах),
     используется notify_time <= current_time — чтобы дослать при сбое в тот же день.
 
-    Первая рассылка после онбординга — не раньше users.first_daily_send_date (завтра).
-    Для пользователей без этой даты действует прежняя логика (досыл в тот же день при сбое).
+    Первая рассылка: не раньше users.first_daily_send_date.
+    Если first_daily_send_date = сегодня (опоздавший в челлендж и т.п.) — можно
+    слать в тот же день после наступления notify_time, без ожидания «завтра».
+    Иначе (или без даты) — прежнее правило: не в день настройки (updated_at < сегодня).
 
     Args:
         current_time: текущее время в формате HH:MM (в базовой таймзоне бота)
@@ -1433,12 +1435,28 @@ def get_users_pending_for_today(current_time: str) -> list:
                             AND pl.day_number >= 1
                       )
                       AND u.notify_time <= %s
-                      AND (u.updated_at AT TIME ZONE %s)::date
-                          < (NOW() AT TIME ZONE %s)::date
+                      AND (
+                          (
+                              u.first_daily_send_date IS NOT NULL
+                              AND u.first_daily_send_date
+                                  <= (NOW() AT TIME ZONE %s)::date
+                          )
+                          OR (u.updated_at AT TIME ZONE %s)::date
+                              < (NOW() AT TIME ZONE %s)::date
+                      )
                   )
               )
             ''',
-            (DEFAULT_TZ, DEFAULT_TZ, DEFAULT_TZ, current_time, current_time, DEFAULT_TZ, DEFAULT_TZ),
+            (
+                DEFAULT_TZ,
+                DEFAULT_TZ,
+                DEFAULT_TZ,
+                current_time,
+                current_time,
+                DEFAULT_TZ,
+                DEFAULT_TZ,
+                DEFAULT_TZ,
+            ),
         )
 
         results = cursor.fetchall()

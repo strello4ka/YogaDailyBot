@@ -4,19 +4,27 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.challenge.cohort import get_challenge_start_date
+from app.challenge.cohort import get_challenge_start_date, is_cohort_configured
+from app.config import DEFAULT_TZ
 from app.keyboards import get_main_reply_keyboard, get_welcome_keyboard
-from data.db import complete_user_challenge_setup, start_user_challenge_setup
+from data.db import (
+    complete_user_challenge_setup,
+    get_current_weekday,
+    start_user_challenge_setup,
+)
 
 logger = logging.getLogger(__name__)
 
 PENDING_CHALLENGE_PRACTICE_KEY = "pending_challenge_practice_id"
 CHALLENGE_TIME_FLOW_KEY = "waiting_for_challenge_time"
+MOSCOW_TZ = ZoneInfo(DEFAULT_TZ)
 
 CHALLENGE_TIME_INPUT_TEXT = (
     "*Введи время в формате ЧЧ.ММ (например, 09.30)*\n\n"
@@ -143,6 +151,17 @@ def _validate_time_format(time_str: str) -> tuple[bool, str]:
     return True, f"{hour:02d}:{minute:02d}"
 
 
+def _should_send_challenge_practice_immediately(notify_time: str) -> bool:
+    """True, если поток уже идёт и выбранное время на сегодня уже наступило (МСК)."""
+    if not is_cohort_configured():
+        return False
+    start = get_challenge_start_date()
+    now = datetime.now(MOSCOW_TZ)
+    if start is None or now.date() < start:
+        return False
+    return notify_time <= now.strftime("%H:%M")
+
+
 async def handle_challenge_time_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Ввод времени для челленджа: сохраняем время и активируем bot_mode='challenge'."""
     is_valid, result = _validate_time_format(update.message.text)
@@ -178,13 +197,18 @@ async def handle_challenge_time_input(update: Update, context: ContextTypes.DEFA
     context.user_data.pop("waiting_for_time", None)
     context.user_data.pop(CHALLENGE_TIME_FLOW_KEY, None)
     context.user_data.pop(PENDING_CHALLENGE_PRACTICE_KEY, None)
+
+    send_now = _should_send_challenge_practice_immediately(selected_time)
     await update.message.reply_text(
         (
             "Готово ✔️\n\n"
             f"Твоё время *{selected_time}*.\n"
-            "Длительность челленджа — *28 дней*.\n"
-            f"В понедельник придёт твоя первая практика!\n\n"
-            "Уже жду начала 🧡"
+            "Длительность челленджа — *28 дней*.\n\n"
+            + (
+                "Сейчас пришлю практику за сегодня 🧡"
+                if send_now
+                else "Уже жду начала 🧡"
+            )
         ),
         parse_mode="Markdown",
     )
@@ -200,3 +224,17 @@ async def handle_challenge_time_input(update: Update, context: ContextTypes.DEFA
         reply_markup=get_main_reply_keyboard(),
         parse_mode="Markdown",
     )
+
+    if send_now:
+        try:
+            from app.schedule.scheduler import send_practice_to_user
+
+            await send_practice_to_user(
+                context, user.id, chat_id, get_current_weekday()
+            )
+        except Exception as e:
+            logger.warning(
+                "Не удалось сразу отправить практику челленджа user=%s: %s",
+                user.id,
+                e,
+            )

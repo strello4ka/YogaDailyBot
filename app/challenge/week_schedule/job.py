@@ -14,7 +14,6 @@ from app.challenge.cohort import (
 )
 from app.challenge.week_schedule.messages import build_weekly_schedule_message
 from data.db import (
-    get_active_challenge_participants,
     get_group_challenge_day,
     get_group_challenge_start_id,
     get_yoga_practice_by_challenge_order,
@@ -55,7 +54,12 @@ def _load_week_practices(challenge_start_id: int, from_day: int, to_day: int) ->
 
 
 async def send_challenge_weekly_schedule(context: ContextTypes.DEFAULT_TYPE, *, force: bool = False) -> bool:
-    """Отправляет расписание на неделю в групповой чат. force=True — без проверки времени (preview)."""
+    """Отправляет расписание на неделю в групповой чат.
+
+    force=True — без проверки времени (preview).
+    Участники challenge не обязательны: достаточно env потока и CHALLENGE_GROUP_CHAT_ID.
+    В воскресенье перед стартом (день потока 0) уходит расписание дней 1–7.
+    """
     if not CHALLENGE_GROUP_CHAT_ID:
         if force:
             logger.warning("CHALLENGE_GROUP_CHAT_ID не задан — расписание не отправлено")
@@ -78,11 +82,7 @@ async def send_challenge_weekly_schedule(context: ContextTypes.DEFAULT_TYPE, *, 
         if is_challenge_weekly_schedule_sent_on(today):
             return False
 
-    participants_raw = get_active_challenge_participants()
-    if not participants_raw:
-        logger.info("Нет активных участников челленджа — расписание пропущено")
-        return False
-
+    # Участники не обязательны: расписание — анонс в группу (в т.ч. вс перед стартом, день потока 0).
     group_challenge_day = get_group_challenge_day()
     week_range = get_upcoming_week_day_range(group_challenge_day)
     if not week_range:

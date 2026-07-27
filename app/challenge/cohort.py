@@ -84,7 +84,11 @@ def get_cohort_challenge_day(for_date: Optional[date] = None) -> int:
 
 
 def get_first_send_date_for_enrollment(for_date: Optional[date] = None) -> date:
-    """Первая дата рассылки после записи в поток."""
+    """Первая дата рассылки после записи в поток.
+
+    До старта — день старта; в день старта и позже — сегодня
+    (практика уходит сегодня: в notify_time или сразу, если время уже прошло).
+    """
     start = get_challenge_start_date()
     today = _today_moscow(for_date)
     if start is None:
@@ -95,7 +99,11 @@ def get_first_send_date_for_enrollment(for_date: Optional[date] = None) -> date:
 
 
 def get_upcoming_week_day_range(cohort_day: int) -> Optional[tuple[int, int]]:
-    """Диапазон дней потока на ближайшую неделю (вс 20:00)."""
+    """Диапазон дней потока на ближайшую неделю (вс 20:00).
+
+    В воскресенье перед стартом cohort_day=0 → дни 1–7.
+    В воскресенье после дня 7 → 8–14 и т.д.
+    """
     if cohort_day >= CHALLENGE_DURATION:
         return None
     from_day = cohort_day + 1
