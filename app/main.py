@@ -31,7 +31,11 @@ from .handlers.donations import (
     handle_pre_checkout_query,
     handle_successful_payment
 )
-from .handlers.done import handle_practice_done_callback, schedule_strip_done_buttons_midnight
+from .handlers.done import (
+    handle_practice_done_callback,
+    schedule_done_evening_reminders,
+    schedule_strip_done_buttons_midnight,
+)
 from .daily.pause import schedule_pause_reminders
 from .by_mood.reminders import schedule_by_mood_reminders
 from .handlers.change_mode import change_mode_command
@@ -364,6 +368,8 @@ def main():
     schedule_challenge_jobs(application)
     # В 00:00 МСК снимаем «Я сделал!» со вчерашних (и более старых) неотмеченных практик
     schedule_strip_done_buttons_midnight(application)
+    # Резервный раннер 19:30-напоминаний: восстанавливает отправку после перезапусков
+    schedule_done_evening_reminders(application)
     
     # Запускаем бота
     logger.info("Запускаем YogaDailyBot с JobQueue...")
