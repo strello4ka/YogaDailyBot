@@ -3846,6 +3846,37 @@ def has_uncompleted_practice_sent_today(user_id: int) -> bool:
         return False
 
 
+def get_users_for_done_evening_reminder(reminder_time: str = "19:30:00") -> list:
+    """Пользователи для вечернего напоминания «Я сделал!» за текущий день (МСК)."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT DISTINCT u.user_id, u.chat_id
+            FROM users u
+            JOIN practice_logs pl ON pl.user_id = u.user_id
+            WHERE COALESCE(u.is_blocked, FALSE) = FALSE
+              AND COALESCE(u.is_paused, FALSE) = FALSE
+              AND COALESCE(u.onboarding_required, FALSE) = FALSE
+              AND pl.completed_at IS NULL
+              AND COALESCE(pl.done_reminder_dismissed, FALSE) = FALSE
+              AND pl.sent_at::date = (NOW() AT TIME ZONE %s)::date
+              AND pl.sent_at::time <= %s::time
+            ''',
+            (DEFAULT_TZ, reminder_time),
+        )
+        users = cursor.fetchall()
+        conn.close()
+        return users
+    except Exception as e:
+        print(f"Ошибка get_users_for_done_evening_reminder: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
 def is_last_practice_log_from_today(user_id: int) -> bool:
     """Последняя отправленная практика пользователя — за сегодня (МСК)."""
     conn = None

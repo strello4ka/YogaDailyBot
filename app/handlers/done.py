@@ -25,6 +25,7 @@ from data.db import (
     clear_last_favorites_carousel_message,
     get_completed_count,
     get_similar_result_percent,
+    get_users_for_done_evening_reminder,
     get_streak_days,
     has_completed_practice_today,
     has_uncompleted_practice_sent_today,
@@ -269,6 +270,8 @@ async def _send_done_reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             text=pick_done_reminder_text(),
             parse_mode="Markdown",
         )
+        # После успешной отправки больше не напоминаем за текущий день.
+        dismiss_done_reminders(user_id)
     except Exception as e:
         logger.error("Ошибка напоминания о практике user=%s: %s", user_id, e)
 
@@ -304,6 +307,54 @@ async def schedule_done_reminders(
             data=job_data,
             name=f"done_reminder_1930_{user_id}",
         )
+
+
+async def send_evening_done_reminders_failsafe_job(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Резервная отправка после 19:30 МСК, чтобы переживать перезапуски бота."""
+    now = _now_moscow()
+    evening = datetime.combine(now.date(), EVENING_REMINDER_TIME, tzinfo=MOSCOW_TZ)
+    if now < evening:
+        return
+
+    users = get_users_for_done_evening_reminder(EVENING_REMINDER_TIME.strftime("%H:%M:%S"))
+    if not users:
+        return
+
+    for user_id, chat_id in users:
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=pick_done_reminder_text(),
+                parse_mode="Markdown",
+            )
+            dismiss_done_reminders(user_id)
+            logger.info("Отправлено резервное 19:30-напоминание user=%s", user_id)
+        except Exception as e:
+            logger.error(
+                "Ошибка резервного 19:30-напоминания user=%s: %s",
+                user_id,
+                e,
+            )
+
+
+def schedule_done_evening_reminders(application) -> None:
+    """Фоновая проверка каждые 5 минут: догоняет пропущенные 19:30-напоминания."""
+    try:
+        job_queue = application.job_queue
+        if not job_queue:
+            logger.error("JobQueue недоступен для резервных 19:30-напоминаний")
+            return
+        job_queue.run_repeating(
+            send_evening_done_reminders_failsafe_job,
+            interval=60 * 5,
+            first=20,
+            name="done_evening_reminders_failsafe",
+        )
+        logger.info("Резервные 19:30-напоминания «Я сделал!» запланированы")
+    except Exception as e:
+        logger.error("Ошибка планирования резервных 19:30-напоминаний: %s", e)
 
 
 async def strip_stale_done_buttons_job(context: ContextTypes.DEFAULT_TYPE) -> None:
