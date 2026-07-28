@@ -5,7 +5,7 @@
 ## Как это работает
 
 1. В посте / био / описании публикуете ссылку с меткой:
-   `https://t.me/ИМЯ_БОТА?start=метка`
+   `https://t.me/YogaDailyBot?start=метка`
 2. Человек нажимает Start.
 3. Бот один раз сохраняет метку в `users.traffic_source` (первый вход).
 4. Повторный `/start` или сброс онбординга метку **не меняют**.
@@ -19,16 +19,22 @@
 - Длина до 64 символов
 - Рекомендуемый шаблон: `{канал}_{место}` или `{канал}_{место}_{кампания}`
 
-Примеры ссылок (подставьте username бота):
+Готовые ссылки для @YogaDailyBot (YouTube / Instagram):
 
-| Место | Метка | Ссылка |
-|-------|--------|--------|
-| YouTube описание | `youtube_desc` | `https://t.me/Bot?start=youtube_desc` |
-| YouTube Shorts | `youtube_shorts` | `https://t.me/Bot?start=youtube_shorts` |
-| Instagram био | `ig_bio` | `https://t.me/Bot?start=ig_bio` |
-| Instagram сторис | `ig_story` | `https://t.me/Bot?start=ig_story` |
-| Instagram Reels | `ig_reels` | `https://t.me/Bot?start=ig_reels` |
-| Telegram канал | `tg_channel` | `https://t.me/Bot?start=tg_channel` |
+| Где публикуете | Метка | Ссылка |
+|----------------|--------|--------|
+| YouTube — описание / закреп | `youtube_desc` | `https://t.me/YogaDailyBot?start=youtube_desc` |
+| YouTube Shorts | `youtube_shorts` | `https://t.me/YogaDailyBot?start=youtube_shorts` |
+| Instagram — био | `ig_bio` | `https://t.me/YogaDailyBot?start=ig_bio` |
+| Instagram — сторис | `ig_story` | `https://t.me/YogaDailyBot?start=ig_story` |
+| Instagram Reels | `ig_reels` | `https://t.me/YogaDailyBot?start=ig_reels` |
+
+**Telegram:** тег `@YogaDailyBot` удобен, но метку не передаёт (в отчёте — «без метки»). Полная ссылка нужна только если хотите померить конкретный пост:
+
+| Где публикуете | Метка | Ссылка |
+|----------------|--------|--------|
+| Telegram — канал (опционально) | `tg_channel` | `https://t.me/YogaDailyBot?start=tg_channel` |
+| Telegram — чатик (опционально) | `tg_chat` | `https://t.me/YogaDailyBot?start=tg_chat` |
 
 ## Поля в БД
 
