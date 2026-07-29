@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 def format_by_mood_practice_message(
     my_description: str,
     time_practices: int,
-    intensity: str,
+    difficulty: str,
     channel_name: str,
     video_url: str,
 ) -> str:
@@ -33,8 +33,8 @@ def format_by_mood_practice_message(
     else:
         parts.append("Новая практика ждёт тебя!")
     parts.append(f"\n🌀 *время:* {time_practices} мин")
-    if intensity:
-        parts.append(f"🌀 *интенсивность:* {intensity}")
+    if difficulty:
+        parts.append(f"🌀 *сложность:* {difficulty}")
     parts.append(f"🌀 *канал:* {channel_name}")
     parts.append(f"\n▶️ [Youtube]({video_url})")
     return "\n".join(parts)
@@ -59,7 +59,7 @@ async def deliver_on_demand_practice(
         channel_name,
         _description,
         my_description,
-        intensity,
+        difficulty,
         _weekday,
         _created_at,
         _updated_at,
@@ -78,7 +78,7 @@ async def deliver_on_demand_practice(
         text = format_by_mood_practice_message(
             my_description or "",
             time_practices,
-            intensity or "",
+            difficulty or "",
             channel_name,
             video_url,
         )

@@ -14,7 +14,7 @@
 - `challenge_day` (INTEGER) - день внутри челленджа
 
 #### Новые поля в таблице `yoga_practices`:
-- `intensity` (TEXT) - интенсивность практики (легкая, средняя, высокая и т.д.)
+- `difficulty` (TEXT) - сложность практики (легкая, средняя, высокая и т.д.)
 
 #### Новая таблица `practice_logs`:
 - `log_id` (INTEGER PRIMARY KEY) - ID записи
@@ -74,7 +74,7 @@
 {my_description}
 
 🌀 {длительность} минут
-🌀 {интенсивность}
+🌀 {сложность}
 🌀 {название_канала}
 
 ▶️ [Youtube]({ссылка})
@@ -143,13 +143,13 @@ add_yoga_practice(
     time_practices=15,
     channel_name="Название канала",
     my_description="Описание практики",
-    intensity="средняя",
+    difficulty="средняя",
     weekday=1  # 1=понедельник, 7=воскресенье
 )
 ```
 
 ### Через CSV
-Используйте существующий скрипт `app/content/add_practices.py` с добавленным полем `intensity`.
+Используйте существующий скрипт `app/content/add_practices.py` с добавленным полем `difficulty`.
 
 ## 🚨 Обработка ошибок
 

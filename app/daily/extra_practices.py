@@ -14,7 +14,7 @@ from telegram.ext import ContextTypes
 
 from app.by_mood import five_min, hard, lazy_days, long_practices, no_mat, practice_of_day, strello4ka
 from app.by_mood.self_decide import time_keyboard
-from app.by_mood.self_decide import handle_intensity_callback as self_handle_intensity
+from app.by_mood.self_decide import handle_difficulty_callback as self_handle_difficulty
 from app.by_mood.self_decide import handle_time_callback as self_handle_time
 from app.by_mood.send_utils import deliver_by_mood_practice
 from data.db import (
@@ -37,7 +37,7 @@ EXTRA_PRACTICES_INTRO = (
 
 EXTRA_MOOD_PREFIX = "extra_mood:"
 EXTRA_SELF_TIME_PREFIX = "extra_self_time"
-EXTRA_SELF_INTENSITY_PREFIX = "extra_self_intensity"
+EXTRA_SELF_DIFFICULTY_PREFIX = "extra_self_difficulty"
 
 _STALE_EXTRA_MSG = (
     "Эти кнопки доступны в режимах Daily или Challenge. Выбери режим через /change_mode."
@@ -64,7 +64,7 @@ _EXTRA_FILTER_ROWS: tuple[tuple[str, str, str, tuple, str], ...] = (
         lazy_days.FILTER_KEY,
         lazy_days.WHERE,
         (),
-        "Не нашлось практик с очень низкой интенсивностью. Попробуй другой фильтр.",
+        "Не нашлось практик с очень низкой сложностью. Попробуй другой фильтр.",
     ),
     (
         "five",
@@ -78,7 +78,7 @@ _EXTRA_FILTER_ROWS: tuple[tuple[str, str, str, tuple, str], ...] = (
         hard.FILTER_KEY,
         hard.WHERE,
         (),
-        "Не нашлось практик со сверх высокой интенсивностью. Попробуй другой фильтр.",
+        "Не нашлось практик со сверх высокой сложностью. Попробуй другой фильтр.",
     ),
     (
         "strello4ka",
@@ -225,11 +225,11 @@ async def handle_extra_self_time_callback(update: Update, context: ContextTypes.
         update,
         context,
         time_callback_prefix=EXTRA_SELF_TIME_PREFIX,
-        intensity_callback_prefix=EXTRA_SELF_INTENSITY_PREFIX,
+        difficulty_callback_prefix=EXTRA_SELF_DIFFICULTY_PREFIX,
     )
 
 
-async def handle_extra_self_intensity_callback(
+async def handle_extra_self_difficulty_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     user = update.effective_user
@@ -244,6 +244,6 @@ async def handle_extra_self_intensity_callback(
                 )
             await query.message.reply_text(_STALE_EXTRA_MSG)
         return
-    await self_handle_intensity(
-        update, context, intensity_callback_prefix=EXTRA_SELF_INTENSITY_PREFIX
+    await self_handle_difficulty(
+        update, context, difficulty_callback_prefix=EXTRA_SELF_DIFFICULTY_PREFIX
     )

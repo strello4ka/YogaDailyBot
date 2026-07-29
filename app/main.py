@@ -83,11 +83,11 @@ from .handlers.favorites import (
     handle_fav_noop_callback,
 )
 from .bot_commands import setup_bot_commands
-from app.by_mood.self_decide import handle_intensity_callback as by_mood_self_intensity_callback
+from app.by_mood.self_decide import handle_difficulty_callback as by_mood_self_difficulty_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
 from app.daily.extra_practices import (
     handle_extra_mood_callback,
-    handle_extra_self_intensity_callback,
+    handle_extra_self_difficulty_callback,
     handle_extra_self_time_callback,
 )
 
@@ -279,11 +279,11 @@ def main():
     application.add_handler(CallbackQueryHandler(mode_pick_by_mood_callback, pattern="^mode_pick_by_mood$"))
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
-    application.add_handler(CallbackQueryHandler(by_mood_self_intensity_callback, pattern="^self_intensity:"))
+    application.add_handler(CallbackQueryHandler(by_mood_self_difficulty_callback, pattern="^self_difficulty:"))
     application.add_handler(CallbackQueryHandler(handle_extra_mood_callback, pattern="^extra_mood:"))
     application.add_handler(CallbackQueryHandler(handle_extra_self_time_callback, pattern="^extra_self_time:"))
     application.add_handler(
-        CallbackQueryHandler(handle_extra_self_intensity_callback, pattern="^extra_self_intensity:")
+        CallbackQueryHandler(handle_extra_self_difficulty_callback, pattern="^extra_self_difficulty:")
     )
 
     # Регистрируем обработчики для донатов

@@ -54,7 +54,7 @@ MODE_CHOICE_INTRO_MARKDOWN = (
     "*Выбираешь удобное время, и бот присылает видео в это время каждый день.*\n"
     "Ты не заметишь напряга, но станешь сильнее, выносливее и гибче!\n\n"
     "🌀 Режим *By mood* — для тех, кто хочет делать зарядки и разминки по состоянию в моменте, но без траты времени на поиск качественного контента.\n"
-    "*Нажимаешь подходящую по настроению кнопку, и бот сразу подбирает практику под твой запрос: Ленивые дни, Мини, Практика дня и т.д.* Также можно самому настроить время и интенсивность.\n\n"
+    "*Нажимаешь подходящую по настроению кнопку, и бот сразу подбирает практику под твой запрос: Ленивые дни, Мини, Практика дня и т.д.* Также можно самому настроить время и сложность.\n\n"
     # "Оба режима помогают практиковать регулярно, просто разным способом:\n"
     # "*Daily* — через привычку и стабильность\n"
     # "*By mood* — через гибкость и свободу выбора.\n\n"
@@ -701,7 +701,7 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
             channel_name,
             _description,
             my_description,
-            intensity,
+            difficulty,
             _practice_weekday,
             _created_at,
             _updated_at,
@@ -709,14 +709,14 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
     else:
         my_description = ""
         time_practices = 0
-        intensity = None
+        difficulty = None
         channel_name = "YouTube"
 
     text = format_practice_message(
         title="Практика дня",
         my_description=my_description,
         time_practices=time_practices,
-        intensity=intensity,
+        difficulty=difficulty,
         channel_name=channel_name,
         video_url=ONBOARDING_EXAMPLE_VIDEO_URL,
     )
@@ -859,7 +859,7 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
         "🌀 *Длинные* — практики больше 45 минут\n"
         "🌀 *Мини* — самые короткие практики, отсутствие времени больше не проблема\n"
         "🌀 *Практика дня* — рандом из каталога, доверься мне, я выберу что-то хорошее\n"
-        "🌀 *САМ решу* — выбираешь время, потом интенсивность, а я подбираю практику\n\n"
+        "🌀 *САМ решу* — выбираешь время, потом сложность, а я подбираю практику\n\n"
         "Также есть *Меню* ↙️, где можно посмотреть свой прогресс, избранные практики, задонатить и найти другую полезную инфу.\n\n"
     )
     await context.bot.send_message(
