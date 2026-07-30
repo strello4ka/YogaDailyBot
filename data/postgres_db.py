@@ -4890,48 +4890,58 @@ def get_challenge_completed_in_last_n_days(user_id: int, n: int) -> int:
     if n <= 0:
         return 0
     conn = None
-    sent_moscow = _timestamp_moscow_date_sql("c.sent_at")
-    completed_moscow = _timestamp_moscow_date_sql("c.completed_at")
+    sent_moscow_c = _timestamp_moscow_date_sql("c.sent_at")
+    sent_moscow_c2 = _timestamp_moscow_date_sql("c2.sent_at")
+    completed_moscow_c2 = _timestamp_moscow_date_sql("c2.completed_at")
     sub_completed_moscow = _timestamp_moscow_date_sql("sub.completed_at")
     try:
         from app.challenge.cohort import get_challenge_start_date, is_cohort_configured
 
         start_date = get_challenge_start_date() if is_cohort_configured() else None
-        date_filter_sql = f"AND {sent_moscow} >= %s" if start_date else ""
+        start_filter = "AND (%s IS NULL OR sent_day >= %s)"
+        start_filter_c2 = f"AND (%s IS NULL OR {sent_moscow_c2} >= %s)"
 
-        params: list = [DEFAULT_TZ, user_id]
-        if start_date:
-            params.extend([DEFAULT_TZ, start_date])
-        params.extend([n, user_id, DEFAULT_TZ, user_id, DEFAULT_TZ])
-        if start_date:
-            params.extend([DEFAULT_TZ, start_date])
+        params = (
+            DEFAULT_TZ,  # sent_day in recent_days
+            user_id,
+            start_date,
+            start_date,
+            n,
+            user_id,
+            DEFAULT_TZ,  # completed_moscow_c2
+            start_date,
+            DEFAULT_TZ,  # sent_moscow_c2 in start_filter_c2
+            start_date,
+            user_id,
+            DEFAULT_TZ,  # sub_completed_moscow
+        )
 
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
             f'''
             WITH recent_days AS (
-                SELECT sent_day
+                SELECT DISTINCT sent_day
                 FROM (
-                    SELECT DISTINCT {sent_moscow} AS sent_day
+                    SELECT {sent_moscow_c} AS sent_day
                     FROM practice_logs c
                     WHERE c.user_id = %s
                       AND c.day_number >= 1
-                      {date_filter_sql}
                 ) days
+                WHERE 1=1
+                  {start_filter}
                 ORDER BY sent_day DESC
                 LIMIT %s
             )
             SELECT COUNT(*) FROM recent_days d
             WHERE EXISTS (
-                SELECT
-                    1
-                FROM practice_logs c
-                WHERE c.user_id = %s
-                  AND c.day_number >= 1
-                  AND c.completed_at IS NOT NULL
-                  AND {completed_moscow} = d.sent_day
-                  {date_filter_sql}
+                SELECT 1
+                FROM practice_logs c2
+                WHERE c2.user_id = %s
+                  AND c2.day_number >= 1
+                  AND c2.completed_at IS NOT NULL
+                  AND {completed_moscow_c2} = d.sent_day
+                  {start_filter_c2}
             )
             OR EXISTS (
                 SELECT 1
