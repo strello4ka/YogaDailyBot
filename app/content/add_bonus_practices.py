@@ -74,7 +74,7 @@ def create_csv_template():
 
     with open(csv_file, 'w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
-        writer.writerow(['parent_practice_id', 'video_url', 'my_description', 'intensity'])
+        writer.writerow(['parent_practice_id', 'video_url', 'my_description', 'difficulty'])
         writer.writerow(['1', 'https://www.youtube.com/watch?v=exampleBonus', 'Мягкое дополнение к основному занятию', 'Легкая'])
         writer.writerow(['3', 'https://youtu.be/exampleBonus2', 'Для тех, кому хочется добавить огня', 'Средняя'])
         writer.writerow(['5', 'https://www.youtube.com/watch?v=exampleBonus3', '', ''])
@@ -84,7 +84,7 @@ def create_csv_template():
     print("   - parent_practice_id: ID основной практики, к которой цепляем бонус")
     print("   - video_url: ссылка на YouTube видео")
     print("   - my_description: ваше описание (опционально)")
-    print("   - intensity: интенсивность бонуса (опционально)")
+    print("   - difficulty: сложность бонуса (опционально)")
 
 
 def validate_parent_practice(practice_id_str: str, row_num: int):
@@ -142,7 +142,7 @@ def process_csv_file(csv_file: str):
                 continue
 
             my_description = (row.get('my_description') or '').strip()
-            intensity = (row.get('intensity') or '').strip()
+            difficulty = (row.get('difficulty') or '').strip()
 
             print("📡 Получаем данные о бонусе с YouTube...")
             youtube_data = get_youtube_data(video_url)
@@ -163,7 +163,7 @@ def process_csv_file(csv_file: str):
                 channel_name=youtube_data['channel_name'],
                 description=youtube_data['description'],
                 my_description=my_description or None,
-                intensity=intensity or None
+                difficulty=difficulty or None
             )
 
             if success:

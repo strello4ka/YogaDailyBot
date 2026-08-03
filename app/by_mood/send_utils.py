@@ -6,6 +6,7 @@ from typing import Optional
 from telegram.ext import ContextTypes
 
 from app.keyboards import get_practice_action_keyboard
+from app.block import mark_blocked_if_forbidden
 from data.db import (
     BY_MOOD_PRACTICE_LOG_DAY,
     split_practice_row_with_catalog,
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 def format_by_mood_practice_message(
     my_description: str,
     time_practices: int,
-    intensity: str,
+    difficulty: str,
     channel_name: str,
     video_url: str,
 ) -> str:
@@ -33,8 +34,8 @@ def format_by_mood_practice_message(
     else:
         parts.append("Новая практика ждёт тебя!")
     parts.append(f"\n🌀 *время:* {time_practices} мин")
-    if intensity:
-        parts.append(f"🌀 *интенсивность:* {intensity}")
+    if difficulty:
+        parts.append(f"🌀 *сложность:* {difficulty}")
     parts.append(f"🌀 *канал:* {channel_name}")
     parts.append(f"\n▶️ [Youtube]({video_url})")
     return "\n".join(parts)
@@ -59,7 +60,7 @@ async def deliver_on_demand_practice(
         channel_name,
         _description,
         my_description,
-        intensity,
+        difficulty,
         _weekday,
         _created_at,
         _updated_at,
@@ -78,7 +79,7 @@ async def deliver_on_demand_practice(
         text = format_by_mood_practice_message(
             my_description or "",
             time_practices,
-            intensity or "",
+            difficulty or "",
             channel_name,
             video_url,
         )
@@ -112,7 +113,8 @@ async def deliver_on_demand_practice(
             await schedule_done_reminders(context, chat_id, user_id, log_id)
         return True
     except Exception as e:
-        logger.error("Ошибка deliver_on_demand_practice user=%s: %s", user_id, e)
+        if not mark_blocked_if_forbidden(user_id, e):
+            logger.error("Ошибка deliver_on_demand_practice user=%s: %s", user_id, e)
         return False
 
 

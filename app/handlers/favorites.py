@@ -48,7 +48,7 @@ def format_favorite_carousel_message(practice_row: tuple) -> str:
         channel_name,
         _description,
         _my_description,
-        intensity,
+        difficulty,
         _weekday,
         _created_at,
         _updated_at,
@@ -56,8 +56,8 @@ def format_favorite_carousel_message(practice_row: tuple) -> str:
 
     parts = [f"*{title}*" if title else "*Практика для тебя*", ""]
     parts.append(f"🌀 *время:* {time_practices} мин")
-    if intensity:
-        parts.append(f"🌀 *интенсивность:* {intensity}")
+    if difficulty:
+        parts.append(f"🌀 *сложность:* {difficulty}")
     parts.append(f"🌀 *канал:* {channel_name}")
     parts.append(f"\n▶️ [Youtube]({video_url})")
     return "\n".join(parts)

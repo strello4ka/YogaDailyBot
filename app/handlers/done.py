@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.config import DEFAULT_TZ
+from app.block import mark_blocked_if_forbidden
 from app.handlers.favorites import (
     message_is_favorites_carousel,
     strip_done_from_favorites_carousel,
@@ -17,14 +18,13 @@ from app.handlers.favorites import (
 from app.handlers.progress import (
     format_challenge_progress_line,
     format_progress_stats,
-    format_similar_result_line,
+    format_social_proof_line,
 )
 from app.practice_markup import keep_favorite_button_on_message
 from app.practice_ref import parse_practice_callback
 from data.db import (
     clear_last_favorites_carousel_message,
     get_completed_count,
-    get_similar_result_percent,
     get_users_for_done_evening_reminder,
     get_streak_days,
     has_completed_practice_today,
@@ -273,7 +273,8 @@ async def _send_done_reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         # После успешной отправки больше не напоминаем за текущий день.
         dismiss_done_reminders(user_id)
     except Exception as e:
-        logger.error("Ошибка напоминания о практике user=%s: %s", user_id, e)
+        if not mark_blocked_if_forbidden(user_id, e):
+            logger.error("Ошибка напоминания о практике user=%s: %s", user_id, e)
 
 
 async def schedule_done_reminders(
@@ -332,11 +333,12 @@ async def send_evening_done_reminders_failsafe_job(
             dismiss_done_reminders(user_id)
             logger.info("Отправлено резервное 19:30-напоминание user=%s", user_id)
         except Exception as e:
-            logger.error(
-                "Ошибка резервного 19:30-напоминания user=%s: %s",
-                user_id,
-                e,
-            )
+            if not mark_blocked_if_forbidden(user_id, e):
+                logger.error(
+                    "Ошибка резервного 19:30-напоминания user=%s: %s",
+                    user_id,
+                    e,
+                )
 
 
 def schedule_done_evening_reminders(application) -> None:
@@ -489,8 +491,7 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
 
         n = get_completed_count(user_id)
         streak = get_streak_days(user_id)
-        similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)
-        similar_line = format_similar_result_line(n, similar_percent)
+        similar_line = format_social_proof_line(user_id)
         name = _display_name(update.effective_user)
         text = _done_text(n, streak, similar_line, name, user_id)
         await context.bot.send_message(

@@ -33,6 +33,7 @@ from data.db import (
 )
 from app.challenge.cohort import get_cohort_challenge_day, is_cohort_configured
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
+from app.block import mark_blocked_if_forbidden
 
 logger = logging.getLogger(__name__)
 
@@ -127,10 +128,10 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
 
         # Распаковываем данные практики
         (practice_id, title, video_url, time_practices, channel_name,
-         description, my_description, intensity, practice_weekday, created_at, updated_at) = practice
+         description, my_description, difficulty, practice_weekday, created_at, updated_at) = practice
 
         title = f"{challenge_day} день челленджа" if is_challenge else "Практика дня"
-        message_text = format_practice_message(title, my_description, time_practices, intensity, channel_name, video_url)
+        message_text = format_practice_message(title, my_description, time_practices, difficulty, channel_name, video_url)
 
         # Отправляем сообщение с кнопками избранного и «✅ Я сделал!»
         done_keyboard = get_practice_action_keyboard(
@@ -194,18 +195,20 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             logger.info(f"Бонусная практика {bonus_id} отправлена пользователю {user_id} вместе с {practice_id}")
         
     except Exception as e:
+        if mark_blocked_if_forbidden(user_id, e):
+            return
         logger.error(f"Ошибка отправки практики пользователю {user_id}: {e}")
 
 
 def format_practice_message(title: str, my_description: str, time_practices: int,
-                          intensity: str, channel_name: str, video_url: str) -> str:
+                          difficulty: str, channel_name: str, video_url: str) -> str:
     """Форматирует сообщение с практикой.
     
     Args:
         title: заголовок сообщения (например, «Практика дня» или «1 день челленджа»)
         my_description: описание практики
         time_practices: длительность в минутах
-        intensity: интенсивность
+        difficulty: сложность
         channel_name: название канала
         video_url: ссылка на видео
         
@@ -225,8 +228,8 @@ def format_practice_message(title: str, my_description: str, time_practices: int
     
     message_parts.append(f"\n🌀 *время:* {time_practices} мин")
     
-    if intensity:
-        message_parts.append(f"🌀 *интенсивность:* {intensity}")
+    if difficulty:
+        message_parts.append(f"🌀 *сложность:* {difficulty}")
     
     message_parts.append(f"🌀 *канал:* {channel_name}")
     
@@ -314,9 +317,9 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
             return
 
         (practice_id, title, video_url, time_practices, channel_name,
-         description, my_description, intensity, practice_weekday, created_at, updated_at) = practice
+         description, my_description, difficulty, practice_weekday, created_at, updated_at) = practice
 
-        message_text = format_practice_message("Практика дня", my_description, time_practices, intensity, channel_name, video_url)
+        message_text = format_practice_message("Практика дня", my_description, time_practices, difficulty, channel_name, video_url)
         done_keyboard = get_practice_action_keyboard(
             practice_id, is_user_favorite(user_id, practice_id)
         )

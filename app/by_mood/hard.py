@@ -1,4 +1,4 @@
-"""Кнопка «Хард»: сверх высокая интенсивность."""
+"""Кнопка «Хард»: сверх высокая сложность."""
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -9,7 +9,7 @@ from .send_utils import deliver_by_mood_practice
 
 FILTER_KEY = "hard"
 WHERE = (
-    " AND LOWER(TRIM(COALESCE(yp.intensity, ''))) = 'сверх высокая' "
+    " AND LOWER(TRIM(COALESCE(yp.difficulty, ''))) = 'сверх высокая' "
     " AND yp.time_practices <= 30 AND yp.time_practices > 0 "
 )
 
@@ -22,7 +22,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     row = pick_random_combined_mood_pool(user.id, FILTER_KEY, WHERE, ())
     if not row:
         await update.message.reply_text(
-            "Не нашлось практик со сверх высокой интенсивностью. Попробуй другой фильтр."
+            "Не нашлось практик со сверх высокой сложностью. Попробуй другой фильтр."
         )
         return
     ok = await deliver_by_mood_practice(context, chat.id, user.id, FILTER_KEY, row)

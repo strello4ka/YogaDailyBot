@@ -1,4 +1,4 @@
-"""Кнопка «ленивые дни»: интенсивность «сверх низкая» в БД."""
+"""Кнопка «ленивые дни»: сложность «сверх низкая» в БД."""
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -9,7 +9,7 @@ from .send_utils import deliver_by_mood_practice
 
 FILTER_KEY = "lazy"
 WHERE = (
-    " AND LOWER(TRIM(COALESCE(yp.intensity, ''))) = 'сверх низкая' "
+    " AND LOWER(TRIM(COALESCE(yp.difficulty, ''))) = 'сверх низкая' "
     " AND yp.time_practices <= 30 AND yp.time_practices > 0 "
 )
 
@@ -22,7 +22,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     row = pick_random_combined_mood_pool(user.id, FILTER_KEY, WHERE, ())
     if not row:
         await update.message.reply_text(
-            "Не нашлось практик с очень низкой интенсивностью. Попробуй другой фильтр."
+            "Не нашлось практик с очень низкой сложностью. Попробуй другой фильтр."
         )
         return
     ok = await deliver_by_mood_practice(context, chat.id, user.id, FILTER_KEY, row)

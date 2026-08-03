@@ -153,7 +153,7 @@ def init_database():
     - channel_name: название канала
     - description: описание видео (автоматически с YouTube)
     - my_description: мое описание (заполняется вручную)
-    - intensity: интенсивность практики (легкая, средняя, высокая)
+    - difficulty: сложность практики (легкая, средняя, высокая)
     - weekday: день недели (1=понедельник, 7=воскресенье, NULL=любой день)
     - created_at: дата добавления записи
     - updated_at: дата последнего обновления
@@ -161,6 +161,44 @@ def init_database():
     try:
         conn = get_connection()
         cursor = conn.cursor()
+
+        def _migrate_intensity_to_difficulty(table_name: str) -> None:
+            """Безопасно переименовывает intensity -> difficulty в существующих таблицах."""
+            cursor.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = %s AND column_name = 'intensity'
+                """,
+                (table_name,),
+            )
+            has_intensity = cursor.fetchone() is not None
+
+            cursor.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = %s AND column_name = 'difficulty'
+                """,
+                (table_name,),
+            )
+            has_difficulty = cursor.fetchone() is not None
+
+            if has_intensity and not has_difficulty:
+                cursor.execute(f"ALTER TABLE {table_name} RENAME COLUMN intensity TO difficulty")
+                print(f"   ✅ Переименована колонка intensity -> difficulty в {table_name}")
+                return
+
+            if has_intensity and has_difficulty:
+                cursor.execute(
+                    f"""
+                    UPDATE {table_name}
+                    SET difficulty = COALESCE(NULLIF(TRIM(difficulty), ''), intensity)
+                    WHERE intensity IS NOT NULL
+                    """
+                )
+                cursor.execute(f"ALTER TABLE {table_name} DROP COLUMN intensity")
+                print(f"   ✅ Удалена устаревшая intensity в {table_name} (данные объединены в difficulty)")
         
         # Создаем таблицу пользователей
         cursor.execute('''
@@ -185,7 +223,7 @@ def init_database():
                 channel_name TEXT NOT NULL,
                 description TEXT,
                 my_description TEXT,
-                intensity TEXT,
+                difficulty TEXT,
                 weekday INTEGER CHECK (weekday >= 1 AND weekday <= 7),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -203,12 +241,15 @@ def init_database():
                 channel_name TEXT NOT NULL,
                 description TEXT,
                 my_description TEXT,
-                intensity TEXT,
+                difficulty TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (parent_practice_id) REFERENCES yoga_practices (practices_id) ON DELETE CASCADE
             )
         ''')
+
+        _migrate_intensity_to_difficulty("yoga_practices")
+        _migrate_intensity_to_difficulty("bonus_practices")
         
         # Создаем таблицу для логирования отправленных практик
         cursor.execute('''
@@ -304,7 +345,7 @@ def init_database():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_channel_name ON yoga_practices(channel_name)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_duration ON yoga_practices(time_practices)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_weekday ON yoga_practices(weekday)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_intensity ON yoga_practices(intensity)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_difficulty ON yoga_practices(difficulty)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bonus_parent_practice ON bonus_practices(parent_practice_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bonus_video_url ON bonus_practices(video_url)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_logs_user ON practice_logs(user_id)')
@@ -713,7 +754,7 @@ def init_database():
                     channel_name TEXT NOT NULL,
                     description TEXT,
                     my_description TEXT,
-                    intensity TEXT,
+                    difficulty TEXT,
                     without_mat BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -724,6 +765,7 @@ def init_database():
                 "CREATE INDEX IF NOT EXISTS idx_mood_practices_video_url "
                 "ON mood_practices(video_url)"
             )
+            _migrate_intensity_to_difficulty("mood_practices")
             print("   ✅ Таблица mood_practices готова")
         except Exception as e:
             print(f"⚠️ Ошибка при создании mood_practices: {e}")
@@ -2401,7 +2443,7 @@ def _pick_random_yoga_by_mood(
             cur = c.cursor()
             base = """
                 SELECT practices_id, title, video_url, time_practices, channel_name,
-                       description, my_description, intensity, weekday, created_at, updated_at
+                       description, my_description, difficulty, weekday, created_at, updated_at
                 FROM yoga_practices yp
                 WHERE 1=1
             """
@@ -2443,7 +2485,7 @@ def _pick_random_mood_by_rule(
             cur = c.cursor()
             base = """
                 SELECT mood_practice_id, title, video_url, time_practices, channel_name,
-                       description, my_description, intensity, NULL::INTEGER AS weekday,
+                       description, my_description, difficulty, NULL::INTEGER AS weekday,
                        created_at, updated_at
                 FROM mood_practices mp
                 WHERE 1=1
@@ -2518,7 +2560,7 @@ def add_mood_practice(
     channel_name: str,
     description: str = None,
     my_description: str = None,
-    intensity: str = None,
+    difficulty: str = None,
     without_mat: bool = False,
 ) -> Tuple[bool, str]:
     """Добавляет практику в mood_practices. Запрещает video_url из yoga_practices."""
@@ -2541,7 +2583,7 @@ def add_mood_practice(
             """
             INSERT INTO mood_practices (
                 title, video_url, time_practices, channel_name,
-                description, my_description, intensity, without_mat
+                description, my_description, difficulty, without_mat
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING mood_practice_id
@@ -2553,7 +2595,7 @@ def add_mood_practice(
                 channel_name,
                 description,
                 my_description,
-                intensity,
+                difficulty,
                 without_mat,
             ),
         )
@@ -2578,7 +2620,7 @@ def get_mood_practice_by_id(mood_practice_id: int) -> Optional[tuple]:
         cursor.execute(
             """
             SELECT mood_practice_id, title, video_url, time_practices, channel_name,
-                   description, my_description, intensity, NULL::INTEGER AS weekday,
+                   description, my_description, difficulty, NULL::INTEGER AS weekday,
                    created_at, updated_at
             FROM mood_practices
             WHERE mood_practice_id = %s
@@ -2702,7 +2744,7 @@ def list_user_favorites(user_id: int) -> list:
                 COALESCE(yp.channel_name, mp.channel_name),
                 COALESCE(yp.description, mp.description),
                 COALESCE(yp.my_description, mp.my_description),
-                COALESCE(yp.intensity, mp.intensity),
+                COALESCE(yp.difficulty, mp.difficulty),
                 yp.weekday,
                 COALESCE(yp.created_at, mp.created_at),
                 COALESCE(yp.updated_at, mp.updated_at),
@@ -2766,7 +2808,7 @@ def record_by_mood_seen(
 
 # Функции для работы с йога практиками
 
-def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_name: str, description: str = None, my_description: str = None, intensity: str = None, weekday: int = None) -> tuple:
+def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_name: str, description: str = None, my_description: str = None, difficulty: str = None, weekday: int = None) -> tuple:
     """Добавляет новую йога практику в базу данных.
     
     Args:
@@ -2776,7 +2818,7 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
         channel_name: название канала
         description: описание видео (опционально)
         my_description: мое описание (заполняется вручную, опционально)
-        intensity: интенсивность практики (опционально)
+        difficulty: сложность практики (опционально)
         weekday: день недели (1=понедельник, 7=воскресенье, None=любой день)
         
     Returns:
@@ -2795,9 +2837,9 @@ def add_yoga_practice(title: str, video_url: str, time_practices: int, channel_n
             description = description[:500]
         
         cursor.execute('''
-            INSERT INTO yoga_practices (title, video_url, time_practices, channel_name, description, my_description, intensity, weekday)
+            INSERT INTO yoga_practices (title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ''', (title, video_url, time_practices, channel_name, description, my_description, intensity, weekday))
+        ''', (title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday))
         
         conn.commit()
         return (True, f"Йога практика добавлена: {title}")
@@ -2819,7 +2861,7 @@ def get_yoga_practice_by_id(practice_id: int) -> tuple:
         practice_id: ID практики
         
     Returns:
-        tuple: (practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at) 
+        tuple: (practices_id, title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday, created_at, updated_at) 
                или None если практика не найдена
     """
     try:
@@ -2827,7 +2869,7 @@ def get_yoga_practice_by_id(practice_id: int) -> tuple:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday, created_at, updated_at
             FROM yoga_practices 
             WHERE practices_id = %s
         ''', (practice_id,))
@@ -2850,7 +2892,7 @@ def get_yoga_practice_by_url(video_url: str) -> tuple:
         video_url: ссылка на видео
         
     Returns:
-        tuple: (id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at) 
+        tuple: (id, title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday, created_at, updated_at) 
                или None если практика не найдена
     """
     try:
@@ -2858,7 +2900,7 @@ def get_yoga_practice_by_url(video_url: str) -> tuple:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday, created_at, updated_at
             FROM yoga_practices 
             WHERE video_url = %s
         ''', (video_url,))
@@ -2881,7 +2923,7 @@ def get_yoga_practice_by_video_id(video_id: str) -> tuple:
         cursor = conn.cursor()
 
         cursor.execute('''
-            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday, created_at, updated_at
             FROM yoga_practices
             WHERE video_url ILIKE %s
             ORDER BY practices_id ASC
@@ -3108,7 +3150,7 @@ def search_yoga_practices(search_term: str) -> list:
 
 def update_yoga_practice(practice_id: int, title: str = None, video_url: str = None, 
                         time_practices: int = None, channel_name: str = None, 
-                        description: str = None, my_description: str = None, intensity: str = None, weekday: int = None) -> bool:
+                        description: str = None, my_description: str = None, difficulty: str = None, weekday: int = None) -> bool:
     """Обновляет данные йога практики.
     
     Args:
@@ -3119,7 +3161,7 @@ def update_yoga_practice(practice_id: int, title: str = None, video_url: str = N
         channel_name: новое название канала (опционально)
         description: новое описание (опционально)
         my_description: новое мое описание (опционально)
-        intensity: новая интенсивность (опционально)
+        difficulty: новая сложность (опционально)
         weekday: новый день недели (1=понедельник, 7=воскресенье, None=любой день)
         
     Returns:
@@ -3155,9 +3197,9 @@ def update_yoga_practice(practice_id: int, title: str = None, video_url: str = N
             # Декодируем маркеры переноса строк, чтобы при обновлении сразу хранить готовый текст
             update_fields.append('my_description = %s')
             params.append(_decode_my_description(my_description))
-        if intensity is not None:
-            update_fields.append('intensity = %s')
-            params.append(intensity)
+        if difficulty is not None:
+            update_fields.append('difficulty = %s')
+            params.append(difficulty)
         if weekday is not None:
             update_fields.append('weekday = %s')
             params.append(weekday)
@@ -3307,7 +3349,7 @@ def get_yoga_practice_by_weekday_order(weekday: int, day_number: int) -> tuple:
         day_number: номер дня пользователя (начиная с 1)
         
     Returns:
-        tuple: (practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at) 
+        tuple: (practices_id, title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday, created_at, updated_at) 
                или None если практик нет
     """
     try:
@@ -3316,7 +3358,7 @@ def get_yoga_practice_by_weekday_order(weekday: int, day_number: int) -> tuple:
         
         # Получаем все практики для данного дня недели, отсортированные по ID
         cursor.execute('''
-            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday, created_at, updated_at
             FROM yoga_practices 
             WHERE weekday = %s
             ORDER BY practices_id
@@ -3360,7 +3402,7 @@ def get_yoga_practice_by_challenge_order(challenge_start_id: int, day_number: in
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, intensity, weekday, created_at, updated_at
+            SELECT practices_id, title, video_url, time_practices, channel_name, description, my_description, difficulty, weekday, created_at, updated_at
             FROM yoga_practices
             ORDER BY practices_id
         ''')
@@ -3418,7 +3460,7 @@ def get_practice_count_by_weekday(weekday: int) -> int:
 
 def add_bonus_practice(parent_practice_id: int, title: str, video_url: str, time_practices: int,
                        channel_name: str, description: str = None, my_description: str = None,
-                       intensity: str = None) -> bool:
+                       difficulty: str = None) -> bool:
     """Добавляет бонусную практику, которая отправляется вместе с основной.
     
     Args:
@@ -3429,7 +3471,7 @@ def add_bonus_practice(parent_practice_id: int, title: str, video_url: str, time
         channel_name: название канала
         description: описание (опционально)
         my_description: мое описание (опционально)
-        intensity: интенсивность (опционально)
+        difficulty: сложность (опционально)
         
     Returns:
         bool: True если операция прошла успешно, иначе False
@@ -3448,12 +3490,12 @@ def add_bonus_practice(parent_practice_id: int, title: str, video_url: str, time
         cursor.execute('''
             INSERT INTO bonus_practices (
                 parent_practice_id, title, video_url, time_practices, channel_name,
-                description, my_description, intensity
+                description, my_description, difficulty
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             parent_practice_id, title, video_url, time_practices, channel_name,
-            description, my_description, intensity
+            description, my_description, difficulty
         ))
         
         conn.commit()
@@ -3490,7 +3532,7 @@ def get_bonus_practices_by_parent(parent_practice_id: int) -> list:
         
         cursor.execute('''
             SELECT bonus_id, parent_practice_id, title, video_url, time_practices,
-                   channel_name, description, my_description, intensity,
+                   channel_name, description, my_description, difficulty,
                    created_at, updated_at
             FROM bonus_practices
             WHERE parent_practice_id = %s
@@ -4367,33 +4409,34 @@ def get_streak_days(user_id: int) -> int:
         return 0
 
 
-def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_completed: int = 3):
-    """Возвращает процент пользователей с таким же результатом по бакету числа выполненных практик.
+def get_better_than_completed_percent(user_id: int, min_completed: int = 3):
+    """Доля пользователей (%), у которых выполненных практик строго меньше, чем у user_id.
 
-    «Такие же» = пользователи с completed_cnt >= min_completed в том же бакете шириной
-    bucket_size (например, 10–14 при bucket_size=5).
+    Считаем среди незаблокированных с completed_cnt >= min_completed.
 
     Returns:
-        float | None: процент «таких же» пользователей (0..100) или None, если данных пока мало.
+        float | None: 0..100 или None, если у пользователя мало практик / нет данных.
     """
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(
+            '''
             SELECT COUNT(*) FROM practice_logs
             WHERE user_id = %s AND completed_at IS NOT NULL
-        ''', (user_id,))
+            ''',
+            (user_id,),
+        )
         completed_row = cursor.fetchone()
         user_completed = int(completed_row[0]) if completed_row else 0
         if user_completed < min_completed:
             conn.close()
             return None
 
-        user_bucket = user_completed // bucket_size
-
-        cursor.execute('''
+        cursor.execute(
+            '''
             WITH completed_by_user AS (
                 SELECT user_id, COUNT(*) AS completed_cnt
                 FROM practice_logs
@@ -4406,36 +4449,95 @@ def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_completed
                 LEFT JOIN completed_by_user c ON c.user_id = u.user_id
                 WHERE COALESCE(u.is_blocked, FALSE) = FALSE
                   AND COALESCE(c.completed_cnt, 0) >= %s
-            ),
-            stats AS (
-                SELECT
-                    COUNT(*) AS total_cnt,
-                    SUM(
-                        CASE
-                            WHEN (completed_cnt / %s) = %s THEN 1
-                            ELSE 0
-                        END
-                    ) AS same_cnt
-                FROM eligible
             )
-            SELECT total_cnt, same_cnt FROM stats
-        ''', (min_completed, bucket_size, user_bucket))
-
+            SELECT
+                COUNT(*) AS total_cnt,
+                SUM(CASE WHEN completed_cnt < %s THEN 1 ELSE 0 END) AS worse_cnt
+            FROM eligible
+            ''',
+            (min_completed, user_completed),
+        )
         totals = cursor.fetchone()
         conn.close()
         if not totals:
             return None
         total_cnt = int(totals[0] or 0)
-        same_cnt = int(totals[1] or 0)
+        worse_cnt = int(totals[1] or 0)
         if total_cnt == 0:
             return None
-        return (same_cnt * 100.0) / total_cnt
+        return (worse_cnt * 100.0) / total_cnt
 
     except Exception as e:
-        logger.error(f"Ошибка get_similar_result_percent для {user_id}: {e}")
+        logger.error(f"Ошибка get_better_than_completed_percent для {user_id}: {e}")
         if conn:
             conn.close()
         return None
+
+
+def _streak_from_completion_days(completion_days: set, today: date) -> int:
+    """Непрерывная серия дней от сегодня/вчера назад по множеству дат выполнения."""
+    if not completion_days:
+        return 0
+    yesterday = today - timedelta(days=1)
+    if today in completion_days:
+        anchor = today
+    elif yesterday in completion_days:
+        anchor = yesterday
+    else:
+        return 0
+    streak = 0
+    day = anchor
+    while day in completion_days:
+        streak += 1
+        day -= timedelta(days=1)
+    return streak
+
+
+def has_best_streak(user_id: int, min_streak: int = 7) -> bool:
+    """True, если текущая серия пользователя — максимальная среди незаблокированных (≥ min_streak).
+
+    При ничьей все с максимумом считаются чемпионами.
+    """
+    user_streak = get_streak_days(user_id)
+    if user_streak < min_streak:
+        return False
+
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT pl.user_id, pl.completed_at
+            FROM practice_logs pl
+            JOIN users u ON u.user_id = pl.user_id
+            WHERE pl.completed_at IS NOT NULL
+              AND COALESCE(u.is_blocked, FALSE) = FALSE
+            '''
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        by_user = {}
+        for uid, completed_at in rows:
+            by_user.setdefault(uid, set()).add(_completed_at_to_moscow_date(completed_at))
+
+        today = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
+        max_streak = 0
+        for days in by_user.values():
+            max_streak = max(max_streak, _streak_from_completion_days(days, today))
+
+        return user_streak >= max_streak and max_streak >= min_streak
+    except Exception as e:
+        logger.error(f"Ошибка has_best_streak для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
+def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_completed: int = 3):
+    """Устарело: раньше «такой же результат». Используйте get_better_than_completed_percent."""
+    return get_better_than_completed_percent(user_id, min_completed=min_completed)
 
 
 def reset_user_progress(user_id: int) -> bool:
@@ -4840,41 +4942,107 @@ def get_yesterday_completed_challenge_user_ids(yesterday: date) -> set:
 
 
 def get_challenge_completed_in_last_n_days(user_id: int, n: int) -> int:
-    """Сколько из последних n дней челленджа засчитано.
+    """Сколько из n дней челленджа засчитано.
 
-    День засчитан, если отмечена практика из расписания или в тот же календарный день
-    (МСК) нажали «Я сделал» на любой другой практике бота («Ещё практики» и т.д.).
+    Окно = первые n календарных дней потока (от даты старта), а не «последние n
+    отправок». Иначе на промежуточной сводке день 8 в окно попадает сегодняшняя
+    практика, день 1 выпадает — и максимум становится 6/7 вместо 7/7.
+
+    День засчитан, если:
+    — в этот календарный день (МСК) нажали «Я сделал» на любой практике; или
+    — отмечена практика челленджа, отправленная в этот день (даже если отметку
+      поставили утром следующего дня).
     """
     if n <= 0:
         return 0
     conn = None
-    sent_moscow = _timestamp_moscow_date_sql("c.sent_at")
-    sub_completed_moscow = _timestamp_moscow_date_sql("sub.completed_at")
+    sent_moscow = _timestamp_moscow_date_sql("pl.sent_at")
+    completed_moscow = _timestamp_moscow_date_sql("pl.completed_at")
     try:
+        from app.challenge.cohort import get_challenge_start_date, is_cohort_configured
+
+        start_date = get_challenge_start_date() if is_cohort_configured() else None
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            f'''
-            SELECT COUNT(*) FROM (
-                SELECT
-                    c.completed_at,
-                    {sent_moscow} AS sent_day
-                FROM practice_logs c
-                WHERE c.user_id = %s AND c.day_number >= 1
-                ORDER BY c.sent_at DESC
-                LIMIT %s
-            ) recent
-            WHERE recent.completed_at IS NOT NULL
-               OR EXISTS (
-                   SELECT 1
-                   FROM practice_logs sub
-                   WHERE sub.user_id = %s
-                     AND sub.completed_at IS NOT NULL
-                     AND {sub_completed_moscow} = recent.sent_day
-               )
-            ''',
-            (DEFAULT_TZ, user_id, n, user_id, DEFAULT_TZ),
-        )
+
+        if start_date is not None:
+            # Календарное окно потока: день 1 .. день n (включительно).
+            end_date = start_date + timedelta(days=n - 1)
+            cursor.execute(
+                f'''
+                WITH window_days AS (
+                    SELECT generate_series(%s::date, %s::date, '1 day'::interval)::date AS d
+                )
+                SELECT COUNT(*) FROM window_days w
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM practice_logs pl
+                    WHERE pl.user_id = %s
+                      AND pl.completed_at IS NOT NULL
+                      AND {completed_moscow} = w.d
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM practice_logs pl
+                    WHERE pl.user_id = %s
+                      AND pl.day_number >= 1
+                      AND pl.completed_at IS NOT NULL
+                      AND {sent_moscow} = w.d
+                )
+                ''',
+                (
+                    start_date,
+                    end_date,
+                    user_id,
+                    DEFAULT_TZ,
+                    user_id,
+                    DEFAULT_TZ,
+                ),
+            )
+        else:
+            # Без даты старта: первые n уникальных дней отправки (с начала участия),
+            # а не последние — иначе «сегодня» вытесняет день 1.
+            cursor.execute(
+                f'''
+                WITH window_days AS (
+                    SELECT d
+                    FROM (
+                        SELECT DISTINCT {sent_moscow} AS d
+                        FROM practice_logs pl
+                        WHERE pl.user_id = %s
+                          AND pl.day_number >= 1
+                    ) days
+                    ORDER BY d ASC
+                    LIMIT %s
+                )
+                SELECT COUNT(*) FROM window_days w
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM practice_logs pl
+                    WHERE pl.user_id = %s
+                      AND pl.completed_at IS NOT NULL
+                      AND {completed_moscow} = w.d
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM practice_logs pl
+                    WHERE pl.user_id = %s
+                      AND pl.day_number >= 1
+                      AND pl.completed_at IS NOT NULL
+                      AND {sent_moscow} = w.d
+                )
+                ''',
+                (
+                    DEFAULT_TZ,
+                    user_id,
+                    n,
+                    user_id,
+                    DEFAULT_TZ,
+                    user_id,
+                    DEFAULT_TZ,
+                ),
+            )
+
         row = cursor.fetchone()
         conn.close()
         return int(row[0]) if row else 0

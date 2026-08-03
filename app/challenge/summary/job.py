@@ -33,17 +33,22 @@ def _is_summary_time(now: datetime) -> bool:
     return local.hour == SUMMARY_HOUR and local.minute == SUMMARY_MINUTE
 
 
-def _build_completed_map(participants_raw: list[tuple], kind: str) -> dict[int, int]:
+def _build_completed_map(
+    participants_raw: list[tuple],
+    kind: str,
+    group_challenge_day: int,
+) -> dict[int, int]:
+    """Считает N для сводки. Для промежуточной — одинаковое окно по дню потока группы."""
     completed: dict[int, int] = {}
     for row in participants_raw:
         user_id = row[0]
-        challenge_day = int(row[3])
         if kind == "final":
             n = CHALLENGE_DURATION
         elif kind == "intermediate":
-            n = max(0, challenge_day - 1)
+            # Дни 1..(день_потока−1), без сегодня — для всех одно и то же M.
+            n = max(0, group_challenge_day - 1)
         else:
-            n = challenge_day
+            n = group_challenge_day
         completed[user_id] = get_challenge_completed_in_last_n_days(user_id, n)
     return completed
 
@@ -100,7 +105,7 @@ async def send_challenge_group_summary(context: ContextTypes.DEFAULT_TYPE, *, fo
 
     yesterday = today - timedelta(days=1)
     yesterday_done_ids = get_yesterday_completed_challenge_user_ids(yesterday)
-    completed_map = _build_completed_map(participants_raw, kind)
+    completed_map = _build_completed_map(participants_raw, kind, group_challenge_day)
 
     _, text = collect_summary_data(
         participants_raw,

@@ -23,9 +23,9 @@
 Отдельный каталог практик для фильтров By mood (не участвуют в Daily/Challenge).
 
 Поля совпадают с `yoga_practices` (без `weekday`). Фильтры By mood находят mood-практики по тем же признакам:
-- **Ленивые дни** — `intensity` = `сверх низкая`, `time_practices` ≤ 30 минут
+- **Ленивые дни** — `difficulty` = `сверх низкая`, `time_practices` ≤ 30 минут
 - **Мини** — `time_practices` ≤ 8 минут
-- **Хард** — `intensity` = `сверх высокая`, `time_practices` ≤ 30 минут
+- **Хард** — `difficulty` = `сверх высокая`, `time_practices` ≤ 30 минут
 - **Без коврика** — `without_mat` = true
 
 **Правило:** `video_url` не должен дублироваться в `yoga_practices`. Если видео уже в расписании — оно доступно фильтрам через `yoga_practices`, в `mood_practices` не добавляем.
@@ -44,7 +44,7 @@
 | `channel_name` | TEXT | Название канала |
 | `description` | TEXT | Описание видео (опционально) |
 | `my_description` | TEXT | Моё описание (опционально) |
-| `intensity` | TEXT | Интенсивность практики |
+| `difficulty` | TEXT | Сложность практики |
 | `created_at` | TIMESTAMP | Дата добавления записи |
 | `updated_at` | TIMESTAMP | Дата последнего обновления |
 

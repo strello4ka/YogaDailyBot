@@ -1,4 +1,4 @@
-"""Сценарий «САМ решу»: время → интенсивность → случайная практика."""
+"""Сценарий «САМ решу»: время → сложность → случайная практика."""
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -8,7 +8,7 @@ from data.db import pick_random_combined_mood_pool, remove_extra_practices_inlin
 from .send_utils import deliver_by_mood_practice
 
 TIME_LABELS = ["до 10", "10 - 15", "15 - 20", "20 - 30", "30 - 45", "45 - 60+", "любое"]
-INTENSITY_LABELS = ["низкая", "средняя", "высокая", "любая"]
+DIFFICULTY_LABELS = ["низкая", "средняя", "высокая", "любая"]
 
 TIME_TO_KEY = {
     "до 10": "t10",
@@ -21,13 +21,13 @@ TIME_TO_KEY = {
 }
 KEY_TO_TIME = {value: key for key, value in TIME_TO_KEY.items()}
 
-INTENSITY_TO_KEY = {
+DIFFICULTY_TO_KEY = {
     "низкая": "ilow",
     "средняя": "imed",
     "высокая": "ihigh",
     "любая": "iany",
 }
-KEY_TO_INTENSITY = {value: key for key, value in INTENSITY_TO_KEY.items()}
+KEY_TO_DIFFICULTY = {value: key for key, value in DIFFICULTY_TO_KEY.items()}
 
 
 def time_keyboard(*, callback_prefix: str = "self_time") -> InlineKeyboardMarkup:
@@ -52,7 +52,7 @@ def time_keyboard(*, callback_prefix: str = "self_time") -> InlineKeyboardMarkup
     )
 
 
-def intensity_keyboard(time_key: str, *, callback_prefix: str = "self_intensity") -> InlineKeyboardMarkup:
+def difficulty_keyboard(time_key: str, *, callback_prefix: str = "self_difficulty") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
@@ -83,16 +83,16 @@ def _sql_for_time_choice(label: str) -> tuple[str, tuple]:
     return "", ()
 
 
-def _sql_for_intensity_choice(label: str) -> tuple[str, tuple]:
+def _sql_for_difficulty_choice(label: str) -> tuple[str, tuple]:
     if label == "низкая":
         return (
-            " AND LOWER(TRIM(COALESCE(yp.intensity, ''))) IN ('низкая', 'низкий') ",
+            " AND LOWER(TRIM(COALESCE(yp.difficulty, ''))) IN ('низкая', 'низкий') ",
             (),
         )
     if label == "средняя":
-        return " AND LOWER(TRIM(COALESCE(yp.intensity, ''))) IN ('средняя', 'средний') ", ()
+        return " AND LOWER(TRIM(COALESCE(yp.difficulty, ''))) IN ('средняя', 'средний') ", ()
     if label == "высокая":
-        return " AND LOWER(TRIM(COALESCE(yp.intensity, ''))) IN ('высокая', 'высокий') ", ()
+        return " AND LOWER(TRIM(COALESCE(yp.difficulty, ''))) IN ('высокая', 'высокий') ", ()
     return "", ()
 
 
@@ -109,7 +109,7 @@ async def handle_time_callback(
     context: ContextTypes.DEFAULT_TYPE,
     *,
     time_callback_prefix: str = "self_time",
-    intensity_callback_prefix: str = "self_intensity",
+    difficulty_callback_prefix: str = "self_difficulty",
 ) -> None:
     query = update.callback_query
     if not query:
@@ -127,16 +127,16 @@ async def handle_time_callback(
         return
 
     await query.edit_message_text(
-        "Время выбрано ✔️\nТеперь выбери интенсивность 👇",
-        reply_markup=intensity_keyboard(time_key, callback_prefix=intensity_callback_prefix),
+        "Время выбрано ✔️\nТеперь выбери сложность 👇",
+        reply_markup=difficulty_keyboard(time_key, callback_prefix=difficulty_callback_prefix),
     )
 
 
-async def handle_intensity_callback(
+async def handle_difficulty_callback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     *,
-    intensity_callback_prefix: str = "self_intensity",
+    difficulty_callback_prefix: str = "self_difficulty",
 ) -> None:
     query = update.callback_query
     if not query:
@@ -144,20 +144,20 @@ async def handle_intensity_callback(
     await query.answer()
 
     data = query.data or ""
-    pfx = f"{intensity_callback_prefix}:"
+    pfx = f"{difficulty_callback_prefix}:"
     if not data.startswith(pfx):
         return
     rest = data[len(pfx) :]
     try:
-        time_key, intensity_key = rest.split(":", 1)
+        time_key, difficulty_key = rest.split(":", 1)
     except ValueError:
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text("Что-то пошло не так. Нажми «САМ решу» ещё раз.")
         return
 
     time_label = KEY_TO_TIME.get(time_key)
-    intensity_label = KEY_TO_INTENSITY.get(intensity_key)
-    if not time_label or not intensity_label:
+    difficulty_label = KEY_TO_DIFFICULTY.get(difficulty_key)
+    if not time_label or not difficulty_label:
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text("Что-то пошло не так. Нажми «САМ решу» ещё раз.")
         return
@@ -171,13 +171,13 @@ async def handle_intensity_callback(
 
     remove_extra_practices_inline_message(user.id, chat.id, query.message.message_id)
 
-    filter_key = f"self_{time_key}_{intensity_key}"
+    filter_key = f"self_{time_key}_{difficulty_key}"
     wh_time, par_time = _sql_for_time_choice(time_label)
-    wh_int, par_int = _sql_for_intensity_choice(intensity_label)
+    wh_int, par_int = _sql_for_difficulty_choice(difficulty_label)
     row = pick_random_combined_mood_pool(user.id, filter_key, wh_time + wh_int, par_time + par_int)
     if not row:
         await query.message.reply_text(
-            "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое» время или «любая» интенсивность)."
+            "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое» время или «любая» сложность)."
         )
         return
 

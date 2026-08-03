@@ -69,7 +69,7 @@ def create_csv_template():
     csv_file = os.path.join(os.path.dirname(__file__), "mood_practices.csv")
     with open(csv_file, "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow(["video_url", "my_description", "intensity", "without_mat"])
+        writer.writerow(["video_url", "my_description", "difficulty", "without_mat"])
         writer.writerow(
             [
                 "https://www.youtube.com/watch?v=example_lazy",
@@ -99,7 +99,7 @@ def create_csv_template():
     print("📝 Заполните файл своими данными:")
     print("   - video_url: ссылка на YouTube")
     print("   - my_description: ваше описание (необязательно)")
-    print("   - intensity: для «Ленивые дни» — сверх низкая, для «Хард» — сверх высокая")
+    print("   - difficulty: для «Ленивые дни» — сверх низкая, для «Хард» — сверх высокая")
     print("   - without_mat: true — для фильтра «Без коврика»")
     print("   - для «Мини» важна длительность видео (подтянется с YouTube, до 8 мин)")
 
@@ -122,7 +122,7 @@ def process_csv_file(csv_file: str):
 
             video_url = (row.get("video_url") or "").strip()
             my_description = (row.get("my_description") or "").strip()
-            intensity = (row.get("intensity") or "").strip() or None
+            difficulty = (row.get("difficulty") or "").strip() or None
             without_mat = parse_without_mat(row.get("without_mat") or "")
 
             if not video_url:
@@ -147,8 +147,8 @@ def process_csv_file(csv_file: str):
             print(f"   Длительность: {youtube_data['time_practices']} минут")
             if my_description:
                 print(f"   Моё описание: {my_description}")
-            if intensity:
-                print(f"   Интенсивность: {intensity}")
+            if difficulty:
+                print(f"   Сложность: {difficulty}")
             if without_mat:
                 print("   Без коврика: да")
 
@@ -159,7 +159,7 @@ def process_csv_file(csv_file: str):
                 channel_name=youtube_data["channel_name"],
                 description=youtube_data["description"],
                 my_description=my_description or None,
-                intensity=intensity,
+                difficulty=difficulty,
                 without_mat=without_mat,
             )
 

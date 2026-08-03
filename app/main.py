@@ -76,6 +76,7 @@ from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
 from .handlers.help import help_command
+from .handlers.commands_list import commands_list_command
 from .handlers.favorites import (
     favorite_command,
     handle_fav_toggle_callback,
@@ -83,11 +84,11 @@ from .handlers.favorites import (
     handle_fav_noop_callback,
 )
 from .bot_commands import setup_bot_commands
-from app.by_mood.self_decide import handle_intensity_callback as by_mood_self_intensity_callback
+from app.by_mood.self_decide import handle_difficulty_callback as by_mood_self_difficulty_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
 from app.daily.extra_practices import (
     handle_extra_mood_callback,
-    handle_extra_self_intensity_callback,
+    handle_extra_self_difficulty_callback,
     handle_extra_self_time_callback,
 )
 
@@ -269,6 +270,7 @@ def main():
     application.add_handler(CommandHandler("challenge_summary_preview", challenge_summary_preview_command))
     application.add_handler(CommandHandler("challenge_summary_reset", challenge_summary_reset_command))
     application.add_handler(CommandHandler("challenge_schedule_preview", challenge_schedule_preview_command))
+    application.add_handler(CommandHandler("commands", commands_list_command))
     
     # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
     application.add_handler(CallbackQueryHandler(start_restart_yes_callback, pattern="^start_restart_yes$"))
@@ -279,11 +281,11 @@ def main():
     application.add_handler(CallbackQueryHandler(mode_pick_by_mood_callback, pattern="^mode_pick_by_mood$"))
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
-    application.add_handler(CallbackQueryHandler(by_mood_self_intensity_callback, pattern="^self_intensity:"))
+    application.add_handler(CallbackQueryHandler(by_mood_self_difficulty_callback, pattern="^self_difficulty:"))
     application.add_handler(CallbackQueryHandler(handle_extra_mood_callback, pattern="^extra_mood:"))
     application.add_handler(CallbackQueryHandler(handle_extra_self_time_callback, pattern="^extra_self_time:"))
     application.add_handler(
-        CallbackQueryHandler(handle_extra_self_intensity_callback, pattern="^extra_self_intensity:")
+        CallbackQueryHandler(handle_extra_self_difficulty_callback, pattern="^extra_self_difficulty:")
     )
 
     # Регистрируем обработчики для донатов
