@@ -76,6 +76,7 @@ from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
 from .handlers.help import help_command
+from .handlers.commands_list import commands_list_command
 from .handlers.favorites import (
     favorite_command,
     handle_fav_toggle_callback,
@@ -269,6 +270,7 @@ def main():
     application.add_handler(CommandHandler("challenge_summary_preview", challenge_summary_preview_command))
     application.add_handler(CommandHandler("challenge_summary_reset", challenge_summary_reset_command))
     application.add_handler(CommandHandler("challenge_schedule_preview", challenge_schedule_preview_command))
+    application.add_handler(CommandHandler("commands", commands_list_command))
     
     # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
     application.add_handler(CallbackQueryHandler(start_restart_yes_callback, pattern="^start_restart_yes$"))
