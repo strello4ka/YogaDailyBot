@@ -5,6 +5,7 @@ import logging
 
 from telegram.ext import ContextTypes
 
+from app.block import mark_blocked_if_forbidden
 from data.db import (
     get_users_for_by_mood_reminder,
     mark_by_mood_reminder_sent,
@@ -45,9 +46,10 @@ async def send_weekly_by_mood_reminders(context: ContextTypes.DEFAULT_TYPE):
                 mark_by_mood_reminder_sent(user_id)
                 logger.info(f"Отправлено By mood-напоминание пользователю {user_id}")
             except Exception as e:
-                logger.error(
-                    f"Ошибка отправки By mood-напоминания пользователю {user_id}: {e}"
-                )
+                if not mark_blocked_if_forbidden(user_id, e):
+                    logger.error(
+                        f"Ошибка отправки By mood-напоминания пользователю {user_id}: {e}"
+                    )
     except Exception as e:
         logger.error(f"Ошибка еженедельных By mood-напоминаний: {e}")
 

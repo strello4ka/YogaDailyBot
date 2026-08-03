@@ -6,6 +6,7 @@ from typing import Optional
 from telegram.ext import ContextTypes
 
 from app.keyboards import get_practice_action_keyboard
+from app.block import mark_blocked_if_forbidden
 from data.db import (
     BY_MOOD_PRACTICE_LOG_DAY,
     split_practice_row_with_catalog,
@@ -112,7 +113,8 @@ async def deliver_on_demand_practice(
             await schedule_done_reminders(context, chat_id, user_id, log_id)
         return True
     except Exception as e:
-        logger.error("Ошибка deliver_on_demand_practice user=%s: %s", user_id, e)
+        if not mark_blocked_if_forbidden(user_id, e):
+            logger.error("Ошибка deliver_on_demand_practice user=%s: %s", user_id, e)
         return False
 
 

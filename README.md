@@ -240,8 +240,8 @@ flowchart TD
     FOUND -->|нет| ERR[Лог ошибки]
     FOUND -->|да| TG[Сообщение в Telegram + кнопки<br/>«🧡 В избранное» и «✅ Я сделал!»]
     TG --> OK{Успех отправки?}
-    OK -->|бот заблокирован| BLOCK[is_blocked = true]
-    OK -->|ошибка| ERR
+    OK -->|ошибка «bot was blocked»| BLOCK[is_blocked = true<br/>+ событие my_chat_member]
+    OK -->|другая ошибка| ERR
     OK -->|да| INC[Инкремент счётчиков + practice_logs<br/>в challenge: challenge_day = день потока]
     INC --> BONUS{Есть бонусные практики?}
     BONUS -->|да| BONUSSEND[Отправить бонусы]
@@ -304,7 +304,7 @@ flowchart TD
 
 Технические
 
-- `is_blocked` - заблокировал ли пользователь бота (помечается при ошибке отправки)
+- `is_blocked` - заблокировал ли пользователь бота (событие Telegram my_chat_member и/или ошибка отправки «bot was blocked by the user»)
 - `created_at` - дата регистрации
 - `updated_at` - дата последнего обновления
 

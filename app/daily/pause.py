@@ -4,6 +4,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from app.block import mark_blocked_if_forbidden
 from data.db import (
     get_user_notify_time,
     toggle_user_pause,
@@ -91,7 +92,10 @@ async def send_weekly_pause_reminders(context: ContextTypes.DEFAULT_TYPE):
                 mark_pause_reminder_sent(user_id)
                 logger.info(f"Отправлено напоминание о паузе пользователю {user_id}")
             except Exception as e:
-                logger.error(f"Ошибка отправки напоминания о паузе пользователю {user_id}: {e}")
+                if not mark_blocked_if_forbidden(user_id, e):
+                    logger.error(
+                        f"Ошибка отправки напоминания о паузе пользователю {user_id}: {e}"
+                    )
     except Exception as e:
         logger.error(f"Ошибка еженедельных напоминаний о паузе: {e}")
 

@@ -33,6 +33,7 @@ from data.db import (
 )
 from app.challenge.cohort import get_cohort_challenge_day, is_cohort_configured
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
+from app.block import mark_blocked_if_forbidden
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,8 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             logger.info(f"Бонусная практика {bonus_id} отправлена пользователю {user_id} вместе с {practice_id}")
         
     except Exception as e:
+        if mark_blocked_if_forbidden(user_id, e):
+            return
         logger.error(f"Ошибка отправки практики пользователю {user_id}: {e}")
 
 

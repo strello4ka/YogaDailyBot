@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.config import DEFAULT_TZ
+from app.block import mark_blocked_if_forbidden
 from app.handlers.favorites import (
     message_is_favorites_carousel,
     strip_done_from_favorites_carousel,
@@ -272,7 +273,8 @@ async def _send_done_reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         # После успешной отправки больше не напоминаем за текущий день.
         dismiss_done_reminders(user_id)
     except Exception as e:
-        logger.error("Ошибка напоминания о практике user=%s: %s", user_id, e)
+        if not mark_blocked_if_forbidden(user_id, e):
+            logger.error("Ошибка напоминания о практике user=%s: %s", user_id, e)
 
 
 async def schedule_done_reminders(
@@ -331,11 +333,12 @@ async def send_evening_done_reminders_failsafe_job(
             dismiss_done_reminders(user_id)
             logger.info("Отправлено резервное 19:30-напоминание user=%s", user_id)
         except Exception as e:
-            logger.error(
-                "Ошибка резервного 19:30-напоминания user=%s: %s",
-                user_id,
-                e,
-            )
+            if not mark_blocked_if_forbidden(user_id, e):
+                logger.error(
+                    "Ошибка резервного 19:30-напоминания user=%s: %s",
+                    user_id,
+                    e,
+                )
 
 
 def schedule_done_evening_reminders(application) -> None:
