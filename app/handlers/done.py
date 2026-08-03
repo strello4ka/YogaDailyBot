@@ -17,14 +17,13 @@ from app.handlers.favorites import (
 from app.handlers.progress import (
     format_challenge_progress_line,
     format_progress_stats,
-    format_similar_result_line,
+    format_social_proof_line,
 )
 from app.practice_markup import keep_favorite_button_on_message
 from app.practice_ref import parse_practice_callback
 from data.db import (
     clear_last_favorites_carousel_message,
     get_completed_count,
-    get_similar_result_percent,
     get_users_for_done_evening_reminder,
     get_streak_days,
     has_completed_practice_today,
@@ -489,8 +488,7 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
 
         n = get_completed_count(user_id)
         streak = get_streak_days(user_id)
-        similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)
-        similar_line = format_similar_result_line(n, similar_percent)
+        similar_line = format_social_proof_line(user_id)
         name = _display_name(update.effective_user)
         text = _done_text(n, streak, similar_line, name, user_id)
         await context.bot.send_message(

@@ -5,13 +5,24 @@ from telegram.ext import ContextTypes
 
 from app.challenge.cohort import CHALLENGE_DURATION
 from data.db import (
+    get_better_than_completed_percent,
     get_challenge_completed_in_last_n_days,
     get_completed_count,
-    get_similar_result_percent,
     get_streak_days,
     get_user_bot_mode,
+    has_best_streak,
     reset_user_progress,
 )
+
+# Пороги «лучше, чем у X%» по числу выполненных практик
+_MIN_SHOW_BETTER_THAN = 50
+_TOP_10_THRESHOLD = 90
+_TOP_5_THRESHOLD = 95
+_TOP_1_THRESHOLD = 99
+_MIN_COMPLETED_FOR_COMPARE = 3
+_MIN_STREAK_FOR_BEST = 7
+
+BEST_STREAK_LINE = "\n\nУ тебя сейчас лучшая непрерывная серия в YogaDailyBot🔥"
 
 
 def format_streak_line(streak: int) -> str:
@@ -40,15 +51,45 @@ def format_progress_stats(n: int, streak: int, challenge_line: str = "") -> str:
     return "\n".join(lines)
 
 
-def format_similar_result_line(n: int, similar_percent) -> str:
-    """Текст про долю пользователей с таким же результатом (по числу выполненных)."""
-    if n == 0:
+def format_completed_rank_line(better_than_percent) -> str:
+    """Фраза сравнения по числу практик; пустая, если ниже 50% или нет данных."""
+    if better_than_percent is None:
         return ""
-    if n < 3 or similar_percent is None:
-        return "\n\n\\*уже считаю сколько пользователей с таким же результатом\\*"
-    if similar_percent < 1:
-        return "\n\n*Менее 1%* пользователей YogaDailyBot имеют такой же результат..Ты неповторим!"
-    return f"\n\nТакой же результат сейчас у *{round(similar_percent)}%* пользователей YogaDailyBot"
+    x = round(better_than_percent)
+    if x < _MIN_SHOW_BETTER_THAN:
+        return ""
+    if x >= _TOP_1_THRESHOLD:
+        return (
+            "\n\nТы главный йог YogaDailyBot! "
+            "Только *1%* пользователей выполнили так много практик"
+        )
+    if x >= _TOP_5_THRESHOLD:
+        return "\n\nТы среди лучших: такой результат только у *5%* пользователей"
+    if x >= _TOP_10_THRESHOLD:
+        return (
+            "\n\nТы входишь в топ *10%* пользователей YogaDailyBot "
+            "по количеству выполненных практик"
+        )
+    return f"\n\nТы выполнил больше практик, чем *{x}%* пользователей YogaDailyBot"
+
+
+def format_social_proof_line(user_id: int) -> str:
+    """Соц. фраза: лучшая серия важнее сравнения по числу практик."""
+    if has_best_streak(user_id, min_streak=_MIN_STREAK_FOR_BEST):
+        return BEST_STREAK_LINE
+    n = get_completed_count(user_id)
+    if n < _MIN_COMPLETED_FOR_COMPARE:
+        return ""
+    better_than = get_better_than_completed_percent(
+        user_id, min_completed=_MIN_COMPLETED_FOR_COMPARE
+    )
+    return format_completed_rank_line(better_than)
+
+
+# Совместимость со старым именем в done.py
+def format_similar_result_line(n: int, similar_percent) -> str:
+    """Устарело: используйте format_social_proof_line / format_completed_rank_line."""
+    return format_completed_rank_line(similar_percent)
 
 
 def _progress_text(user_id: int) -> str:
@@ -61,13 +102,6 @@ def _progress_text(user_id: int) -> str:
         return "Ты еще не выполнил ни одной практики, все самое прекрасное впереди✨"
     streak = get_streak_days(user_id)
     return format_progress_stats(n, streak, format_challenge_progress_line(user_id))
-
-
-def _similar_result_line(user_id: int) -> str:
-    """Текст про долю пользователей с таким же результатом."""
-    n = get_completed_count(user_id)
-    similar_percent = get_similar_result_percent(user_id, bucket_size=5, min_completed=3)
-    return format_similar_result_line(n, similar_percent)
 
 
 def _progress_keyboard() -> InlineKeyboardMarkup:
@@ -94,7 +128,7 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
     if not msg:
         return
     text = _progress_text(user_id)
-    text += _similar_result_line(user_id)
+    text += format_social_proof_line(user_id)
     # Во время челленджа сброс недоступен — иначе сотрётся зачёт N/28
     show_reset = get_completed_count(user_id) > 0 and get_user_bot_mode(user_id) != "challenge"
     reply_markup = _progress_keyboard() if show_reset else None

@@ -4409,33 +4409,34 @@ def get_streak_days(user_id: int) -> int:
         return 0
 
 
-def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_completed: int = 3):
-    """Возвращает процент пользователей с таким же результатом по бакету числа выполненных практик.
+def get_better_than_completed_percent(user_id: int, min_completed: int = 3):
+    """Доля пользователей (%), у которых выполненных практик строго меньше, чем у user_id.
 
-    «Такие же» = пользователи с completed_cnt >= min_completed в том же бакете шириной
-    bucket_size (например, 10–14 при bucket_size=5).
+    Считаем среди незаблокированных с completed_cnt >= min_completed.
 
     Returns:
-        float | None: процент «таких же» пользователей (0..100) или None, если данных пока мало.
+        float | None: 0..100 или None, если у пользователя мало практик / нет данных.
     """
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(
+            '''
             SELECT COUNT(*) FROM practice_logs
             WHERE user_id = %s AND completed_at IS NOT NULL
-        ''', (user_id,))
+            ''',
+            (user_id,),
+        )
         completed_row = cursor.fetchone()
         user_completed = int(completed_row[0]) if completed_row else 0
         if user_completed < min_completed:
             conn.close()
             return None
 
-        user_bucket = user_completed // bucket_size
-
-        cursor.execute('''
+        cursor.execute(
+            '''
             WITH completed_by_user AS (
                 SELECT user_id, COUNT(*) AS completed_cnt
                 FROM practice_logs
@@ -4448,36 +4449,95 @@ def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_completed
                 LEFT JOIN completed_by_user c ON c.user_id = u.user_id
                 WHERE COALESCE(u.is_blocked, FALSE) = FALSE
                   AND COALESCE(c.completed_cnt, 0) >= %s
-            ),
-            stats AS (
-                SELECT
-                    COUNT(*) AS total_cnt,
-                    SUM(
-                        CASE
-                            WHEN (completed_cnt / %s) = %s THEN 1
-                            ELSE 0
-                        END
-                    ) AS same_cnt
-                FROM eligible
             )
-            SELECT total_cnt, same_cnt FROM stats
-        ''', (min_completed, bucket_size, user_bucket))
-
+            SELECT
+                COUNT(*) AS total_cnt,
+                SUM(CASE WHEN completed_cnt < %s THEN 1 ELSE 0 END) AS worse_cnt
+            FROM eligible
+            ''',
+            (min_completed, user_completed),
+        )
         totals = cursor.fetchone()
         conn.close()
         if not totals:
             return None
         total_cnt = int(totals[0] or 0)
-        same_cnt = int(totals[1] or 0)
+        worse_cnt = int(totals[1] or 0)
         if total_cnt == 0:
             return None
-        return (same_cnt * 100.0) / total_cnt
+        return (worse_cnt * 100.0) / total_cnt
 
     except Exception as e:
-        logger.error(f"Ошибка get_similar_result_percent для {user_id}: {e}")
+        logger.error(f"Ошибка get_better_than_completed_percent для {user_id}: {e}")
         if conn:
             conn.close()
         return None
+
+
+def _streak_from_completion_days(completion_days: set, today: date) -> int:
+    """Непрерывная серия дней от сегодня/вчера назад по множеству дат выполнения."""
+    if not completion_days:
+        return 0
+    yesterday = today - timedelta(days=1)
+    if today in completion_days:
+        anchor = today
+    elif yesterday in completion_days:
+        anchor = yesterday
+    else:
+        return 0
+    streak = 0
+    day = anchor
+    while day in completion_days:
+        streak += 1
+        day -= timedelta(days=1)
+    return streak
+
+
+def has_best_streak(user_id: int, min_streak: int = 7) -> bool:
+    """True, если текущая серия пользователя — максимальная среди незаблокированных (≥ min_streak).
+
+    При ничьей все с максимумом считаются чемпионами.
+    """
+    user_streak = get_streak_days(user_id)
+    if user_streak < min_streak:
+        return False
+
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT pl.user_id, pl.completed_at
+            FROM practice_logs pl
+            JOIN users u ON u.user_id = pl.user_id
+            WHERE pl.completed_at IS NOT NULL
+              AND COALESCE(u.is_blocked, FALSE) = FALSE
+            '''
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        by_user = {}
+        for uid, completed_at in rows:
+            by_user.setdefault(uid, set()).add(_completed_at_to_moscow_date(completed_at))
+
+        today = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
+        max_streak = 0
+        for days in by_user.values():
+            max_streak = max(max_streak, _streak_from_completion_days(days, today))
+
+        return user_streak >= max_streak and max_streak >= min_streak
+    except Exception as e:
+        logger.error(f"Ошибка has_best_streak для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
+def get_similar_result_percent(user_id: int, bucket_size: int = 5, min_completed: int = 3):
+    """Устарело: раньше «такой же результат». Используйте get_better_than_completed_percent."""
+    return get_better_than_completed_percent(user_id, min_completed=min_completed)
 
 
 def reset_user_progress(user_id: int) -> bool:
