@@ -22,7 +22,7 @@ _TOP_1_THRESHOLD = 99
 _MIN_COMPLETED_FOR_COMPARE = 3
 _MIN_STREAK_FOR_BEST = 7
 
-BEST_STREAK_LINE = "\n\nУ тебя сейчас лучшая непрерывная серия в YogaDailyBot🔥"
+BEST_STREAK_LINE = "\n\nУ тебя сейчас ЛУЧШАЯ непрерывная серия в YogaDailyBot🔥"
 
 
 def format_streak_line(streak: int) -> str:
@@ -61,16 +61,16 @@ def format_completed_rank_line(better_than_percent) -> str:
     if x >= _TOP_1_THRESHOLD:
         return (
             "\n\nТы главный йог YogaDailyBot! "
-            "Только *1%* пользователей выполнили так много практик"
+            "Только *1%* пользователей выполнили так много практик!!!!"
         )
     if x >= _TOP_5_THRESHOLD:
-        return "\n\nТы среди лучших: такой результат только у *5%* пользователей"
+        return "\n\nТы среди лучших: такой результат только у *5%* пользователей!"
     if x >= _TOP_10_THRESHOLD:
         return (
             "\n\nТы входишь в топ *10%* пользователей YogaDailyBot "
-            "по количеству выполненных практик"
+            "по количеству выполненных практик!"
         )
-    return f"\n\nТы выполнил больше практик, чем *{x}%* пользователей YogaDailyBot"
+    return f"\n\nТы выполнил больше практик, чем *{x}%* пользователей YogaDailyBot!"
 
 
 def format_social_proof_line(user_id: int) -> str:
