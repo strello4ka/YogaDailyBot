@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 EMPTY_FAVORITES_TEXT = (
     "У тебя пока нет избранных практик.\n"
-    "Нажми «🧡 В избранное» под любой понравившейся практикой, и она появится здесь."
+    "Нажми 🩶 под любой понравившейся практикой, и она появится здесь."
 )
 
 FAVORITES_ADD_TOAST = (
@@ -174,7 +174,7 @@ async def strip_done_from_favorites_carousel(
     practice_id: int,
     practice_catalog: str = PRACTICE_CATALOG_YOGA,
 ) -> None:
-    """Убирает «Я сделал!» с карусели, оставляя избранное и навигацию."""
+    """Убирает «Я сделал!» с карусели, оставляя реакции, избранное и навигацию."""
     favorites = list_user_favorites(user_id)
     if not favorites:
         try:

@@ -1,4 +1,4 @@
-"""Снятие «✅ Я сделал!» с сообщения практики, сохранение кнопки избранного."""
+"""Снятие «✅ Я сделал!» с сохранением постоянных действий практики."""
 
 import logging
 from typing import Optional
@@ -27,7 +27,7 @@ async def keep_favorite_button_on_message(
     practice_id: Optional[int] = None,
     practice_catalog: Optional[str] = None,
 ) -> None:
-    """Убирает «✅ Я сделал!», оставляет только кнопку избранного."""
+    """Убирает «✅ Я сделал!», оставляет реакции и избранное."""
     pid = practice_id or practice_id_from_action_markup(reply_markup)
     catalog = practice_catalog or practice_catalog_from_action_markup(reply_markup)
     if pid is None:

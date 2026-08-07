@@ -718,6 +718,25 @@ def init_database():
             print("   ✅ Таблица user_favorites готова")
         except Exception as e:
             print(f"⚠️ Ошибка при создании user_favorites: {e}")
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_practice_reactions (
+                    user_id BIGINT NOT NULL,
+                    practice_id INTEGER NOT NULL,
+                    practice_catalog TEXT NOT NULL DEFAULT 'yoga',
+                    reaction TEXT NOT NULL CHECK (reaction IN ('like', 'dislike')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, practice_id, practice_catalog)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_practice_reactions_practice "
+                "ON user_practice_reactions(practice_catalog, practice_id, reaction)"
+            )
+            print("   ✅ Таблица user_practice_reactions готова")
+        except Exception as e:
+            print(f"⚠️ Ошибка при создании user_practice_reactions: {e}")
 
         # Cleanup-migration: удаляем устаревшие столбцы users, которые больше не используются
         try:
@@ -2126,6 +2145,7 @@ def set_user_onboarding_required(
             ''', (user_id,))
         cursor.execute('DELETE FROM by_mood_seen WHERE user_id = %s', (user_id,))
         cursor.execute('DELETE FROM user_favorites WHERE user_id = %s', (user_id,))
+        cursor.execute('DELETE FROM user_practice_reactions WHERE user_id = %s', (user_id,))
         cursor.execute(
             'UPDATE practice_logs SET completed_at = NULL WHERE user_id = %s',
             (user_id,)
@@ -2772,6 +2792,85 @@ def list_user_favorites(user_id: int) -> list:
         return decoded
     except Exception as e:
         print(f"Ошибка list_user_favorites {user_id}: {e}")
+        if conn:
+            conn.close()
+        return []
+
+
+def set_user_practice_reaction(
+    user_id: int,
+    practice_id: int,
+    reaction: str,
+    practice_catalog: str = PRACTICE_CATALOG_YOGA,
+) -> bool:
+    """Сохраняет единственную текущую реакцию пользователя на практику."""
+    if reaction not in ("like", "dislike"):
+        return False
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO user_practice_reactions (
+                user_id, practice_id, practice_catalog, reaction
+            )
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id, practice_id, practice_catalog)
+            DO UPDATE SET
+                reaction = EXCLUDED.reaction,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, practice_id, practice_catalog, reaction),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(
+            f"Ошибка set_user_practice_reaction {user_id} {practice_id} "
+            f"{practice_catalog} {reaction}: {e}"
+        )
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def get_practice_reaction_stats() -> list:
+    """Внутренняя статистика уникальных лайков и дизлайков по практикам."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                r.practice_id,
+                r.practice_catalog,
+                COALESCE(yp.title, mp.title, 'Практика') AS title,
+                COALESCE(yp.channel_name, mp.channel_name, '') AS channel_name,
+                COUNT(*) FILTER (WHERE r.reaction = 'like') AS likes,
+                COUNT(*) FILTER (WHERE r.reaction = 'dislike') AS dislikes,
+                COUNT(*) AS total_reactions
+            FROM user_practice_reactions r
+            LEFT JOIN yoga_practices yp
+                ON r.practice_catalog = %s AND yp.practices_id = r.practice_id
+            LEFT JOIN mood_practices mp
+                ON r.practice_catalog = %s AND mp.mood_practice_id = r.practice_id
+            GROUP BY
+                r.practice_id, r.practice_catalog,
+                COALESCE(yp.title, mp.title, 'Практика'),
+                COALESCE(yp.channel_name, mp.channel_name, '')
+            ORDER BY total_reactions DESC, likes DESC, r.practice_catalog, r.practice_id
+            """,
+            (PRACTICE_CATALOG_YOGA, PRACTICE_CATALOG_MOOD),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"Ошибка get_practice_reaction_stats: {e}")
         if conn:
             conn.close()
         return []
@@ -5160,4 +5259,3 @@ def is_challenge_auto_exit_sent_on(sent_date: date) -> bool:
 
 def mark_challenge_auto_exit_sent(sent_date: date) -> bool:
     return _set_system_state(CHALLENGE_AUTO_EXIT_SENT_KEY, sent_date.isoformat())
-

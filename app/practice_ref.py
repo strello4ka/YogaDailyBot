@@ -36,7 +36,7 @@ def parse_practice_callback(data: str, prefix: str) -> Tuple[Optional[int], str]
 
 
 def practice_id_from_callback_data(data: str) -> Optional[int]:
-    for prefix in ("fav_toggle", "practice_done"):
+    for prefix in ("fav_toggle", "practice_done", "practice_like", "practice_dislike"):
         if data.startswith(f"{prefix}:"):
             pid, _ = parse_practice_callback(data, prefix)
             return pid
@@ -44,7 +44,7 @@ def practice_id_from_callback_data(data: str) -> Optional[int]:
 
 
 def practice_catalog_from_callback_data(data: str) -> str:
-    for prefix in ("fav_toggle", "practice_done"):
+    for prefix in ("fav_toggle", "practice_done", "practice_like", "practice_dislike"):
         if data.startswith(f"{prefix}:"):
             _, catalog = parse_practice_callback(data, prefix)
             return catalog
@@ -57,6 +57,8 @@ def practice_catalog_from_action_markup(reply_markup) -> str:
     for row in reply_markup.inline_keyboard:
         for btn in row:
             data = btn.callback_data or ""
-            if data.startswith(("fav_toggle:", "practice_done:")):
+            if data.startswith(
+                ("fav_toggle:", "practice_done:", "practice_like:", "practice_dislike:")
+            ):
                 return practice_catalog_from_callback_data(data)
     return PRACTICE_CATALOG_YOGA

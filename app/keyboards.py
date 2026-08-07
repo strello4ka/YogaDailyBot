@@ -57,14 +57,24 @@ def get_practice_action_keyboard(
     is_favorited: bool,
     practice_catalog: str = "yoga",
 ) -> InlineKeyboardMarkup:
-    """Клавиатура под практикой: избранное + «✅ Я сделал!»."""
-    favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
+    """Клавиатура под практикой: реакции, избранное и «✅ Я сделал!»."""
+    favorite_label = "🧡" if is_favorited else "🩶"
     return InlineKeyboardMarkup([
         [
+            InlineKeyboardButton(
+                "👍",
+                callback_data=format_practice_callback("practice_like", practice_id, practice_catalog),
+            ),
+            InlineKeyboardButton(
+                "👎",
+                callback_data=format_practice_callback("practice_dislike", practice_id, practice_catalog),
+            ),
             InlineKeyboardButton(
                 favorite_label,
                 callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
             ),
+        ],
+        [
             InlineKeyboardButton(
                 "✅ Я сделал!",
                 callback_data=format_practice_callback("practice_done", practice_id, practice_catalog),
@@ -78,10 +88,18 @@ def get_practice_favorite_keyboard(
     is_favorited: bool,
     practice_catalog: str = "yoga",
 ) -> InlineKeyboardMarkup:
-    """Только кнопка избранного (после «Я сделал!» или новой практики)."""
-    favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
+    """Постоянные действия после снятия кнопки «✅ Я сделал!»."""
+    favorite_label = "🧡" if is_favorited else "🩶"
     return InlineKeyboardMarkup([
         [
+            InlineKeyboardButton(
+                "👍",
+                callback_data=format_practice_callback("practice_like", practice_id, practice_catalog),
+            ),
+            InlineKeyboardButton(
+                "👎",
+                callback_data=format_practice_callback("practice_dislike", practice_id, practice_catalog),
+            ),
             InlineKeyboardButton(
                 favorite_label,
                 callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
@@ -91,13 +109,15 @@ def get_practice_favorite_keyboard(
 
 
 def practice_id_from_action_markup(reply_markup: Optional[InlineKeyboardMarkup]) -> Optional[int]:
-    """practice_id из кнопок fav_toggle / practice_done под практикой."""
+    """practice_id из кнопок действий под практикой."""
     if not reply_markup or not reply_markup.inline_keyboard:
         return None
     for row in reply_markup.inline_keyboard:
         for btn in row:
             data = btn.callback_data or ""
-            if data.startswith(("fav_toggle:", "practice_done:")):
+            if data.startswith(
+                ("fav_toggle:", "practice_done:", "practice_like:", "practice_dislike:")
+            ):
                 from app.practice_ref import practice_id_from_callback_data
                 return practice_id_from_callback_data(data)
     return None
@@ -126,21 +146,29 @@ def get_favorites_carousel_keyboard(
 
     show_done=False — после отметки или на следующий день (кнопка «Я сделал!» снята).
     """
-    favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
+    favorite_label = "🧡" if is_favorited else "🩶"
     action_row = [
+        InlineKeyboardButton(
+            "👍",
+            callback_data=format_practice_callback("practice_like", practice_id, practice_catalog),
+        ),
+        InlineKeyboardButton(
+            "👎",
+            callback_data=format_practice_callback("practice_dislike", practice_id, practice_catalog),
+        ),
         InlineKeyboardButton(
             favorite_label,
             callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
         ),
     ]
+    rows = [action_row]
     if show_done:
-        action_row.append(
+        rows.append([
             InlineKeyboardButton(
                 "✅ Я сделал!",
                 callback_data=format_practice_callback("practice_done", practice_id, practice_catalog),
-            ),
-        )
-    rows = [action_row]
+            )
+        ])
     if total > 1:
         nav = []
         if index > 0:

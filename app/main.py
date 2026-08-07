@@ -83,6 +83,7 @@ from .handlers.favorites import (
     handle_fav_nav_callback,
     handle_fav_noop_callback,
 )
+from .handlers.reactions import handle_practice_reaction_callback, reaction_stats_command
 from .bot_commands import setup_bot_commands
 from app.by_mood.self_decide import handle_difficulty_callback as by_mood_self_difficulty_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
@@ -264,6 +265,7 @@ def main():
     application.add_handler(CommandHandler("secret", secret_command))
     application.add_handler(CommandHandler("secret_delete", secret_delete_command))
     application.add_handler(CommandHandler("secret_edit", secret_edit_command))
+    application.add_handler(CommandHandler("reaction_stats", reaction_stats_command))
     application.add_handler(CommandHandler("challenge", challenge_command))
     application.add_handler(CommandHandler("challenge_off", challenge_off_command))
     application.add_handler(CommandHandler("flow_add", flow_add_command))
@@ -298,6 +300,7 @@ def main():
     # Трекер прогресса: кнопка «✅ Я сделал!» и «Мой прогресс» / сброс
     application.add_handler(CallbackQueryHandler(handle_practice_done_callback, pattern="^practice_done"))
     application.add_handler(CallbackQueryHandler(handle_fav_toggle_callback, pattern="^fav_toggle:"))
+    application.add_handler(CallbackQueryHandler(handle_practice_reaction_callback, pattern="^practice_(like|dislike):"))
     application.add_handler(CallbackQueryHandler(handle_fav_nav_callback, pattern="^fav_nav:"))
     application.add_handler(CallbackQueryHandler(handle_fav_noop_callback, pattern="^fav_noop$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_callback, pattern="^progress_reset$"))
