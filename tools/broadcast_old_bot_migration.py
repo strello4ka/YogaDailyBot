@@ -249,7 +249,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--report",
         type=Path,
-        default=Path("broadcast_reports") / f"old_bot_migration_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
+        default=Path("отчеты")
+        / "broadcast_reports"
+        / f"old_bot_migration_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
         help="CSV report path.",
     )
     parser.add_argument(

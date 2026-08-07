@@ -205,7 +205,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--report",
         type=Path,
-        default=Path("broadcast_reports")
+        default=Path("отчеты")
+        / "broadcast_reports"
         / f"pending_mode_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
         help="Путь к CSV-отчёту.",
     )
