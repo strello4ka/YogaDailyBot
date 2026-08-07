@@ -33,7 +33,7 @@ wheels/
 
 # Логи
 *.log
-broadcast_reports/
+отчеты/broadcast_reports/
 
 # Конфигурационные файлы с секретами
 config.py
