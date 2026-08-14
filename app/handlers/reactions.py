@@ -15,7 +15,7 @@ from data.db import (
 logger = logging.getLogger(__name__)
 
 REACTION_TOASTS = {
-    "like": "👍 Лайк пойман",
+    "like": "👍 Запомнил, тебе понравилось",
     "dislike": "👎 Понял, не зашло",
 }
 
