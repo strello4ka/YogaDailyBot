@@ -31,6 +31,7 @@ COMMANDS_HELP_TEXT = (
     "`/secret_edit` — изменить текст/подпись последней рассылки\n"
     "`/flow_add` — массовая запись в поток (далее список @ник / id)\n"
     "`/challenge_summary_preview` — сразу отправить сводку в группу\n"
+    "`/challenge_final_resend` — повторно отправить исправленный финал 24.08.2026\n"
     "`/challenge_summary_reset` — сброс флагов сводок перед новым потоком\n"
     "`/challenge_schedule_preview` — превью воскресного расписания в группу"
 )

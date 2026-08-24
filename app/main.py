@@ -55,6 +55,7 @@ from .block import handle_user_block_event
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
 from .challenge.jobs import schedule_challenge_jobs
 from .challenge.summary.commands import (
+    challenge_final_resend_command,
     challenge_summary_preview_command,
     challenge_summary_reset_command,
 )
@@ -269,6 +270,7 @@ def main():
     application.add_handler(CommandHandler("flow_add", flow_add_command))
     application.add_handler(CommandHandler("challenge_summary_preview", challenge_summary_preview_command))
     application.add_handler(CommandHandler("challenge_summary_reset", challenge_summary_reset_command))
+    application.add_handler(CommandHandler("challenge_final_resend", challenge_final_resend_command))
     application.add_handler(CommandHandler("challenge_schedule_preview", challenge_schedule_preview_command))
     application.add_handler(CommandHandler("commands", commands_list_command))
     
