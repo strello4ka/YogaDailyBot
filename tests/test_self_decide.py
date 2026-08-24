@@ -46,18 +46,18 @@ class SelfDecideTegTest(unittest.TestCase):
 
         self.assertEqual(
             keyboard_labels(markup),
-            ["Зарядка", "Здоровая спина", "назад", "любой"],
+            ["Зарядка", "Здоровая спина", "любой", "назад"],
         )
         self.assertEqual(
             keyboard_callbacks(markup),
             [
                 "self_teg:t15_20:charge",
                 "self_teg:t15_20:back",
-                "self_time:back",
                 "self_teg:t15_20:any",
+                "self_time:back",
             ],
         )
-        self.assertEqual(keyboard_rows(markup)[-1], ["назад", "любой"])
+        self.assertEqual(keyboard_rows(markup)[-2:], [["любой"], ["назад"]])
 
     def test_single_teg_hides_any_and_strong_legs_is_not_on_front(self):
         markup = self_decide.teg_keyboard(
@@ -78,18 +78,18 @@ class SelfDecideTegTest(unittest.TestCase):
 
         self.assertEqual(
             keyboard_labels(markup),
-            ["низкая", "высокая", "назад", "любая"],
+            ["низкая", "высокая", "любая", "назад"],
         )
         self.assertEqual(
             keyboard_callbacks(markup),
             [
                 "self_difficulty:t20_30:core:ilow",
                 "self_difficulty:t20_30:core:ihigh",
-                "self_time:t20_30",
                 "self_difficulty:t20_30:core:iany",
+                "self_time:t20_30",
             ],
         )
-        self.assertEqual(keyboard_rows(markup)[-1], ["назад", "любая"])
+        self.assertEqual(keyboard_rows(markup)[-2:], [["любая"], ["назад"]])
 
     def test_single_difficulty_hides_any(self):
         markup = self_decide.difficulty_keyboard(
@@ -175,6 +175,10 @@ class QuickFiltersTest(unittest.TestCase):
         self.assertIn("%s = ANY", healthy_back.where_sql)
         self.assertEqual(healthy_back.params, ("Здоровая спина",))
         self.assertEqual(relax.params, ("Расслабление",))
+        self.assertIn("yp.time_practices <= 25", healthy_back.where_sql)
+        self.assertIn("yp.time_practices <= 25", relax.where_sql)
+        self.assertIn("yp.time_practices > 0", healthy_back.where_sql)
+        self.assertIn("yp.time_practices > 0", relax.where_sql)
 
 
 if __name__ == "__main__":

@@ -47,7 +47,10 @@ QUICK_FILTERS: dict[str, QuickFilter] = {
         slug="healthy_back",
         label="Здоровая спина",
         filter_key="healthy_back",
-        where_sql=" AND %s = ANY(COALESCE(yp.teg, ARRAY[]::TEXT[])) ",
+        where_sql=(
+            " AND %s = ANY(COALESCE(yp.teg, ARRAY[]::TEXT[])) "
+            " AND yp.time_practices <= 25 AND yp.time_practices > 0 "
+        ),
         params=("Здоровая спина",),
         empty_message="Не нашлось практик для здоровой спины. Попробуй другой фильтр.",
     ),
@@ -55,7 +58,10 @@ QUICK_FILTERS: dict[str, QuickFilter] = {
         slug="relax",
         label="Расслабление",
         filter_key="relax",
-        where_sql=" AND %s = ANY(COALESCE(yp.teg, ARRAY[]::TEXT[])) ",
+        where_sql=(
+            " AND %s = ANY(COALESCE(yp.teg, ARRAY[]::TEXT[])) "
+            " AND yp.time_practices <= 25 AND yp.time_practices > 0 "
+        ),
         params=("Расслабление",),
         empty_message="Не нашлось расслабляющих практик. Попробуй другой фильтр.",
     ),

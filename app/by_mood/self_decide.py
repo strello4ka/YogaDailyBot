@@ -102,6 +102,8 @@ def teg_keyboard(
     back_callback_prefix: str = "self_time",
 ) -> InlineKeyboardMarkup:
     labels = [label for label in TEG_LABELS if label in available_tegs]
+    if len(labels) != 1:
+        labels.append(ANY_TEG_LABEL)
     buttons = [
         InlineKeyboardButton(
             label,
@@ -110,20 +112,14 @@ def teg_keyboard(
         for label in labels
     ]
     rows = _button_rows(buttons)
-    footer = [
-        InlineKeyboardButton(
-            "назад",
-            callback_data=f"{back_callback_prefix}:back",
-        )
-    ]
-    if len(labels) != 1:
-        footer.append(
+    rows.append(
+        [
             InlineKeyboardButton(
-                ANY_TEG_LABEL,
-                callback_data=f"{callback_prefix}:{time_key}:{TEG_TO_KEY[ANY_TEG_LABEL]}",
+                "назад",
+                callback_data=f"{back_callback_prefix}:back",
             )
-        )
-    rows.append(footer)
+        ]
+    )
     return InlineKeyboardMarkup(rows)
 
 
@@ -141,6 +137,8 @@ def difficulty_keyboard(
         for label in DIFFICULTY_LABELS[:-1]
         if normalized & DIFFICULTY_DB_VALUES[label]
     ]
+    if len(labels) != 1:
+        labels.append("любая")
     buttons = [
         InlineKeyboardButton(
             label,
@@ -151,23 +149,14 @@ def difficulty_keyboard(
         for label in labels
     ]
     rows = _button_rows(buttons)
-    footer = [
-        InlineKeyboardButton(
-            "назад",
-            callback_data=f"{back_callback_prefix}:{time_key}",
-        )
-    ]
-    if len(labels) != 1:
-        footer.append(
+    rows.append(
+        [
             InlineKeyboardButton(
-                "любая",
-                callback_data=(
-                    f"{callback_prefix}:{time_key}:{teg_key}:"
-                    f"{DIFFICULTY_TO_KEY['любая']}"
-                ),
+                "назад",
+                callback_data=f"{back_callback_prefix}:{time_key}",
             )
-        )
-    rows.append(footer)
+        ]
+    )
     return InlineKeyboardMarkup(rows)
 
 
