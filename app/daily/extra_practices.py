@@ -15,6 +15,7 @@ from telegram.ext import ContextTypes
 from app.by_mood import five_min, hard, lazy_days, long_practices, no_mat, practice_of_day, strello4ka
 from app.by_mood.self_decide import time_keyboard
 from app.by_mood.self_decide import handle_difficulty_callback as self_handle_difficulty
+from app.by_mood.self_decide import handle_teg_callback as self_handle_teg
 from app.by_mood.self_decide import handle_time_callback as self_handle_time
 from app.by_mood.send_utils import deliver_by_mood_practice
 from data.db import (
@@ -37,6 +38,7 @@ EXTRA_PRACTICES_INTRO = (
 
 EXTRA_MOOD_PREFIX = "extra_mood:"
 EXTRA_SELF_TIME_PREFIX = "extra_self_time"
+EXTRA_SELF_TEG_PREFIX = "extra_self_teg"
 EXTRA_SELF_DIFFICULTY_PREFIX = "extra_self_difficulty"
 
 _STALE_EXTRA_MSG = (
@@ -225,6 +227,29 @@ async def handle_extra_self_time_callback(update: Update, context: ContextTypes.
         update,
         context,
         time_callback_prefix=EXTRA_SELF_TIME_PREFIX,
+        teg_callback_prefix=EXTRA_SELF_TEG_PREFIX,
+    )
+
+
+async def handle_extra_self_teg_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    user = update.effective_user
+    if not user or not user_may_use_extra_practices(user.id):
+        query = update.callback_query
+        if query:
+            await query.answer()
+            await query.edit_message_reply_markup(reply_markup=None)
+            if user and update.effective_chat and query.message:
+                remove_extra_practices_inline_message(
+                    user.id, update.effective_chat.id, query.message.message_id
+                )
+            await query.message.reply_text(_STALE_EXTRA_MSG)
+        return
+    await self_handle_teg(
+        update,
+        context,
+        teg_callback_prefix=EXTRA_SELF_TEG_PREFIX,
         difficulty_callback_prefix=EXTRA_SELF_DIFFICULTY_PREFIX,
     )
 

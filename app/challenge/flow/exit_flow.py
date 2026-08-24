@@ -39,8 +39,16 @@ async def finish_challenge_for_user(
     """Выход из челленджа: clear + сообщение + выбор режима + напоминания."""
     from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN, schedule_mode_pick_reminders
     from app.daily.extra_practices import strip_extra_practices_inline_keyboards
+    from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
 
-    clear_user_challenge(user_id)
+    if not clear_user_challenge(user_id):
+        logger.error(
+            "Не удалось сохранить завершение челленджа user=%s; финальное сообщение не отправлено",
+            user_id,
+        )
+        return False
+    await cancel_done_reminders(context, user_id)
+    dismiss_done_reminders(user_id)
     await strip_extra_practices_inline_keyboards(context.bot, user_id)
     try:
         await context.bot.send_message(

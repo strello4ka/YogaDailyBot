@@ -745,7 +745,7 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
     user = update.effective_user
     chat_id = update.effective_chat.id
 
-    from app.handlers.done import cancel_done_reminders
+    from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
 
     await cancel_mode_reminders(context, user.id)
     await cancel_done_reminders(context, user.id)
@@ -765,6 +765,7 @@ async def mode_pick_daily_callback(update: Update, context: ContextTypes.DEFAULT
         return
     if prev in ("by_mood", "challenge", "pending"):
         set_user_daily_pending(user.id)
+        dismiss_done_reminders(user.id)
     if prev in ("by_mood", "challenge"):
         from app.daily.extra_practices import strip_extra_practices_inline_keyboards
 
@@ -816,7 +817,7 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
     user = update.effective_user
     chat_id = update.effective_chat.id
 
-    from app.handlers.done import cancel_done_reminders
+    from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
 
     await cancel_mode_reminders(context, user.id)
     await cancel_reminders(context, user.id)
@@ -836,6 +837,7 @@ async def mode_pick_by_mood_callback(update: Update, context: ContextTypes.DEFAU
             reply_markup=get_by_mood_reply_keyboard(),
         )
         return
+    dismiss_done_reminders(user.id)
     activate_user_by_mood(
         user.id,
         chat_id,

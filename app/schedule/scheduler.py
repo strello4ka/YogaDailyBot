@@ -30,6 +30,7 @@ from data.db import (
     get_current_weekday,
     get_bonus_practices_by_parent,
     is_user_favorite,
+    get_user_bot_mode,
 )
 from app.challenge.cohort import get_cohort_challenge_day, is_cohort_configured
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
@@ -86,6 +87,19 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         weekday: день недели (используется только в обычном режиме)
     """
     try:
+        # Список получателей формируется один раз на весь запуск рассылки. Пока мы
+        # доходим до конкретного пользователя, другая фоновая задача могла уже
+        # завершить ему челлендж и перевести его в pending. Перепроверяем режим
+        # непосредственно перед отправкой, чтобы не прислать практику после финала.
+        bot_mode = get_user_bot_mode(user_id)
+        if bot_mode not in ("daily", "challenge"):
+            logger.info(
+                "Пропуск рассылки user=%s: режим изменился на %s",
+                user_id,
+                bot_mode,
+            )
+            return
+
         # Снимаем «Я сделал!» только если предыдущая практика не за сегодня
         from app.handlers.done import strip_previous_day_done_button
 

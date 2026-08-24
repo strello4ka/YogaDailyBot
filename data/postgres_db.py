@@ -224,11 +224,20 @@ def init_database():
                 description TEXT,
                 my_description TEXT,
                 difficulty TEXT,
+                teg TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
                 weekday INTEGER CHECK (weekday >= 1 AND weekday <= 7),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        cursor.execute(
+            "ALTER TABLE yoga_practices "
+            "ADD COLUMN IF NOT EXISTS teg TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_yoga_practices_teg "
+            "ON yoga_practices USING GIN (teg)"
+        )
         
         # Создаем таблицу бонусных практик, привязанных к основной
         cursor.execute('''
@@ -756,14 +765,23 @@ def init_database():
                     my_description TEXT,
                     difficulty TEXT,
                     without_mat BOOLEAN NOT NULL DEFAULT FALSE,
+                    teg TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            cursor.execute(
+                "ALTER TABLE mood_practices "
+                "ADD COLUMN IF NOT EXISTS teg TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]"
+            )
             _migrate_mood_practices_drop_button_key(cursor)
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_mood_practices_video_url "
                 "ON mood_practices(video_url)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_mood_practices_teg "
+                "ON mood_practices USING GIN (teg)"
             )
             _migrate_intensity_to_difficulty("mood_practices")
             print("   ✅ Таблица mood_practices готова")
@@ -2422,6 +2440,72 @@ def split_practice_row_with_catalog(practice_row: tuple) -> Tuple[tuple, str]:
     if len(practice_row) >= 12:
         return practice_row[:11], practice_row[11]
     return practice_row, PRACTICE_CATALOG_YOGA
+
+
+def _get_combined_distinct_options(
+    yoga_expression: str,
+    mood_expression: str,
+    extra_where_sql: str,
+    extra_params: tuple = (),
+) -> set[str]:
+    """Значения из общего yoga/mood-пула после уже выбранных фильтров."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        mood_where = extra_where_sql.replace("yp.", "mp.")
+        cursor.execute(
+            f"""
+                SELECT DISTINCT option_value
+                FROM (
+                    SELECT {yoga_expression} AS option_value
+                    FROM yoga_practices yp
+                    WHERE 1=1 {extra_where_sql}
+
+                    UNION
+
+                    SELECT {mood_expression} AS option_value
+                    FROM mood_practices mp
+                    WHERE 1=1 {mood_where}
+                ) options
+                WHERE NULLIF(TRIM(option_value), '') IS NOT NULL
+            """,
+            extra_params + extra_params,
+        )
+        values = {str(row[0]).strip() for row in cursor.fetchall() if row[0]}
+        conn.close()
+        return values
+    except Exception as e:
+        print(f"Ошибка _get_combined_distinct_options: {e}")
+        if conn:
+            conn.close()
+        return set()
+
+
+def get_available_combined_tegs(
+    extra_where_sql: str,
+    extra_params: tuple = (),
+) -> set[str]:
+    """Акценты, для которых есть хотя бы одна практика с выбранным временем."""
+    return _get_combined_distinct_options(
+        "UNNEST(COALESCE(yp.teg, ARRAY[]::TEXT[]))",
+        "UNNEST(COALESCE(mp.teg, ARRAY[]::TEXT[]))",
+        extra_where_sql,
+        extra_params,
+    )
+
+
+def get_available_combined_difficulties(
+    extra_where_sql: str,
+    extra_params: tuple = (),
+) -> set[str]:
+    """Сложности, доступные после выбора времени и акцента."""
+    return _get_combined_distinct_options(
+        "LOWER(TRIM(COALESCE(yp.difficulty, '')))",
+        "LOWER(TRIM(COALESCE(mp.difficulty, '')))",
+        extra_where_sql,
+        extra_params,
+    )
 
 
 def pick_random_by_mood_practice(
@@ -5160,4 +5244,3 @@ def is_challenge_auto_exit_sent_on(sent_date: date) -> bool:
 
 def mark_challenge_auto_exit_sent(sent_date: date) -> bool:
     return _set_system_state(CHALLENGE_AUTO_EXIT_SENT_KEY, sent_date.isoformat())
-

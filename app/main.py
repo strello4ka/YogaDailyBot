@@ -86,10 +86,12 @@ from .handlers.favorites import (
 )
 from .bot_commands import setup_bot_commands
 from app.by_mood.self_decide import handle_difficulty_callback as by_mood_self_difficulty_callback
+from app.by_mood.self_decide import handle_teg_callback as by_mood_self_teg_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
 from app.daily.extra_practices import (
     handle_extra_mood_callback,
     handle_extra_self_difficulty_callback,
+    handle_extra_self_teg_callback,
     handle_extra_self_time_callback,
 )
 
@@ -283,9 +285,11 @@ def main():
     application.add_handler(CallbackQueryHandler(mode_pick_by_mood_callback, pattern="^mode_pick_by_mood$"))
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
+    application.add_handler(CallbackQueryHandler(by_mood_self_teg_callback, pattern="^self_teg:"))
     application.add_handler(CallbackQueryHandler(by_mood_self_difficulty_callback, pattern="^self_difficulty:"))
     application.add_handler(CallbackQueryHandler(handle_extra_mood_callback, pattern="^extra_mood:"))
     application.add_handler(CallbackQueryHandler(handle_extra_self_time_callback, pattern="^extra_self_time:"))
+    application.add_handler(CallbackQueryHandler(handle_extra_self_teg_callback, pattern="^extra_self_teg:"))
     application.add_handler(
         CallbackQueryHandler(handle_extra_self_difficulty_callback, pattern="^extra_self_difficulty:")
     )

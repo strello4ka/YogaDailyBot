@@ -62,6 +62,13 @@ async def send_challenge_welcome_dm(
     ):
         return False, "нет в базе (нужен /start)"
 
+    # Практика из предыдущего режима больше не должна порождать напоминание
+    # после перехода в челлендж, в том числе через failsafe после рестарта.
+    from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
+
+    await cancel_done_reminders(context, user_id)
+    dismiss_done_reminders(user_id)
+
     try:
         time_choice_message = await context.bot.send_message(
             chat_id=chat_id,
