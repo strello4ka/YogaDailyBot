@@ -5,19 +5,16 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from app.by_mood.quick_filters import (
+    get_active_quick_filter_by_label,
+    get_active_quick_filters,
+    record_quick_filter_click,
+    select_and_deliver_quick_filter,
+)
 from data.db import get_user_bot_mode
 
 _BY_MOOD_LABELS = frozenset(
-    {
-        "Практика дня",
-        "Без коврика",
-        "Ленивые дни",
-        "Мини",
-        "Хард",
-        "САМ решу",
-        "strello4ka",
-        "Длинные",
-    }
+    spec.label for spec in get_active_quick_filters()
 )
 
 
@@ -85,28 +82,27 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def _dispatch_by_mood_button(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    if text == "Практика дня":
-        from app.by_mood import practice_of_day
-        await practice_of_day.handle(update, context)
-    elif text == "Без коврика":
-        from app.by_mood import no_mat
-        await no_mat.handle(update, context)
-    elif text == "Ленивые дни":
-        from app.by_mood import lazy_days
-        await lazy_days.handle(update, context)
-    elif text == "Мини":
-        from app.by_mood import five_min
-        await five_min.handle(update, context)
-    elif text == "Хард":
-        from app.by_mood import hard
-        await hard.handle(update, context)
-    elif text == "САМ решу":
-        from app.by_mood.self_decide import start_flow
-        await start_flow(update, context)
-    elif text == "strello4ka":
-        from app.by_mood import strello4ka
-        await strello4ka.handle(update, context)
-    elif text == "Длинные":
-        from app.by_mood import long_practices
-        await long_practices.handle(update, context)
+    spec = get_active_quick_filter_by_label(text)
+    user = update.effective_user
+    chat = update.effective_chat
+    if not spec or not user or not chat:
+        return
 
+    if spec.pool == "flow":
+        record_quick_filter_click(user.id, spec, "by_mood", None)
+        from app.by_mood.self_decide import start_flow
+
+        await start_flow(update, context)
+        return
+
+    result = await select_and_deliver_quick_filter(
+        context,
+        user.id,
+        chat.id,
+        spec,
+        "by_mood",
+    )
+    if result == "empty":
+        await update.message.reply_text(spec.empty_message)
+    elif result == "failed":
+        await update.message.reply_text("Не удалось отправить практику. Попробуй ещё раз.")

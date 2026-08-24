@@ -712,6 +712,28 @@ def init_database():
             print(f"⚠️ Ошибка при создании by_mood_seen: {e}")
         try:
             cursor.execute("""
+                CREATE TABLE IF NOT EXISTS quick_filter_events (
+                    event_id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    filter_key TEXT NOT NULL,
+                    surface TEXT NOT NULL,
+                    result_found BOOLEAN,
+                    clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_quick_filter_events_filter_time "
+                "ON quick_filter_events(filter_key, clicked_at DESC)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_quick_filter_events_surface_time "
+                "ON quick_filter_events(surface, clicked_at DESC)"
+            )
+            print("   ✅ Таблица quick_filter_events готова")
+        except Exception as e:
+            print(f"⚠️ Ошибка при создании quick_filter_events: {e}")
+        try:
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_favorites (
                     user_id BIGINT NOT NULL,
                     practice_id INTEGER NOT NULL,
@@ -2412,6 +2434,37 @@ def clear_by_mood_seen_for_user(user_id: int) -> bool:
         return True
     except Exception as e:
         print(f"Ошибка clear_by_mood_seen_for_user {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def log_quick_filter_event(
+    user_id: int,
+    filter_key: str,
+    surface: str,
+    result_found: Optional[bool],
+) -> bool:
+    """Сохраняет нажатие быстрой кнопки для продуктовой аналитики."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                INSERT INTO quick_filter_events (
+                    user_id, filter_key, surface, result_found
+                )
+                VALUES (%s, %s, %s, %s)
+            """,
+            (user_id, filter_key, surface, result_found),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка log_quick_filter_event {user_id} {filter_key}: {e}")
         if conn:
             conn.rollback()
             conn.close()

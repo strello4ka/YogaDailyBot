@@ -18,7 +18,6 @@ TIME_LABELS = ["до 10", "10 - 15", "15 - 20", "20 - 30", "30 - 45", "45 - 60+"
 DIFFICULTY_LABELS = ["низкая", "средняя", "высокая", "любая"]
 TEG_LABELS = [
     "Сильное тело",
-    "Сильные ноги",
     "Расслабление",
     "Зарядка",
     "Здоровая спина",
@@ -100,9 +99,9 @@ def teg_keyboard(
     available_tegs: set[str],
     *,
     callback_prefix: str = "self_teg",
+    back_callback_prefix: str = "self_time",
 ) -> InlineKeyboardMarkup:
     labels = [label for label in TEG_LABELS if label in available_tegs]
-    labels.append(ANY_TEG_LABEL)
     buttons = [
         InlineKeyboardButton(
             label,
@@ -110,7 +109,22 @@ def teg_keyboard(
         )
         for label in labels
     ]
-    return InlineKeyboardMarkup(_button_rows(buttons))
+    rows = _button_rows(buttons)
+    footer = [
+        InlineKeyboardButton(
+            "назад",
+            callback_data=f"{back_callback_prefix}:back",
+        )
+    ]
+    if len(labels) != 1:
+        footer.append(
+            InlineKeyboardButton(
+                ANY_TEG_LABEL,
+                callback_data=f"{callback_prefix}:{time_key}:{TEG_TO_KEY[ANY_TEG_LABEL]}",
+            )
+        )
+    rows.append(footer)
+    return InlineKeyboardMarkup(rows)
 
 
 def difficulty_keyboard(
@@ -119,6 +133,7 @@ def difficulty_keyboard(
     available_difficulties: set[str],
     *,
     callback_prefix: str = "self_difficulty",
+    back_callback_prefix: str = "self_time",
 ) -> InlineKeyboardMarkup:
     normalized = {value.strip().lower() for value in available_difficulties}
     labels = [
@@ -126,7 +141,6 @@ def difficulty_keyboard(
         for label in DIFFICULTY_LABELS[:-1]
         if normalized & DIFFICULTY_DB_VALUES[label]
     ]
-    labels.append("любая")
     buttons = [
         InlineKeyboardButton(
             label,
@@ -136,7 +150,25 @@ def difficulty_keyboard(
         )
         for label in labels
     ]
-    return InlineKeyboardMarkup(_button_rows(buttons))
+    rows = _button_rows(buttons)
+    footer = [
+        InlineKeyboardButton(
+            "назад",
+            callback_data=f"{back_callback_prefix}:{time_key}",
+        )
+    ]
+    if len(labels) != 1:
+        footer.append(
+            InlineKeyboardButton(
+                "любая",
+                callback_data=(
+                    f"{callback_prefix}:{time_key}:{teg_key}:"
+                    f"{DIFFICULTY_TO_KEY['любая']}"
+                ),
+            )
+        )
+    rows.append(footer)
+    return InlineKeyboardMarkup(rows)
 
 
 def _sql_for_time_choice(label: str) -> tuple[str, tuple]:
@@ -202,17 +234,25 @@ async def handle_time_callback(
     if not data.startswith(pfx):
         return
     time_key = data[len(pfx) :]
+    if time_key == "back":
+        await query.edit_message_text(
+            "Настрой свою практику *сам*:\nсначала выбери время (в минутах)👇",
+            parse_mode="Markdown",
+            reply_markup=time_keyboard(callback_prefix=time_callback_prefix),
+        )
+        return
     if time_key not in KEY_TO_TIME:
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text("Что-то пошло не так. Нажми «САМ решу» ещё раз.")
         return
 
     await query.edit_message_text(
-        "Время выбрано ✔️\nНа что сделать акцент? 👇",
+        "Время выбрано ✔️\nНа что хочешь сделать акцент? 👇",
         reply_markup=teg_keyboard(
             time_key,
             get_available_combined_tegs(*_sql_for_time_choice(KEY_TO_TIME[time_key])),
             callback_prefix=teg_callback_prefix,
+            back_callback_prefix=time_callback_prefix,
         ),
     )
 
@@ -221,6 +261,7 @@ async def handle_teg_callback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     *,
+    time_callback_prefix: str = "self_time",
     teg_callback_prefix: str = "self_teg",
     difficulty_callback_prefix: str = "self_difficulty",
 ) -> None:
@@ -260,6 +301,7 @@ async def handle_teg_callback(
             teg_key,
             available,
             callback_prefix=difficulty_callback_prefix,
+            back_callback_prefix=time_callback_prefix,
         ),
     )
 

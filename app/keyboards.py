@@ -6,6 +6,7 @@ from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
+from app.by_mood.quick_filters import get_active_quick_filters
 from app.practice_ref import format_practice_callback
 
 
@@ -167,24 +168,8 @@ def get_main_reply_keyboard():
 
 def get_by_mood_reply_keyboard():
     """Reply-клавиатура режима By mood: фильтры по запросу."""
-    keyboard = [
-        [
-            KeyboardButton("Ленивые дни"),
-            KeyboardButton("Без коврика"),
-        ],
-        [
-            KeyboardButton("Хард"),
-            KeyboardButton("strello4ka"),
-        ],
-        [
-            KeyboardButton("Длинные"),
-            KeyboardButton("Мини"),
-        ],
-        [
-            KeyboardButton("Практика дня"),
-            KeyboardButton("САМ решу"),
-        ],
-    ]
+    buttons = [KeyboardButton(spec.label) for spec in get_active_quick_filters()]
+    keyboard = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
     return ReplyKeyboardMarkup(
         keyboard,
         resize_keyboard=True,

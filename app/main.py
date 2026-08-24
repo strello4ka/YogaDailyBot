@@ -88,6 +88,7 @@ from .bot_commands import setup_bot_commands
 from app.by_mood.self_decide import handle_difficulty_callback as by_mood_self_difficulty_callback
 from app.by_mood.self_decide import handle_teg_callback as by_mood_self_teg_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
+from app.by_mood.quick_filters import get_active_quick_filters
 from app.daily.extra_practices import (
     handle_extra_mood_callback,
     handle_extra_self_difficulty_callback,
@@ -324,15 +325,8 @@ def main():
         "Советы",
         "Пауза",
         "Еще практики",
-        "Практика дня",
-        "Без коврика",
-        "Ленивые дни",
-        "Мини",
-        "Хард",
-        "САМ решу",
-        "strello4ka",
-        "Длинные",
     ]
+    reply_buttons.extend(spec.label for spec in get_active_quick_filters())
     escaped = [re.escape(b) for b in reply_buttons]
     application.add_handler(
         MessageHandler(

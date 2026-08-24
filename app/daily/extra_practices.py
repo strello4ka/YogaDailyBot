@@ -12,17 +12,18 @@ from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.by_mood import five_min, hard, lazy_days, long_practices, no_mat, practice_of_day, strello4ka
+from app.by_mood.quick_filters import (
+    get_active_quick_filters,
+    record_quick_filter_click,
+    select_and_deliver_quick_filter,
+)
 from app.by_mood.self_decide import time_keyboard
 from app.by_mood.self_decide import handle_difficulty_callback as self_handle_difficulty
 from app.by_mood.self_decide import handle_teg_callback as self_handle_teg
 from app.by_mood.self_decide import handle_time_callback as self_handle_time
-from app.by_mood.send_utils import deliver_by_mood_practice
 from data.db import (
     append_extra_practices_inline_message,
     get_user_bot_mode,
-    pick_random_by_mood_practice,
-    pick_random_combined_mood_pool,
     remove_extra_practices_inline_message,
     take_and_clear_extra_practices_inline_messages,
 )
@@ -45,82 +46,16 @@ _STALE_EXTRA_MSG = (
     "Эти кнопки доступны в режимах Daily или Challenge. Выбери режим через /change_mode."
 )
 
-# (callback_slug, filter_key, where_sql, params, сообщение если пусто)
-_EXTRA_FILTER_ROWS: tuple[tuple[str, str, str, tuple, str], ...] = (
-    (
-        "day",
-        practice_of_day.FILTER_KEY,
-        "",
-        (),
-        "Сейчас не нашлось подходящей практики в базе. Попробуй чуть позже или другой фильтр.",
-    ),
-    (
-        "no_mat",
-        no_mat.FILTER_KEY,
-        no_mat.WHERE,
-        (),
-        "Пока нет практик с отметкой «без коврика» в базе. Как только добавим — фильтр заработает.",
-    ),
-    (
-        "lazy",
-        lazy_days.FILTER_KEY,
-        lazy_days.WHERE,
-        (),
-        "Не нашлось практик с очень низкой сложностью. Попробуй другой фильтр.",
-    ),
-    (
-        "five",
-        five_min.FILTER_KEY,
-        five_min.WHERE,
-        (),
-        "Не нашлось коротких практик до 8 минут включительно. Попробуй другой фильтр.",
-    ),
-    (
-        "hard",
-        hard.FILTER_KEY,
-        hard.WHERE,
-        (),
-        "Не нашлось практик со сверх высокой сложностью. Попробуй другой фильтр.",
-    ),
-    (
-        "strello4ka",
-        strello4ka.FILTER_KEY,
-        strello4ka.WHERE,
-        strello4ka.PARAMS,
-        "Не нашлось практик от strello4ka. Попробуй другой фильтр.",
-    ),
-    (
-        "long",
-        long_practices.FILTER_KEY,
-        long_practices.WHERE,
-        (),
-        "Не нашлось практик длиннее 45 минут. Попробуй другой фильтр.",
-    ),
-)
-
-_EXTRA_SLUG_MAP = {row[0]: row for row in _EXTRA_FILTER_ROWS}
-
-
 def get_extra_practices_inline_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        InlineKeyboardButton(
+            spec.label,
+            callback_data=f"{EXTRA_MOOD_PREFIX}{spec.slug}",
+        )
+        for spec in get_active_quick_filters()
+    ]
     return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("Ленивые дни", callback_data=f"{EXTRA_MOOD_PREFIX}lazy"),
-                InlineKeyboardButton("Без коврика", callback_data=f"{EXTRA_MOOD_PREFIX}no_mat"),
-            ],
-            [
-                InlineKeyboardButton("Хард", callback_data=f"{EXTRA_MOOD_PREFIX}hard"),
-                InlineKeyboardButton("strello4ka", callback_data=f"{EXTRA_MOOD_PREFIX}strello4ka"),
-            ],
-            [
-                InlineKeyboardButton("Длинные", callback_data=f"{EXTRA_MOOD_PREFIX}long"),
-                InlineKeyboardButton("Мини", callback_data=f"{EXTRA_MOOD_PREFIX}five"),
-            ],
-            [
-                InlineKeyboardButton("Практика дня", callback_data=f"{EXTRA_MOOD_PREFIX}day"),
-                InlineKeyboardButton("САМ решу", callback_data=f"{EXTRA_MOOD_PREFIX}self_start"),
-            ],
-        ]
+        [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
     )
 
 
@@ -181,8 +116,17 @@ async def handle_extra_mood_callback(update: Update, context: ContextTypes.DEFAU
     if not data.startswith(EXTRA_MOOD_PREFIX):
         return
     slug = data[len(EXTRA_MOOD_PREFIX) :]
+    if slug == "self_start":  # Совместимость с уже отправленными старыми кнопками.
+        slug = "self"
 
-    if slug == "self_start":
+    active_filters = {spec.slug: spec for spec in get_active_quick_filters()}
+    spec = active_filters.get(slug)
+    if not spec:
+        await query.message.reply_text("Эта быстрая кнопка сейчас выключена.")
+        return
+
+    if spec.pool == "flow":
+        record_quick_filter_click(user.id, spec, "extra", None)
         msg = await query.message.reply_text(
             "Настрой свою практику *сам*:\nсначала выбери время (в минутах)👇",
             parse_mode="Markdown",
@@ -191,22 +135,16 @@ async def handle_extra_mood_callback(update: Update, context: ContextTypes.DEFAU
         append_extra_practices_inline_message(user.id, chat.id, msg.message_id)
         return
 
-    spec = _EXTRA_SLUG_MAP.get(slug)
-    if not spec:
-        await query.message.reply_text("Что-то пошло не так. Нажми «Еще практики» ещё раз.")
-        return
-
-    _cb_slug, filter_key, where_sql, params, empty_msg = spec
-    if slug == "day":
-        row = pick_random_by_mood_practice(user.id, filter_key, where_sql, params)
-    else:
-        row = pick_random_combined_mood_pool(user.id, filter_key, where_sql, params)
-    if not row:
-        await query.message.reply_text(empty_msg)
-        return
-
-    ok = await deliver_by_mood_practice(context, chat.id, user.id, filter_key, row)
-    if not ok:
+    result = await select_and_deliver_quick_filter(
+        context,
+        user.id,
+        chat.id,
+        spec,
+        "extra",
+    )
+    if result == "empty":
+        await query.message.reply_text(spec.empty_message)
+    elif result == "failed":
         await query.message.reply_text("Не удалось отправить практику. Попробуй ещё раз.")
 
 
@@ -249,6 +187,7 @@ async def handle_extra_self_teg_callback(
     await self_handle_teg(
         update,
         context,
+        time_callback_prefix=EXTRA_SELF_TIME_PREFIX,
         teg_callback_prefix=EXTRA_SELF_TEG_PREFIX,
         difficulty_callback_prefix=EXTRA_SELF_DIFFICULTY_PREFIX,
     )

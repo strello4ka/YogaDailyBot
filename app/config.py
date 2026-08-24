@@ -14,6 +14,10 @@ LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 CHALLENGE_GROUP_CHAT_ID: str = os.getenv("CHALLENGE_GROUP_CHAT_ID", "")
 CHALLENGE_START_DATE: str = os.getenv("CHALLENGE_START_DATE", "")
 CHALLENGE_START_PRACTICE_ID: str = os.getenv("CHALLENGE_START_PRACTICE_ID", "")
+QUICK_PRACTICE_FILTERS: str = os.getenv(
+    "QUICK_PRACTICE_FILTERS",
+    "lazy,no_mat,healthy_back,relax,strello4ka,five,day,self",
+)
 
 
 def get_database_url() -> str:
@@ -60,5 +64,4 @@ def get_db_config() -> dict:
         "dbname": dbname,
         "sslmode": os.getenv("POSTGRES_SSLMODE", "require"),
     }
-
 
