@@ -194,6 +194,10 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+# INFO-логи httpx содержат полный Telegram API URL, в который входит bot token.
+# Не допускаем попадания токена в локальные и deploy-логи.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
