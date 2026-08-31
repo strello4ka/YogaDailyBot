@@ -111,10 +111,11 @@ def _progress_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def _confirm_keyboard() -> InlineKeyboardMarkup:
+def _confirm_keyboard(*, reset_challenge: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения сброса."""
+    confirm_label = "Да, сбросить всё" if reset_challenge else "Да, сбросить"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Да, сбросить", callback_data="progress_reset_yes")],
+        [InlineKeyboardButton(confirm_label, callback_data="progress_reset_yes")],
         [InlineKeyboardButton("Нет", callback_data="progress_reset_no")]
     ])
 
@@ -129,8 +130,7 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
         return
     text = _progress_text(user_id)
     text += format_social_proof_line(user_id)
-    # Во время челленджа сброс недоступен — иначе сотрётся зачёт N/28
-    show_reset = get_completed_count(user_id) > 0 and get_user_bot_mode(user_id) != "challenge"
+    show_reset = get_completed_count(user_id) > 0
     reply_markup = _progress_keyboard() if show_reset else None
     await msg.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
@@ -141,16 +141,21 @@ async def handle_progress_reset_callback(update: Update, context: ContextTypes.D
     if not query:
         return
     user_id = update.effective_user.id if update.effective_user else None
-    if user_id and get_user_bot_mode(user_id) == "challenge":
-        await query.answer()
-        await query.edit_message_text(
-            "Во время челленджа сброс прогресса недоступен — чтобы не сбросить зачёт дней потока"
-        )
-        return
+    reset_challenge = bool(user_id and get_user_bot_mode(user_id) == "challenge")
     await query.answer()
+    if reset_challenge:
+        text = (
+            "Точно хочешь сбросить прогресс? Обнулятся общий прогресс, серия дней "
+            "и результат текущего челленджа. Это действие нельзя отменить."
+        )
+    else:
+        text = (
+            "Точно хочешь сбросить? Практики будут приходить как раньше, "
+            "просто цифры начнутся заново."
+        )
     await query.edit_message_text(
-        "Точно хочешь сбросить? Практики будут приходить как раньше, просто цифры начнутся заново.",
-        reply_markup=_confirm_keyboard()
+        text,
+        reply_markup=_confirm_keyboard(reset_challenge=reset_challenge)
     )
 
 
@@ -162,12 +167,6 @@ async def handle_progress_reset_yes_callback(update: Update, context: ContextTyp
     user_id = update.effective_user.id if update.effective_user else None
     if not user_id:
         await query.answer("Ошибка.")
-        return
-    if get_user_bot_mode(user_id) == "challenge":
-        await query.answer()
-        await query.edit_message_text(
-            "Во время челленджа сброс прогресса недоступен — чтобы не сбросить зачёт дней потока"
-        )
         return
     reset_user_progress(user_id)
     await query.answer()
