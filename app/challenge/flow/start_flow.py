@@ -13,7 +13,8 @@ from telegram.ext import ContextTypes
 
 from app.challenge.cohort import get_challenge_start_date, is_cohort_configured
 from app.config import DEFAULT_TZ
-from app.keyboards import get_main_reply_keyboard, get_welcome_keyboard
+from app.keyboards import get_welcome_keyboard
+from app.onboarding_messages import WEEK_DESCRIPTION
 from data.db import (
     complete_user_challenge_setup,
     get_current_weekday,
@@ -39,7 +40,8 @@ def build_challenge_welcome_text() -> str:
     return (
         "*Ура, ты в потоке* 🧡\n\n"
         "Давай *выберем время*, в которое ты хочешь получать ежедневные практики, "
-        f"начиная с {start_label}"
+        f"начиная с {start_label}\n\n"
+        f"{WEEK_DESCRIPTION}"
     )
 
 
@@ -53,6 +55,31 @@ async def send_challenge_welcome_dm(
     user_nickname: Optional[str] = None,
 ) -> tuple[bool, str]:
     """Записывает setup в БД и шлёт приветствие + выбор времени в личку."""
+    from data.db import is_user_onboarding_required
+
+    if is_user_onboarding_required(user_id):
+        # Новый пользователь сначала заканчивает общий онбординг. После финального
+        # экрана onboarding_flow автоматически продолжит Challenge.
+        try:
+            from app.onboarding_state import load_state, save_state
+
+            onboarding = load_state(user_id)
+            if not onboarding or onboarding.get("step") in ("declined", "challenge"):
+                return False, "сначала нужно завершить /start"
+            onboarding["pending_challenge_practice_id"] = practice_id
+            save_state(onboarding)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "Сначала закончи знакомство с ботом. Сразу после онбординга "
+                    "я продолжу настройку челленджа 🧡"
+                ),
+            )
+            return True, "ожидает завершения онбординга"
+        except Exception as e:
+            logger.warning("Не удалось отложить Challenge до онбординга user=%s: %s", user_id, e)
+            return False, "сначала нужно завершить /start"
+
     if not start_user_challenge_setup(
         user_id,
         chat_id,
@@ -206,29 +233,17 @@ async def handle_challenge_time_input(update: Update, context: ContextTypes.DEFA
     context.user_data.pop(PENDING_CHALLENGE_PRACTICE_KEY, None)
 
     send_now = _should_send_challenge_practice_immediately(selected_time)
+    start = get_challenge_start_date()
+    start_label = start.strftime("%d.%m") if start else "[дата старта]"
     await update.message.reply_text(
         (
             "Готово ✔️\n\n"
-            f"Твоё время *{selected_time}*.\n"
-            "Длительность челленджа — *28 дней*.\n\n"
-            + (
-                "Сейчас пришлю практику за сегодня 🧡"
-                if send_now
-                else "Уже жду начала 🧡"
-            )
+            f"Твое время *{selected_time}*.\n"
+            "Длительность челленджа: *28 дней*\n"
+            f"{start_label} в {selected_time} начнется наш YogaDaily путь!\n\n"
+            "Изменить время и остановить рассылку можно в меню → «Расписание».\n\n"
+            "До встречи на коврике 🧡"
         ),
-        parse_mode="Markdown",
-    )
-    await update.message.reply_text(
-        (
-            "Внизу у тебя появились кнопки:\n\n"
-            "🕓 *Изменить время* — жми, чтобы изменить время рассылки\n"
-            "💡 *Советы* — жми обязательно\n"
-            "🪫 *Пауза* — приостановить или возобновить ежедневную рассылку\n"
-            "✨ *Еще практики* — дополнительные практики по настроению (как в режиме By mood, но без отключения ежедневной рассылки)\n\n"
-            "Также есть *Меню*, где можно посмотреть свой прогресс, избранные практики, задонатить и найти другую полезную инфу"
-        ),
-        reply_markup=get_main_reply_keyboard(),
         parse_mode="Markdown",
     )
 

@@ -6,13 +6,12 @@ from telegram import BotCommand
 async def setup_bot_commands(application) -> None:
     await application.bot.set_my_commands(
         [
+            BotCommand("donate", "Управление подпиской"),
+            BotCommand("schedule", "Расписание"),
             BotCommand("favorite", "Избранное 🧡"),
-            BotCommand("change_mode", "Изменить режим"),
-            BotCommand("donate", "Донаты"),
             BotCommand("progress", "Мой прогресс"),
-            BotCommand("suggest", "Порекомендовать практику"),
-            BotCommand("help", "Помощь и вопросы"),
-            BotCommand("start", "Начать сначала"),
+            BotCommand("practice", "Получить практику"),
+            BotCommand("help", "Помощь и советы"),
 
         ]
     )

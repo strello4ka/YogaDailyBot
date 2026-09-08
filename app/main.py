@@ -21,7 +21,8 @@ from .onboarding import (
     mode_pick_by_mood_callback,
 )
 from .daily.set_time import handle_time_change_input
-from .handlers.reply_handlers import handle_reply_button
+from .handlers.reply_handlers import handle_reply_button, get_practice_command
+from .handlers.schedule import schedule_command, schedule_callback
 from .handlers.suggest_practice import handle_practice_suggestion_input
 from .handlers.donations import (
     handle_donations_callback,
@@ -76,7 +77,7 @@ from .challenge.flow.start_flow import (
 from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
-from .handlers.help import help_command
+from .handlers.help import help_command, help_section_callback
 from .handlers.commands_list import commands_list_command
 from .handlers.favorites import (
     favorite_command,
@@ -85,6 +86,13 @@ from .handlers.favorites import (
     handle_fav_noop_callback,
 )
 from .bot_commands import setup_bot_commands
+from .onboarding_flow import (
+    start_command,
+    callback as new_onboarding_callback,
+    legacy_callback as legacy_onboarding_callback,
+    handle_time_input as handle_new_onboarding_time,
+    schedule_onboarding_reminders,
+)
 from app.by_mood.self_decide import handle_difficulty_callback as by_mood_self_difficulty_callback
 from app.by_mood.self_decide import handle_teg_callback as by_mood_self_teg_callback
 from app.by_mood.self_decide import handle_time_callback as by_mood_self_time_callback
@@ -135,6 +143,10 @@ async def handle_text_input(update: Update, context):
     if context.user_data.get(WAITING_FOR_FLOW_ADD_KEY):
         await handle_flow_add_input(update, context)
         return
+
+    if not context.user_data.get(CHALLENGE_TIME_FLOW_KEY):
+        if await handle_new_onboarding_time(update, context):
+            return
     
     # Проверяем состояние ожидания предложения практики
     if context.user_data.get('waiting_for_practice_suggestion'):
@@ -261,12 +273,16 @@ def main():
 
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("change_mode", change_mode_command))
+    application.add_handler(CommandHandler("change_mode", start_command))
     application.add_handler(CommandHandler("suggest", suggest_command))
     application.add_handler(CommandHandler("donate", donate_command))
     application.add_handler(CommandHandler("progress", progress_command))
     application.add_handler(CommandHandler("favorite", favorite_command_handler))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("schedule", schedule_command))
+    application.add_handler(CommandHandler("practice", get_practice_command))
+    application.add_handler(CallbackQueryHandler(help_section_callback, pattern="^help_(faq|tips|suggest)$"))
+    application.add_handler(CallbackQueryHandler(schedule_callback, pattern="^schedule_(time|pause|challenge)$"))
     application.add_handler(CommandHandler("test", test_practice_command))
     application.add_handler(CommandHandler("myid", myid_command))
     application.add_handler(CommandHandler("secret", secret_command))
@@ -282,12 +298,10 @@ def main():
     application.add_handler(CommandHandler("commands", commands_list_command))
     
     # Регистрируем обработчики callback-запросов (онбординг и выбор режима)
-    application.add_handler(CallbackQueryHandler(start_restart_yes_callback, pattern="^start_restart_yes$"))
+    application.add_handler(CallbackQueryHandler(new_onboarding_callback, pattern="^ob2:"))
+    application.add_handler(CallbackQueryHandler(legacy_onboarding_callback, pattern="^start_restart_yes$"))
     application.add_handler(CallbackQueryHandler(start_restart_no_callback, pattern="^start_restart_no$"))
-    application.add_handler(CallbackQueryHandler(onboarding_show_example_callback, pattern="^onboarding_show_example$"))
-    application.add_handler(CallbackQueryHandler(onboarding_open_mode_choice_callback, pattern="^onboarding_open_mode_choice$"))
-    application.add_handler(CallbackQueryHandler(mode_pick_daily_callback, pattern="^mode_pick_daily$"))
-    application.add_handler(CallbackQueryHandler(mode_pick_by_mood_callback, pattern="^mode_pick_by_mood$"))
+    application.add_handler(CallbackQueryHandler(legacy_onboarding_callback, pattern="^(onboarding_show_example|onboarding_open_mode_choice|mode_pick_daily|mode_pick_by_mood)$"))
     application.add_handler(CallbackQueryHandler(want_start_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
     application.add_handler(CallbackQueryHandler(by_mood_self_teg_callback, pattern="^self_teg:"))
@@ -321,6 +335,9 @@ def main():
     
     # Reply-кнопки Daily и By mood (один обработчик — внутри проверяется режим)
     reply_buttons = [
+        "Хард",
+        "Расписание",
+        "Получить практику",
         "Изменить время",
         "Советы",
         "Пауза",
@@ -372,6 +389,7 @@ def main():
     # Планируем напоминания неактивным пользователям в режиме By mood
     schedule_by_mood_reminders(application)
     schedule_challenge_jobs(application)
+    schedule_onboarding_reminders(application)
     # В 00:00 МСК снимаем «Я сделал!» со вчерашних (и более старых) неотмеченных практик
     schedule_strip_done_buttons_midnight(application)
     # Резервный раннер 19:30-напоминаний: восстанавливает отправку после перезапусков

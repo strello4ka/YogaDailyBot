@@ -1,15 +1,14 @@
-"""Общее завершение челленджа: текст, pending, выбор режима, напоминания."""
+"""Завершение челленджа с переходом в общий интерфейс без выбора режима."""
 
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
-from telegram import ReplyKeyboardRemove
 from telegram.ext import ContextTypes
 
 from app.challenge.cohort import CHALLENGE_DURATION
-from app.keyboards import get_mode_choice_keyboard
+from app.keyboards import get_common_reply_keyboard
 from data.db import clear_user_challenge
 
 logger = logging.getLogger(__name__)
@@ -23,9 +22,11 @@ def build_challenge_finished_text(completed: Optional[int] = None) -> str:
     return (
         "*Челлендж завершен* ✔️\n\n"
         f"{result_line}"
-        "Какими бы ни были цифры, я так рад, что ты участвовал!\n"
-        "Продолжай пользоваться мной, чтобы сохранить привычку. \n"
-        "Выбери, как дальше работать с ботом 👇"
+        "Какими бы ни были цифры, я так рад, что ты участвовал 🧡\n\n"
+        "Продолжай пользоваться мной, чтобы сохранить привычку.\n"
+        "Ты можешь как выбирать практики по кнопкам так и настроить расписание, "
+        "чтобы получать их регулярно, прямо как в челлендже!\n\n"
+        "В меню доступны твоё избранное, прогресс, управление подпиской, помощь и советы ↙️"
     )
 
 
@@ -36,8 +37,7 @@ async def finish_challenge_for_user(
     chat_id: int,
     completed: Optional[int] = None,
 ) -> bool:
-    """Выход из челленджа: clear + сообщение + выбор режима + напоминания."""
-    from app.onboarding import MODE_CHOICE_INTRO_MARKDOWN, schedule_mode_pick_reminders
+    """Выход из челленджа: clear + сообщение с общей клавиатурой."""
     from app.daily.extra_practices import strip_extra_practices_inline_keyboards
     from app.handlers.done import cancel_done_reminders, dismiss_done_reminders
 
@@ -54,19 +54,11 @@ async def finish_challenge_for_user(
         await context.bot.send_message(
             chat_id=chat_id,
             text=build_challenge_finished_text(completed),
-            reply_markup=ReplyKeyboardRemove(),
-            parse_mode="Markdown",
-        )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=MODE_CHOICE_INTRO_MARKDOWN,
-            reply_markup=get_mode_choice_keyboard(),
+            reply_markup=get_common_reply_keyboard(),
             parse_mode="Markdown",
         )
     except Exception as e:
         logger.warning("Не удалось отправить завершение челленджа user=%s: %s", user_id, e)
         return False
 
-    if hasattr(context, "job_queue") and context.job_queue is not None:
-        await schedule_mode_pick_reminders(context, chat_id, user_id)
     return True

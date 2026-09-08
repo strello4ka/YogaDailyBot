@@ -5,7 +5,11 @@ from typing import Optional
 
 from telegram import InlineKeyboardMarkup
 
-from app.keyboards import get_practice_favorite_keyboard, practice_id_from_action_markup
+from app.keyboards import (
+    get_completed_practice_keyboard,
+    get_practice_favorite_keyboard,
+    practice_id_from_action_markup,
+)
 from app.practice_ref import practice_catalog_from_action_markup
 from data.db import (
     PRACTICE_CATALOG_YOGA,
@@ -26,6 +30,7 @@ async def keep_favorite_button_on_message(
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     practice_id: Optional[int] = None,
     practice_catalog: Optional[str] = None,
+    keep_done_disabled: bool = False,
 ) -> None:
     """Убирает «✅ Я сделал!», оставляет только кнопку избранного."""
     pid = practice_id or practice_id_from_action_markup(reply_markup)
@@ -48,8 +53,14 @@ async def keep_favorite_button_on_message(
         await bot.edit_message_reply_markup(
             chat_id=chat_id,
             message_id=message_id,
-            reply_markup=get_practice_favorite_keyboard(
-                pid, is_user_favorite(user_id, pid, catalog), catalog
+            reply_markup=(
+                get_completed_practice_keyboard(
+                    pid, is_user_favorite(user_id, pid, catalog), catalog
+                )
+                if keep_done_disabled
+                else get_practice_favorite_keyboard(
+                    pid, is_user_favorite(user_id, pid, catalog), catalog
+                )
             ),
         )
     except Exception as e:

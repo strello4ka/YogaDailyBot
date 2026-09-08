@@ -173,6 +173,7 @@ async def strip_done_from_favorites_carousel(
     user_id: int,
     practice_id: int,
     practice_catalog: str = PRACTICE_CATALOG_YOGA,
+    keep_done_disabled: bool = False,
 ) -> None:
     """Убирает «Я сделал!» с карусели, оставляя избранное и навигацию."""
     favorites = list_user_favorites(user_id)
@@ -201,6 +202,7 @@ async def strip_done_from_favorites_carousel(
                 total,
                 catalog,
                 show_done=False,
+                done_disabled=keep_done_disabled,
             ),
         )
     except Exception as e:

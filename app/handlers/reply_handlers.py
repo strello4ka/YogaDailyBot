@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.by_mood.quick_filters import (
+    QUICK_FILTERS,
     get_active_quick_filter_by_label,
     get_active_quick_filters,
     record_quick_filter_click,
@@ -13,9 +14,20 @@ from app.by_mood.quick_filters import (
 )
 from data.db import get_user_bot_mode
 
+PRACTICE_KEYBOARD_HINT = "разверни кнопки клавиатуры, чтобы выбрать практику под настроение"
+
+
+async def get_practice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Инструкция; видео подключается после предоставления владельцем."""
+    video = context.bot_data.get("practice_keyboard_tutorial_video")
+    if video:
+        await update.effective_message.reply_video(video=video, caption=PRACTICE_KEYBOARD_HINT)
+    else:
+        await update.effective_message.reply_text(PRACTICE_KEYBOARD_HINT)
+
 _BY_MOOD_LABELS = frozenset(
     spec.label for spec in get_active_quick_filters()
-)
+) | frozenset({QUICK_FILTERS["hard"].label})
 
 
 async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -47,7 +59,16 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         return
 
-    if user_id and get_user_bot_mode(user_id) == "by_mood" and message_text in _BY_MOOD_LABELS:
+    if message_text == "Расписание":
+        from app.handlers.schedule import schedule_command
+        await schedule_command(update, context)
+        return
+
+    if message_text == "Получить практику":
+        await get_practice_command(update, context)
+        return
+
+    if user_id and get_user_bot_mode(user_id) in ("by_mood", "daily", "challenge") and message_text in _BY_MOOD_LABELS:
         await _dispatch_by_mood_button(update, context, message_text)
         return
 
@@ -83,6 +104,8 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def _dispatch_by_mood_button(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     spec = get_active_quick_filter_by_label(text)
+    if spec is None and text == QUICK_FILTERS["hard"].label:
+        spec = QUICK_FILTERS["hard"]
     user = update.effective_user
     chat = update.effective_chat
     if not spec or not user or not chat:

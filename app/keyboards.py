@@ -10,6 +10,18 @@ from app.by_mood.quick_filters import get_active_quick_filters
 from app.practice_ref import format_practice_callback
 
 
+def get_common_reply_keyboard():
+    """Общая клавиатура нового сценария независимо от внутреннего режима."""
+    return ReplyKeyboardMarkup([
+        ["Ленивые дни", "Без коврика"],
+        ["Здоровая спина", "Расслабление"],
+        ["Мини", "Strello4ka"],
+        ["Хард", "Практика дня"],
+        ["Сам решу"],
+        ["Расписание"],
+    ], resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
+
+
 def get_mode_choice_keyboard():
     """Inline: выбор режима после /start или /change_mode."""
     keyboard = [
@@ -91,6 +103,22 @@ def get_practice_favorite_keyboard(
     ])
 
 
+def get_completed_practice_keyboard(
+    practice_id: int,
+    is_favorited: bool,
+    practice_catalog: str = "yoga",
+) -> InlineKeyboardMarkup:
+    """Избранное остаётся активным, «Я сделал!» — видимая disabled-кнопка Bot API 10.3."""
+    favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            favorite_label,
+            callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
+        ),
+        InlineKeyboardButton("✅ Я сделал!", api_kwargs={"disabled": {}}),
+    ]])
+
+
 def practice_id_from_action_markup(reply_markup: Optional[InlineKeyboardMarkup]) -> Optional[int]:
     """practice_id из кнопок fav_toggle / practice_done под практикой."""
     if not reply_markup or not reply_markup.inline_keyboard:
@@ -122,6 +150,7 @@ def get_favorites_carousel_keyboard(
     practice_catalog: str = "yoga",
     *,
     show_done: bool = True,
+    done_disabled: bool = False,
 ) -> InlineKeyboardMarkup:
     """Карусель избранного: действия с практикой + навигация.
 
@@ -134,7 +163,9 @@ def get_favorites_carousel_keyboard(
             callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
         ),
     ]
-    if show_done:
+    if done_disabled:
+        action_row.append(InlineKeyboardButton("✅ Я сделал!", api_kwargs={"disabled": {}}))
+    elif show_done:
         action_row.append(
             InlineKeyboardButton(
                 "✅ Я сделал!",

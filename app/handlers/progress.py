@@ -2,6 +2,7 @@
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+from app.rich_messages import paragraph, send_rich_message
 
 from app.challenge.cohort import CHALLENGE_DURATION
 from data.db import (
@@ -132,7 +133,25 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
     text += format_social_proof_line(user_id)
     show_reset = get_completed_count(user_id) > 0
     reply_markup = _progress_keyboard() if show_reset else None
-    await msg.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    blocks = [paragraph({"type": "bold", "text": "Мой прогресс"})]
+    if get_user_bot_mode(user_id) == "challenge":
+        completed = get_challenge_completed_in_last_n_days(user_id, CHALLENGE_DURATION)
+        filled = round(10 * completed / CHALLENGE_DURATION)
+        blocks.append(paragraph(
+            f"Прогресс челленджа: {completed} из {CHALLENGE_DURATION}\n"
+            f"{'━' * filled}{'─' * (10 - filled)}"
+        ))
+        text = text.replace(
+            f"\nПрогресс в челлендже: *{completed}/{CHALLENGE_DURATION}*", ""
+        ).replace(
+            f"\n\nПрогресс в челлендже: *{completed}/{CHALLENGE_DURATION}*", ""
+        )
+    blocks.append(paragraph(text.replace("*", "")))
+    try:
+        await send_rich_message(
+            context.bot, update.effective_chat.id, blocks, reply_markup=reply_markup)
+    except Exception:
+        await msg.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
 
 async def handle_progress_reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

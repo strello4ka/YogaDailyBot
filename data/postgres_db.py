@@ -1965,7 +1965,7 @@ def complete_user_challenge_setup(
 
 
 def clear_user_challenge(user_id: int) -> bool:
-    """Выключает режим челленджа и возвращает пользователя к выбору режима.
+    """Выключает челлендж и оставляет пользователя в общем интерфейсе.
     
     Returns:
         bool: True при успехе
@@ -1978,9 +1978,9 @@ def clear_user_challenge(user_id: int) -> bool:
             UPDATE users 
             SET challenge_start_id = NULL,
                 challenge_day = 0,
-                bot_mode = 'pending',
+                bot_mode = 'by_mood',
                 daily_schedule_enabled = FALSE,
-                onboarding_required = TRUE,
+                onboarding_required = FALSE,
                 is_paused = FALSE,
                 paused_at = NULL,
                 last_pause_reminder_at = NULL,
@@ -4882,6 +4882,23 @@ CHALLENGE_SUMMARY_LAST_SENT_KEY = "challenge_summary_last_sent_date"
 CHALLENGE_SUMMARY_STOPPED_KEY = "challenge_summary_stopped"
 CHALLENGE_WEEKLY_SCHEDULE_SENT_KEY = "challenge_weekly_schedule_last_sent_date"
 CHALLENGE_AUTO_EXIT_SENT_KEY = "challenge_auto_exit_sent_on"
+
+
+def _challenge_schedule_snapshot_key(start_id: int) -> str:
+    from app.config import CHALLENGE_START_DATE, CHALLENGE_GROUP_CHAT_ID
+    return f"challenge_schedule_text:{CHALLENGE_GROUP_CHAT_ID}:{CHALLENGE_START_DATE}:{start_id}"
+
+
+def save_published_challenge_schedule(start_id: int, text: str) -> bool:
+    """Сохраняет именно опубликованный текст, отдельно для каждого потока."""
+    return _set_system_state(_challenge_schedule_snapshot_key(start_id), text)
+
+
+def get_last_published_challenge_schedule(user_id: int) -> Optional[str]:
+    start_id = get_user_challenge_start_id(user_id)
+    if start_id is None:
+        return None
+    return _get_system_state(_challenge_schedule_snapshot_key(start_id))
 
 
 def _get_system_state(key: str) -> Optional[str]:
