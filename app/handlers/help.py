@@ -1,12 +1,39 @@
 """Handler for /help command."""
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда для получения помощи."""
-    # Очищаем состояния, чтобы не мешали дальнейшему взаимодействию с ботом.
+    """Entry point for help, existing tips and existing suggestion flow."""
+    context.user_data.pop("waiting_for_practice_suggestion", None)
+    context.user_data.pop("waiting_for_time", None)
+
+    await update.effective_message.reply_text(
+        "Тут ты можешь почитать частые вопросы, советы и порекомендовать свои любимые "
+        "видео с YouTube. Если хочешь сообщить об ошибке или предложить идею, то пиши @strello4ka.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Частые вопросы", callback_data="help_faq")],
+            [InlineKeyboardButton("Советы", callback_data="help_tips")],
+            [InlineKeyboardButton("Порекомендовать практику", callback_data="help_suggest")],
+        ]),
+    )
+
+
+async def help_section_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = update.callback_query.data
+    if data == "help_faq":
+        await update.callback_query.answer()
+        await frequent_questions(update, context)
+    elif data == "help_tips":
+        from app.daily.tips import handle_tips_callback
+        await handle_tips_callback(update, context)
+    elif data == "help_suggest":
+        from app.handlers.suggest_practice import handle_suggest_practice_callback
+        await handle_suggest_practice_callback(update, context)
+
+
+async def frequent_questions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("waiting_for_practice_suggestion", None)
     context.user_data.pop("waiting_for_time", None)
 
@@ -22,15 +49,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Если смотришь с телефона, можно запускать видео прямо из Telegram. Никаких лишних переходов, просто нажми ▶️ в сообщении, и практика начнётся.\n\n"
         "🌀 *4. Как порекомендовать свои любимые практики с YouTube для бота?*\n"
         "Нажми кнопку *Порекомендовать практику* в меню. Так ты поможешь мне расширить коллекцию практик в боте!\n\n" 
-        "🌀 *5. Куда задавать вопросы?*\n"
-        "Если хочешь сообщить об ошибке, предложить идею или просто общаться с другими пользователями бота, то заходи в [Чатик бота](https://t.me/+ep11_aUIW1YyNGUy) или пиши @strello4ka.\n\n"
-        "Мой проект только зарождается, поэтому так важен любой фитбек. 🧡"
+        "Нажми кнопку *Порекомендовать практику* в меню. Так ты поможешь мне расширить коллекцию практик в боте!"
     )
 
     # Временно скрываем FAQ-кнопку и callback по запросу:
     # - код сохранен в этом файле для быстрого возврата;
     # - текст уже подготовлен с Markdown-разметкой в HELP_SLEEP_QUESTION_MARKDOWN.
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    await update.effective_message.reply_text(help_text, parse_mode="Markdown")
 
 
 HELP_SLEEP_QUESTION_CALLBACK = "help_sleep_question"

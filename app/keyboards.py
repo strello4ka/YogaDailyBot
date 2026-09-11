@@ -10,6 +10,27 @@ from app.by_mood.quick_filters import get_active_quick_filters
 from app.practice_ref import format_practice_callback
 
 
+def get_common_reply_keyboard():
+    """Permanent, mode-free practice keyboard."""
+    return ReplyKeyboardMarkup(
+        [
+            ["ленивые дни", "без коврика"],
+            ["здоровая спина", "расслабление"],
+            ["мини", "strello4ka"],
+            ["хард", "практика дня"],
+            ["САМ решу"],
+            ["расписание"],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True,
+    )
+
+
+def onboarding_reply_keyboard(rows):
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=False)
+
+
 def get_mode_choice_keyboard():
     """Inline: выбор режима после /start или /change_mode."""
     keyboard = [

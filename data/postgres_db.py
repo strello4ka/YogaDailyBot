@@ -925,6 +925,48 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
             conn.close()
         return False
 
+
+def save_user_time_after_challenge(
+    user_id: int,
+    chat_id: int,
+    notify_time: str,
+    user_name: str = None,
+    user_nickname: str = None,
+) -> bool:
+    """Включает обычное расписание с завтрашнего дня, не сбрасывая прогресс."""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    '''
+                    UPDATE users SET
+                        chat_id = %s,
+                        notify_time = %s,
+                        user_name = COALESCE(%s, user_name),
+                        user_nickname = COALESCE(%s, user_nickname),
+                        onboarding_required = FALSE,
+                        bot_mode = 'daily',
+                        daily_schedule_enabled = TRUE,
+                        first_daily_send_date = %s,
+                        is_paused = FALSE,
+                        paused_at = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = %s
+                    ''',
+                    (chat_id, notify_time, user_name, user_nickname, _tomorrow_date_moscow(), user_id),
+                )
+                return cursor.rowcount == 1
+    except Exception as e:
+        print(f"Ошибка save_user_time_after_challenge {user_id}: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
 def save_user_practice_suggestion(user_id: int, video_url: str, comment: str = None, user_nickname: str = None) -> bool:
     """Сохраняет предложение практики от пользователя в отдельную таблицу.
     
@@ -1965,7 +2007,7 @@ def complete_user_challenge_setup(
 
 
 def clear_user_challenge(user_id: int) -> bool:
-    """Выключает режим челленджа и возвращает пользователя к выбору режима.
+    """Выключает челлендж и оставляет общий интерфейс доступным.
     
     Returns:
         bool: True при успехе
@@ -1978,9 +2020,9 @@ def clear_user_challenge(user_id: int) -> bool:
             UPDATE users 
             SET challenge_start_id = NULL,
                 challenge_day = 0,
-                bot_mode = 'pending',
+                bot_mode = 'by_mood',
                 daily_schedule_enabled = FALSE,
-                onboarding_required = TRUE,
+                onboarding_required = FALSE,
                 is_paused = FALSE,
                 paused_at = NULL,
                 last_pause_reminder_at = NULL,

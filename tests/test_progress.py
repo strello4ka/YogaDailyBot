@@ -23,18 +23,24 @@ class ProgressResetTest(unittest.IsolatedAsyncioTestCase):
         update = types.SimpleNamespace(
             effective_user=types.SimpleNamespace(id=123),
             effective_message=message,
+            effective_chat=types.SimpleNamespace(id=456),
         )
+        context = types.SimpleNamespace(bot=object())
 
         with (
             patch.object(progress, "get_completed_count", return_value=4),
+            patch.object(progress, "get_streak_days", return_value=1),
+            patch.object(progress, "get_challenge_completed_in_last_n_days", return_value=2),
             patch.object(progress, "get_user_bot_mode", return_value="challenge"),
             patch.object(progress, "_progress_text", return_value="Прогресс"),
             patch.object(progress, "format_social_proof_line", return_value=""),
+            patch.object(progress, "send_rich_message", new=AsyncMock()) as send_rich,
         ):
-            await progress.handle_progress_callback(update, None)
+            await progress.handle_progress_callback(update, context)
 
-        markup = message.reply_text.await_args.kwargs["reply_markup"]
-        self.assertEqual(markup.inline_keyboard[0][0].text, "Сбросить прогресс")
+        blocks = send_rich.await_args.args[2]
+        self.assertTrue(any("Сбросить прогресс" in str(block) for block in blocks))
+        self.assertFalse(any("disabled" in str(block) for block in blocks))
 
     async def test_challenge_reset_requires_explicit_confirmation(self):
         query = types.SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())

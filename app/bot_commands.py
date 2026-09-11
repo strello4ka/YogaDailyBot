@@ -1,18 +1,16 @@
 """Меню команд Telegram (список слева от поля ввода)."""
 
-from telegram import BotCommand
+from telegram import BotCommand, BotCommandScopeAllPrivateChats
 
 
 async def setup_bot_commands(application) -> None:
-    await application.bot.set_my_commands(
-        [
-            BotCommand("favorite", "Избранное 🧡"),
-            BotCommand("change_mode", "Изменить режим"),
-            BotCommand("donate", "Донаты"),
-            BotCommand("progress", "Мой прогресс"),
-            BotCommand("suggest", "Порекомендовать практику"),
-            BotCommand("help", "Помощь и вопросы"),
-            BotCommand("start", "Начать сначала"),
-
-        ]
-    )
+    commands = [
+        BotCommand("donate", "💰 Подписка"),
+        BotCommand("schedule", "🕐 Расписание"),
+        BotCommand("favorite", "🧡 Избранное"),
+        BotCommand("progress", "🔋 Мой прогресс"),
+        BotCommand("practice", "🧘‍♀️ Получить практику"),
+        BotCommand("help", "🫂 Помощь и советы"),
+    ]
+    await application.bot.set_my_commands(commands)
+    await application.bot.set_my_commands(commands, scope=BotCommandScopeAllPrivateChats())

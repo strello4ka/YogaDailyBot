@@ -1,7 +1,10 @@
 """Обработчики кнопки «Мой прогресс» и сброса прогресса."""
 
+import logging
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+from app.rich_messages import button_row, paragraph, send_rich_message
 
 from app.challenge.cohort import CHALLENGE_DURATION
 from data.db import (
@@ -23,6 +26,7 @@ _MIN_COMPLETED_FOR_COMPARE = 3
 _MIN_STREAK_FOR_BEST = 7
 
 BEST_STREAK_LINE = "\n\nУ тебя сейчас ЛУЧШАЯ непрерывная серия в YogaDailyBot🔥"
+logger = logging.getLogger(__name__)
 
 
 def format_streak_line(streak: int) -> str:
@@ -111,6 +115,28 @@ def _progress_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def _progress_blocks(user_id: int, n: int, streak: int, social_line: str):
+    blocks = [
+        {"type": "heading", "text": "Мой прогресс", "size": 2},
+        paragraph("Твои результаты в YogaDailyBot"),
+        paragraph([{"type": "bold", "text": "Выполнено практик  "}, f"{n} ✓"]),
+    ]
+    if streak > 0:
+        blocks.append(paragraph([{"type": "bold", "text": "Непрерывная серия  "}, f"{streak} дн."]))
+    if get_user_bot_mode(user_id) == "challenge":
+        completed = get_challenge_completed_in_last_n_days(user_id, CHALLENGE_DURATION)
+        filled = round(16 * completed / CHALLENGE_DURATION)
+        blocks.extend([
+            paragraph([{"type": "bold", "text": "Челлендж · Прогресс  "}, f"{completed} из {CHALLENGE_DURATION}"]),
+            paragraph(f"{'━' * filled}{'─' * (16 - filled)}"),
+        ])
+    if social_line:
+        blocks.append(paragraph({"type": "marked", "text": social_line.strip().replace("*", "")}))
+    if n > 0:
+        blocks.append(button_row([{"text": "Сбросить прогресс", "style": "danger", "callback_data": "progress_reset"}]))
+    return blocks
+
+
 def _confirm_keyboard(*, reset_challenge: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения сброса."""
     confirm_label = "Да, сбросить всё" if reset_challenge else "Да, сбросить"
@@ -129,10 +155,15 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
     if not msg:
         return
     text = _progress_text(user_id)
-    text += format_social_proof_line(user_id)
-    show_reset = get_completed_count(user_id) > 0
-    reply_markup = _progress_keyboard() if show_reset else None
-    await msg.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    social_line = format_social_proof_line(user_id)
+    text += social_line
+    n = get_completed_count(user_id)
+    streak = get_streak_days(user_id) if n else 0
+    try:
+        await send_rich_message(context.bot, update.effective_chat.id, _progress_blocks(user_id, n, streak, social_line))
+    except Exception:
+        logger.exception("Не удалось отправить Rich Message прогресса user=%s", user_id)
+        await msg.reply_text(text, reply_markup=_progress_keyboard() if n else None, parse_mode='Markdown')
 
 
 async def handle_progress_reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -13,6 +13,7 @@ from data.db import (
 )
 
 from .send_utils import deliver_by_mood_practice
+from app.rich_messages import paragraph, button_row, send_rich_message, edit_rich_message
 
 TIME_LABELS = ["до 10", "10 - 15", "15 - 20", "20 - 30", "30 - 45", "45 - 60+", "любое"]
 DIFFICULTY_LABELS = ["низкая", "средняя", "высокая", "любая"]
@@ -92,6 +93,24 @@ def time_keyboard(*, callback_prefix: str = "self_time") -> InlineKeyboardMarkup
 
 def _button_rows(buttons: list[InlineKeyboardButton]) -> list[list[InlineKeyboardButton]]:
     return [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+
+
+def _rich_blocks(text: str, markup: InlineKeyboardMarkup | None = None):
+    blocks = [paragraph(text)]
+    if markup:
+        for row in markup.inline_keyboard:
+            blocks.append(button_row([
+                {"text": button.text, "callback_data": button.callback_data}
+                for button in row if button.callback_data
+            ]))
+    return blocks
+
+
+async def _edit_selection(query, context, text, markup):
+    try:
+        await edit_rich_message(context.bot, query.message.chat_id, query.message.message_id, _rich_blocks(text, markup))
+    except Exception:
+        await query.edit_message_text(text, reply_markup=markup)
 
 
 def teg_keyboard(
@@ -199,11 +218,11 @@ def _sql_for_teg_choice(label: str) -> tuple[str, tuple]:
 
 
 async def start_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "Настрой свою практику *сам*:\nсначала выбери время (в минутах)👇",
-        parse_mode="Markdown",
-        reply_markup=time_keyboard(),
-    )
+    text = "Настрой свою практику сам:\nсначала выбери время (в минутах)👇"
+    try:
+        await send_rich_message(context.bot, update.effective_chat.id, _rich_blocks(text, time_keyboard()))
+    except Exception:
+        await update.message.reply_text(text, reply_markup=time_keyboard())
 
 
 async def handle_time_callback(
@@ -224,20 +243,16 @@ async def handle_time_callback(
         return
     time_key = data[len(pfx) :]
     if time_key == "back":
-        await query.edit_message_text(
-            "Настрой свою практику *сам*:\nсначала выбери время (в минутах)👇",
-            parse_mode="Markdown",
-            reply_markup=time_keyboard(callback_prefix=time_callback_prefix),
-        )
+        await _edit_selection(query, context, "Настрой свою практику сам:\nсначала выбери время (в минутах)👇", time_keyboard(callback_prefix=time_callback_prefix))
         return
     if time_key not in KEY_TO_TIME:
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text("Что-то пошло не так. Нажми «САМ решу» ещё раз.")
         return
 
-    await query.edit_message_text(
-        "Время выбрано ✔️\nНа что хочешь сделать акцент? 👇",
-        reply_markup=teg_keyboard(
+    await _edit_selection(
+        query, context, f"Время: {KEY_TO_TIME[time_key]} ✔️\nНа что хочешь сделать акцент? 👇",
+        teg_keyboard(
             time_key,
             get_available_combined_tegs(*_sql_for_time_choice(KEY_TO_TIME[time_key])),
             callback_prefix=teg_callback_prefix,
@@ -283,9 +298,9 @@ async def handle_teg_callback(
         wh_time + wh_teg,
         par_time + par_teg,
     )
-    await query.edit_message_text(
-        "Акцент выбран ✔️\nТеперь выбери сложность 👇",
-        reply_markup=difficulty_keyboard(
+    await _edit_selection(
+        query, context, f"Время: {time_label} ✔️\nАкцент: {teg_label} ✔️\nТеперь выбери сложность 👇",
+        difficulty_keyboard(
             time_key,
             teg_key,
             available,
@@ -326,7 +341,11 @@ async def handle_difficulty_callback(
         await query.message.reply_text("Что-то пошло не так. Нажми «САМ решу» ещё раз.")
         return
 
-    await query.edit_message_reply_markup(reply_markup=None)
+    await _edit_selection(
+        query, context,
+        f"Время: {time_label} ✔️\nАкцент: {teg_label} ✔️\nСложность: {difficulty_label} ✔️",
+        None,
+    )
 
     user = update.effective_user
     chat = update.effective_chat

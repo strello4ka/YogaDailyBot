@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -13,7 +13,8 @@ from telegram.ext import ContextTypes
 
 from app.challenge.cohort import get_challenge_start_date, is_cohort_configured
 from app.config import DEFAULT_TZ
-from app.keyboards import get_main_reply_keyboard, get_welcome_keyboard
+from app.keyboards import get_common_reply_keyboard, get_welcome_keyboard
+from app.onboarding_messages import WEEK_DESCRIPTION, quote
 from data.db import (
     complete_user_challenge_setup,
     get_current_weekday,
@@ -35,11 +36,12 @@ CHALLENGE_TIME_INPUT_TEXT = (
 def build_challenge_welcome_text() -> str:
     """Приветствие с датой старта потока в формате ДД.ММ."""
     start = get_challenge_start_date()
-    start_label = start.strftime("%d.%m") if start else "даты старта"
+    start_label = start.strftime("%d.%m") if start else "[дата старта]"
+    end_label = (start + timedelta(days=27)).strftime("%d.%m") if start else "[дата окончания]"
     return (
-        "*Ура, ты в потоке* 🧡\n\n"
-        "Давай *выберем время*, в которое ты хочешь получать ежедневные практики, "
-        f"начиная с {start_label}"
+        "<b>Ура, ты в потоке</b> 🧡\n\n"
+        "Давай <b>выберем время</b>, в которое ты хочешь получать ежедневные практики, "
+        f"с <b>{start_label}</b> по <b>{end_label}</b>\n\n{quote(WEEK_DESCRIPTION)}"
     )
 
 
@@ -53,6 +55,21 @@ async def send_challenge_welcome_dm(
     user_nickname: Optional[str] = None,
 ) -> tuple[bool, str]:
     """Записывает setup в БД и шлёт приветствие + выбор времени в личку."""
+    from data.db import is_user_onboarding_required
+
+    if is_user_onboarding_required(user_id):
+        from app.onboarding_state import load_state, save_state
+        state = load_state(user_id)
+        if not state or state.get("step") in ("declined", "complete"):
+            return False, "сначала нужно завершить /start"
+        state["pending_challenge_practice_id"] = practice_id
+        save_state(state)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Сначала закончи знакомство с ботом. После онбординга я продолжу настройку челленджа 🧡",
+        )
+        return True, "ожидает завершения онбординга"
+
     if not start_user_challenge_setup(
         user_id,
         chat_id,
@@ -74,18 +91,13 @@ async def send_challenge_welcome_dm(
             chat_id=chat_id,
             text=build_challenge_welcome_text(),
             reply_markup=get_welcome_keyboard(),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
     except Exception as e:
         logger.warning("Не удалось отправить welcome челленджа user=%s: %s", user_id, e)
         return False, f"ошибка отправки: {e}"
 
-    from app.onboarding import schedule_time_pick_reminders
-
-    if hasattr(context, "job_queue") and context.job_queue is not None:
-        await schedule_time_pick_reminders(
-            context, chat_id, user_id, time_choice_message.message_id
-        )
+    # Новые напоминания для первичного ввода времени челленджа не добавляем.
     return True, ""
 
 
@@ -122,7 +134,7 @@ async def handle_challenge_time_choice_callback(
         return
     await query.answer()
 
-    from app.onboarding import remove_callback_keyboard, schedule_reminders, strip_inline_keyboard
+    from app.onboarding import remove_callback_keyboard, strip_inline_keyboard
 
     await remove_callback_keyboard(query)
     chat_id = update.effective_chat.id
@@ -140,8 +152,7 @@ async def handle_challenge_time_choice_callback(
         text=CHALLENGE_TIME_INPUT_TEXT,
         parse_mode="Markdown",
     )
-    if hasattr(context, "job_queue") and context.job_queue is not None:
-        await schedule_reminders(context, chat_id, user_id)
+    # Для первичного выбора времени челленджа отдельные напоминания не отправляются.
 
 
 def _validate_time_format(time_str: str) -> tuple[bool, str]:
@@ -208,28 +219,14 @@ async def handle_challenge_time_input(update: Update, context: ContextTypes.DEFA
     send_now = _should_send_challenge_practice_immediately(selected_time)
     await update.message.reply_text(
         (
-            "Готово ✔️\n\n"
-            f"Твоё время *{selected_time}*.\n"
-            "Длительность челленджа — *28 дней*.\n\n"
-            + (
-                "Сейчас пришлю практику за сегодня 🧡"
-                if send_now
-                else "Уже жду начала 🧡"
-            )
+            "Готово ✅\n\n"
+            f"Твое время <b>{selected_time}</b>.\n"
+            "Длительность челленджа: <b>28 дней</b>\n\n"
+            "До встречи на коврике 🧡\n\n"
+            + quote("Дисциплина - это не контроль над собой. Это форма любви к своему будущему.")
         ),
-        parse_mode="Markdown",
-    )
-    await update.message.reply_text(
-        (
-            "Внизу у тебя появились кнопки:\n\n"
-            "🕓 *Изменить время* — жми, чтобы изменить время рассылки\n"
-            "💡 *Советы* — жми обязательно\n"
-            "🪫 *Пауза* — приостановить или возобновить ежедневную рассылку\n"
-            "✨ *Еще практики* — дополнительные практики по настроению (как в режиме By mood, но без отключения ежедневной рассылки)\n\n"
-            "Также есть *Меню*, где можно посмотреть свой прогресс, избранные практики, задонатить и найти другую полезную инфу"
-        ),
-        reply_markup=get_main_reply_keyboard(),
-        parse_mode="Markdown",
+        reply_markup=get_common_reply_keyboard(),
+        parse_mode="HTML",
     )
 
     if send_now:
