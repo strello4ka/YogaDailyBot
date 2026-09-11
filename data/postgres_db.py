@@ -4056,6 +4056,45 @@ def get_users_for_done_evening_reminder(reminder_time: str = "19:30:00") -> list
         return []
 
 
+def get_users_for_challenge_late_reminder() -> list:
+    """Активные участники с практикой за сегодня и без отметки выполнения.
+
+    Отправленное в 19:30 напоминание не исключает отправку в 23:50.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''SELECT u.user_id, u.chat_id
+            FROM users u
+            WHERE u.bot_mode = 'challenge'
+              AND u.challenge_start_id IS NOT NULL
+              AND u.challenge_day BETWEEN 1 AND 28
+              AND NOT COALESCE(u.is_blocked, FALSE)
+              AND NOT COALESCE(u.is_paused, FALSE)
+              AND NOT COALESCE(u.onboarding_required, FALSE)
+              AND EXISTS (
+                  SELECT 1 FROM practice_logs pl
+                  WHERE pl.user_id = u.user_id AND pl.completed_at IS NULL
+                    AND pl.sent_at::date = (NOW() AT TIME ZONE %s)::date
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM practice_logs done
+                  WHERE done.user_id = u.user_id
+                    AND done.completed_at::date = (NOW() AT TIME ZONE %s)::date
+              )''',
+            (DEFAULT_TZ, DEFAULT_TZ),
+        )
+        return cursor.fetchall()
+    except Exception as e:
+        print(f"Ошибка get_users_for_challenge_late_reminder: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
 def is_last_practice_log_from_today(user_id: int) -> bool:
     """Последняя отправленная практика пользователя — за сегодня (МСК)."""
     conn = None

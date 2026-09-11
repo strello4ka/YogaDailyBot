@@ -26,6 +26,7 @@ from data.db import (
     clear_last_favorites_carousel_message,
     get_completed_count,
     get_users_for_done_evening_reminder,
+    get_users_for_challenge_late_reminder,
     get_streak_days,
     has_completed_practice_today,
     has_uncompleted_practice_sent_today,
@@ -341,6 +342,31 @@ async def send_evening_done_reminders_failsafe_job(
                 )
 
 
+async def send_challenge_late_reminders_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """23:50 МСК: второе напоминание только участникам незавершённого челленджа."""
+    from app.challenge.cohort import (
+        CHALLENGE_DURATION, get_cohort_challenge_day, is_cohort_configured,
+    )
+
+    # Календарная проверка нужна даже если в users остался день 28.
+    if is_cohort_configured() and not (
+        1 <= get_cohort_challenge_day() <= CHALLENGE_DURATION
+    ):
+        return
+    for user_id, chat_id in get_users_for_challenge_late_reminder():
+        if has_completed_practice_today(user_id):
+            continue
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text='Я знаю, чем ты занимаешься перед сном, маленький йог..не забудь нажать кнопку "Я сделал!"',
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            if not mark_blocked_if_forbidden(user_id, e):
+                logger.error("Ошибка 23:50-напоминания user=%s: %s", user_id, e)
+
+
 def schedule_done_evening_reminders(application) -> None:
     """Фоновая проверка каждые 5 минут: догоняет пропущенные 19:30-напоминания."""
     try:
@@ -348,6 +374,11 @@ def schedule_done_evening_reminders(application) -> None:
         if not job_queue:
             logger.error("JobQueue недоступен для резервных 19:30-напоминаний")
             return
+        job_queue.run_daily(
+            send_challenge_late_reminders_job,
+            time=time(23, 50, tzinfo=MOSCOW_TZ),
+            name="challenge_late_done_reminders",
+        )
         job_queue.run_repeating(
             send_evening_done_reminders_failsafe_job,
             interval=60 * 5,
