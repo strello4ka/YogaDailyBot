@@ -9,17 +9,32 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMa
 from app.by_mood.quick_filters import get_active_quick_filters
 from app.practice_ref import format_practice_callback
 
+COMMON_REPLY_KEYBOARD_VERSION = 2
+
 
 def get_common_reply_keyboard():
-    """Общая клавиатура нового сценария независимо от внутреннего режима."""
-    return ReplyKeyboardMarkup([
-        ["Ленивые дни", "Без коврика"],
-        ["Здоровая спина", "Расслабление"],
-        ["Мини", "Strello4ka"],
-        ["Хард", "Практика дня"],
-        ["Сам решу"],
-        ["Расписание"],
-    ], resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
+    """Mode-free practice keyboard which the user may collapse manually."""
+    return ReplyKeyboardMarkup(
+        [
+            ["ленивые дни", "без коврика"],
+            ["здоровая спина", "расслабление"],
+            ["мини", "strello4ka"],
+            ["хард", "практика дня"],
+            ["САМ решу"],
+            ["расписание"],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+    )
+
+
+def onboarding_reply_keyboard(rows):
+    return ReplyKeyboardMarkup(
+        rows,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True,
+    )
 
 
 def get_mode_choice_keyboard():
@@ -103,12 +118,12 @@ def get_practice_favorite_keyboard(
     ])
 
 
-def get_completed_practice_keyboard(
+def get_practice_completed_keyboard(
     practice_id: int,
     is_favorited: bool,
     practice_catalog: str = "yoga",
 ) -> InlineKeyboardMarkup:
-    """Избранное остаётся активным, «Я сделал!» — видимая disabled-кнопка Bot API 10.3."""
+    """Practice actions after completion: favorite stays active, done stays visible."""
     favorite_label = "🧡 Убрать" if is_favorited else "🧡 В избранное"
     return InlineKeyboardMarkup([[
         InlineKeyboardButton(
@@ -142,6 +157,16 @@ def message_has_done_button(reply_markup: Optional[InlineKeyboardMarkup]) -> boo
     return False
 
 
+def message_has_completed_button(reply_markup: Optional[InlineKeyboardMarkup]) -> bool:
+    if not reply_markup:
+        return False
+    return any(
+        bool((button.api_kwargs or {}).get("disabled") is not None)
+        for row in reply_markup.inline_keyboard
+        for button in row
+    )
+
+
 def get_favorites_carousel_keyboard(
     practice_id: int,
     is_favorited: bool,
@@ -150,7 +175,6 @@ def get_favorites_carousel_keyboard(
     practice_catalog: str = "yoga",
     *,
     show_done: bool = True,
-    done_disabled: bool = False,
 ) -> InlineKeyboardMarkup:
     """Карусель избранного: действия с практикой + навигация.
 
@@ -163,15 +187,15 @@ def get_favorites_carousel_keyboard(
             callback_data=format_practice_callback("fav_toggle", practice_id, practice_catalog),
         ),
     ]
-    if done_disabled:
-        action_row.append(InlineKeyboardButton("✅ Я сделал!", api_kwargs={"disabled": {}}))
-    elif show_done:
+    if show_done:
         action_row.append(
             InlineKeyboardButton(
                 "✅ Я сделал!",
                 callback_data=format_practice_callback("practice_done", practice_id, practice_catalog),
             ),
         )
+    else:
+        action_row.append(InlineKeyboardButton("✅ Я сделал!", api_kwargs={"disabled": {}}))
     rows = [action_row]
     if total > 1:
         nav = []

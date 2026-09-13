@@ -20,7 +20,6 @@ from data.db import (
     is_challenge_summary_stopped,
     is_challenge_weekly_schedule_sent_on,
     mark_challenge_weekly_schedule_sent,
-    save_published_challenge_schedule,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,9 +107,6 @@ async def send_challenge_weekly_schedule(context: ContextTypes.DEFAULT_TYPE, *, 
     except Exception as e:
         logger.error("Ошибка отправки расписания челленджа в чат %s: %s", group_chat_id, e)
         return False
-
-    if not save_published_challenge_schedule(challenge_start_id, text):
-        logger.error("Опубликованное расписание не удалось сохранить для личного просмотра")
 
     if not force:
         mark_challenge_weekly_schedule_sent(today)

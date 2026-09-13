@@ -203,9 +203,9 @@ async def handle_time_change_input(update: Update, context: ContextTypes.DEFAULT
 
     # Сообщение для изменения времени
     success_text = (
-        f"Время успешно изменено ✔️\n"
-        f"Начиная с завтрашнего дня жди меня в это время!"
+        "*Время успешно изменено ✅*\n\n"
+        f"Начиная с завтрашнего дня жди меня в *{selected_time}*"
     )
     
     # Отправляем краткое сообщение об изменении времени
-    await update.message.reply_text(success_text)
+    await update.message.reply_text(success_text, parse_mode="Markdown")

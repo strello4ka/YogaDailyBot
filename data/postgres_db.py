@@ -377,6 +377,20 @@ def init_database():
                 print("   ✅ Добавлен столбец user_nickname в таблицу users")
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении столбца user_nickname: {e}")
+
+        # Версия постоянной reply-клавиатуры для одноразового обновления старых пользователей.
+        try:
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'reply_keyboard_version'
+            """)
+            if not cursor.fetchone():
+                cursor.execute(
+                    'ALTER TABLE users ADD COLUMN reply_keyboard_version INTEGER NOT NULL DEFAULT 0'
+                )
+                print("   ✅ Добавлен столбец reply_keyboard_version в таблицу users")
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении столбца reply_keyboard_version: {e}")
         
         # Миграция: добавление столбца user_nickname в таблицу user_suggestions (если еще нет)
         try:
@@ -924,6 +938,48 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
             conn.rollback()
             conn.close()
         return False
+
+
+def save_user_time_after_challenge(
+    user_id: int,
+    chat_id: int,
+    notify_time: str,
+    user_name: str = None,
+    user_nickname: str = None,
+) -> bool:
+    """Включает обычное расписание с завтрашнего дня, не сбрасывая прогресс."""
+    conn = None
+    try:
+        conn = get_connection()
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    '''
+                    UPDATE users SET
+                        chat_id = %s,
+                        notify_time = %s,
+                        user_name = COALESCE(%s, user_name),
+                        user_nickname = COALESCE(%s, user_nickname),
+                        onboarding_required = FALSE,
+                        bot_mode = 'daily',
+                        daily_schedule_enabled = TRUE,
+                        first_daily_send_date = %s,
+                        is_paused = FALSE,
+                        paused_at = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = %s
+                    ''',
+                    (chat_id, notify_time, user_name, user_nickname, _tomorrow_date_moscow(), user_id),
+                )
+                return cursor.rowcount == 1
+    except Exception as e:
+        print(f"Ошибка save_user_time_after_challenge {user_id}: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 def save_user_practice_suggestion(user_id: int, video_url: str, comment: str = None, user_nickname: str = None) -> bool:
     """Сохраняет предложение практики от пользователя в отдельную таблицу.
@@ -1603,7 +1659,6 @@ def toggle_user_pause(user_id: int):
                 paused_at = CURRENT_TIMESTAMP,
                 last_pause_reminder_at = NULL,
                 pause_reminder_step = 0,
-                challenge_start_id = NULL,
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = %s
             ''',
@@ -1965,7 +2020,7 @@ def complete_user_challenge_setup(
 
 
 def clear_user_challenge(user_id: int) -> bool:
-    """Выключает челлендж и оставляет пользователя в общем интерфейсе.
+    """Выключает челлендж и оставляет общий интерфейс доступным.
     
     Returns:
         bool: True при успехе
@@ -2059,6 +2114,48 @@ def get_user_notify_time(user_id: int):
         return None
 
 
+def get_user_schedule_settings(user_id: int):
+    """Возвращает сохранённое время и состояние ежедневной рассылки без фильтрации.
+
+    В отличие от ``get_user_notify_time`` эта функция также видит выключенное
+    расписание. Это позволяет отличить никогда не настроенное служебное время
+    ``00:00`` от ранее выбранного времени, которое пользователь поставил на паузу.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT notify_time,
+                   COALESCE(daily_schedule_enabled, TRUE),
+                   COALESCE(is_paused, FALSE),
+                   COALESCE(bot_mode, 'pending'),
+                   challenge_start_id,
+                   COALESCE(challenge_day, 0)
+            FROM users WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "notify_time": row[0],
+            "enabled": bool(row[1]),
+            "paused": bool(row[2]),
+            "bot_mode": row[3],
+            "challenge_start_id": row[4],
+            "challenge_day": int(row[5]),
+        }
+    except Exception as e:
+        print(f"Ошибка get_user_schedule_settings {user_id}: {e}")
+        if conn:
+            conn.close()
+        return None
+
+
 def user_exists(user_id: int) -> bool:
     """True, если пользователь уже есть в базе (уже пользовался ботом)."""
     conn = None
@@ -2092,6 +2189,54 @@ def is_user_onboarding_required(user_id: int) -> bool:
     except Exception as e:
         print(f"Ошибка is_user_onboarding_required для {user_id}: {e}")
         if conn:
+            conn.close()
+        return False
+
+
+def needs_reply_keyboard_refresh(user_id: int, target_version: int) -> bool:
+    """True только для завершившего онбординг пользователя со старой клавиатурой."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT COALESCE(onboarding_required, FALSE), COALESCE(reply_keyboard_version, 0)
+            FROM users WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row and not row[0] and int(row[1]) < int(target_version))
+    except Exception as e:
+        print(f"Ошибка needs_reply_keyboard_refresh для {user_id}: {e}")
+        if conn:
+            conn.close()
+        return False
+
+
+def mark_reply_keyboard_version(user_id: int, version: int) -> bool:
+    """Запоминает успешно показанную пользователю версию reply-клавиатуры."""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users SET reply_keyboard_version = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+            ''',
+            (int(version), user_id),
+        )
+        updated = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return updated
+    except Exception as e:
+        print(f"Ошибка mark_reply_keyboard_version для {user_id}: {e}")
+        if conn:
+            conn.rollback()
             conn.close()
         return False
 
@@ -2134,6 +2279,7 @@ def set_user_onboarding_required(
                     chat_id = EXCLUDED.chat_id,
                     user_name = COALESCE(EXCLUDED.user_name, users.user_name),
                     user_nickname = COALESCE(EXCLUDED.user_nickname, users.user_nickname),
+                    notify_time = '00:00',
                     onboarding_required = TRUE,
                     challenge_start_id = NULL,
                     challenge_day = 0,
@@ -2145,12 +2291,14 @@ def set_user_onboarding_required(
                     program_position = 0,
                     bot_mode = 'pending',
                     daily_schedule_enabled = FALSE,
+                    first_daily_send_date = NULL,
                     updated_at = CURRENT_TIMESTAMP
             ''', (user_id, chat_id, user_name, user_nickname, traffic_source))
         else:
             cursor.execute('''
                 UPDATE users
                 SET onboarding_required = TRUE,
+                    notify_time = '00:00',
                     challenge_start_id = NULL,
                     challenge_day = 0,
                     is_paused = FALSE,
@@ -2161,6 +2309,7 @@ def set_user_onboarding_required(
                     program_position = 0,
                     bot_mode = 'pending',
                     daily_schedule_enabled = FALSE,
+                    first_daily_send_date = NULL,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = %s
             ''', (user_id,))
@@ -4882,23 +5031,6 @@ CHALLENGE_SUMMARY_LAST_SENT_KEY = "challenge_summary_last_sent_date"
 CHALLENGE_SUMMARY_STOPPED_KEY = "challenge_summary_stopped"
 CHALLENGE_WEEKLY_SCHEDULE_SENT_KEY = "challenge_weekly_schedule_last_sent_date"
 CHALLENGE_AUTO_EXIT_SENT_KEY = "challenge_auto_exit_sent_on"
-
-
-def _challenge_schedule_snapshot_key(start_id: int) -> str:
-    from app.config import CHALLENGE_START_DATE, CHALLENGE_GROUP_CHAT_ID
-    return f"challenge_schedule_text:{CHALLENGE_GROUP_CHAT_ID}:{CHALLENGE_START_DATE}:{start_id}"
-
-
-def save_published_challenge_schedule(start_id: int, text: str) -> bool:
-    """Сохраняет именно опубликованный текст, отдельно для каждого потока."""
-    return _set_system_state(_challenge_schedule_snapshot_key(start_id), text)
-
-
-def get_last_published_challenge_schedule(user_id: int) -> Optional[str]:
-    start_id = get_user_challenge_start_id(user_id)
-    if start_id is None:
-        return None
-    return _get_system_state(_challenge_schedule_snapshot_key(start_id))
 
 
 def _get_system_state(key: str) -> Optional[str]:

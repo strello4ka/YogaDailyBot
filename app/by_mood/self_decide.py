@@ -106,13 +106,9 @@ def _rich_blocks(text: str, markup: InlineKeyboardMarkup | None = None):
     return blocks
 
 
-async def _edit_selection(query, context, text: str, markup: InlineKeyboardMarkup | None):
-    """Rich Message для нового сценария; обычное сообщение — безопасный fallback."""
+async def _edit_selection(query, context, text, markup):
     try:
-        await edit_rich_message(
-            context.bot, query.message.chat_id, query.message.message_id,
-            _rich_blocks(text, markup),
-        )
+        await edit_rich_message(context.bot, query.message.chat_id, query.message.message_id, _rich_blocks(text, markup))
     except Exception:
         await query.edit_message_text(text, reply_markup=markup)
 
@@ -224,8 +220,7 @@ def _sql_for_teg_choice(label: str) -> tuple[str, tuple]:
 async def start_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = "Настрой свою практику сам:\nсначала выбери время (в минутах)👇"
     try:
-        await send_rich_message(
-            context.bot, update.effective_chat.id, _rich_blocks(text, time_keyboard()))
+        await send_rich_message(context.bot, update.effective_chat.id, _rich_blocks(text, time_keyboard()))
     except Exception:
         await update.message.reply_text(text, reply_markup=time_keyboard())
 
@@ -248,11 +243,7 @@ async def handle_time_callback(
         return
     time_key = data[len(pfx) :]
     if time_key == "back":
-        await _edit_selection(
-            query, context,
-            "Настрой свою практику сам:\nсначала выбери время (в минутах)👇",
-            time_keyboard(callback_prefix=time_callback_prefix),
-        )
+        await _edit_selection(query, context, "Настрой свою практику сам:\nсначала выбери время (в минутах)👇", time_keyboard(callback_prefix=time_callback_prefix))
         return
     if time_key not in KEY_TO_TIME:
         await query.edit_message_reply_markup(reply_markup=None)
@@ -260,8 +251,7 @@ async def handle_time_callback(
         return
 
     await _edit_selection(
-        query, context,
-        f"Время: {KEY_TO_TIME[time_key]} ✔️\nНа что хочешь сделать акцент? 👇",
+        query, context, f"Время: {KEY_TO_TIME[time_key]} ✔️\nНа что хочешь сделать акцент? 👇",
         teg_keyboard(
             time_key,
             get_available_combined_tegs(*_sql_for_time_choice(KEY_TO_TIME[time_key])),
@@ -309,8 +299,7 @@ async def handle_teg_callback(
         par_time + par_teg,
     )
     await _edit_selection(
-        query, context,
-        f"Время: {time_label} ✔️\nАкцент: {teg_label} ✔️\nТеперь выбери сложность 👇",
+        query, context, f"Время: {time_label} ✔️\nАкцент: {teg_label} ✔️\nТеперь выбери сложность 👇",
         difficulty_keyboard(
             time_key,
             teg_key,
@@ -369,18 +358,38 @@ async def handle_difficulty_callback(
     wh_time, par_time = _sql_for_time_choice(time_label)
     wh_teg, par_teg = _sql_for_teg_choice(teg_label)
     wh_int, par_int = _sql_for_difficulty_choice(difficulty_label)
-    row = pick_random_combined_mood_pool(
-        user.id,
-        filter_key,
-        wh_time + wh_teg + wh_int,
-        par_time + par_teg + par_int,
-    )
-    if not row:
-        await query.message.reply_text(
-            "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое» время или «любая» сложность)."
-        )
-        return
+    waiting_message = None
+    try:
+        try:
+            waiting_message = await context.bot.send_message(
+                chat_id=chat.id,
+                text="Подбираю практику…",
+            )
+        except Exception:
+            # Служебное сообщение не должно блокировать выдачу практики.
+            pass
 
-    ok = await deliver_by_mood_practice(context, chat.id, user.id, filter_key, row)
-    if not ok:
-        await query.message.reply_text("Не удалось отправить практику. Попробуй ещё раз.")
+        row = pick_random_combined_mood_pool(
+            user.id,
+            filter_key,
+            wh_time + wh_teg + wh_int,
+            par_time + par_teg + par_int,
+        )
+        if not row:
+            await query.message.reply_text(
+                "Не нашлось практики с такими параметрами. Попробуй смягчить фильтры (например, «любое» время или «любая» сложность)."
+            )
+            return
+
+        ok = await deliver_by_mood_practice(context, chat.id, user.id, filter_key, row)
+        if not ok:
+            await query.message.reply_text("Не удалось отправить практику. Попробуй ещё раз.")
+    finally:
+        if waiting_message is not None:
+            try:
+                await context.bot.delete_message(
+                    chat_id=chat.id,
+                    message_id=waiting_message.message_id,
+                )
+            except Exception:
+                pass

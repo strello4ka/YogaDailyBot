@@ -18,6 +18,11 @@ QUICK_PRACTICE_FILTERS: str = os.getenv(
     "QUICK_PRACTICE_FILTERS",
     "lazy,no_mat,healthy_back,relax,strello4ka,five,day,self",
 )
+# Шаг подписки сохранён в коде, но скрыт до запуска оплаты.
+# Для возврата шага достаточно задать SUBSCRIPTION_ONBOARDING_ENABLED=true.
+SUBSCRIPTION_ONBOARDING_ENABLED: bool = os.getenv(
+    "SUBSCRIPTION_ONBOARDING_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_database_url() -> str:
@@ -64,4 +69,3 @@ def get_db_config() -> dict:
         "dbname": dbname,
         "sslmode": os.getenv("POSTGRES_SSLMODE", "require"),
     }
-

@@ -2,6 +2,8 @@
 Обработчики для Reply-клавиатуры с основными функциями бота.
 """
 
+from pathlib import Path
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -15,19 +17,37 @@ from app.by_mood.quick_filters import (
 from data.db import get_user_bot_mode
 
 PRACTICE_KEYBOARD_HINT = "разверни кнопки клавиатуры, чтобы выбрать практику под настроение"
+PRACTICE_KEYBOARD_TUTORIAL = (
+    Path(__file__).resolve().parent.parent / "assets" / "practice_keyboard_tutorial.mp4"
+)
+_ALIASES = {spec.label.lower(): spec.label for spec in QUICK_FILTERS.values()}
+_BY_MOOD_LABELS = frozenset(_ALIASES) | {"САМ решу"}
 
 
 async def get_practice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Инструкция; видео подключается после предоставления владельцем."""
-    video = context.bot_data.get("practice_keyboard_tutorial_video")
+    cached_file_id = context.bot_data.get("practice_keyboard_tutorial_file_id")
+    configured_video = context.bot_data.get("practice_keyboard_tutorial_video")
+    video = cached_file_id or configured_video
+
     if video:
-        await update.effective_message.reply_video(video=video, caption=PRACTICE_KEYBOARD_HINT)
+        message = await update.effective_message.reply_video(
+            video=video,
+            caption=PRACTICE_KEYBOARD_HINT,
+            supports_streaming=True,
+        )
+    elif PRACTICE_KEYBOARD_TUTORIAL.is_file():
+        with PRACTICE_KEYBOARD_TUTORIAL.open("rb") as video_file:
+            message = await update.effective_message.reply_video(
+                video=video_file,
+                caption=PRACTICE_KEYBOARD_HINT,
+                supports_streaming=True,
+            )
     else:
         await update.effective_message.reply_text(PRACTICE_KEYBOARD_HINT)
+        return
 
-_BY_MOOD_LABELS = frozenset(
-    spec.label for spec in get_active_quick_filters()
-) | frozenset({QUICK_FILTERS["hard"].label})
+    if message.video:
+        context.bot_data["practice_keyboard_tutorial_file_id"] = message.video.file_id
 
 
 async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -43,8 +63,17 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         update: Объект обновления от Telegram
         context: Контекст бота
     """
+    from app.onboarding_flow import handle_reply as handle_onboarding_reply
+    if await handle_onboarding_reply(update, context):
+        return
+
     message_text = update.message.text
     user_id = update.effective_user.id if update.effective_user else None
+
+    # Любая постоянная reply-кнопка означает, что пользователь ушёл из
+    # незавершённого ввода времени в разделе расписания.
+    from app.handlers.schedule import cancel_schedule_menu_time
+    cancel_schedule_menu_time(context)
 
     if message_text == "Еще практики":
         from app.daily.extra_practices import send_extra_practices_intro, user_may_use_extra_practices
@@ -59,13 +88,9 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         return
 
-    if message_text == "Расписание":
+    if message_text == "расписание":
         from app.handlers.schedule import schedule_command
         await schedule_command(update, context)
-        return
-
-    if message_text == "Получить практику":
-        await get_practice_command(update, context)
         return
 
     if user_id and get_user_bot_mode(user_id) in ("by_mood", "daily", "challenge") and message_text in _BY_MOOD_LABELS:
@@ -103,9 +128,10 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def _dispatch_by_mood_button(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    spec = get_active_quick_filter_by_label(text)
-    if spec is None and text == QUICK_FILTERS["hard"].label:
-        spec = QUICK_FILTERS["hard"]
+    canonical = _ALIASES.get(text.lower(), text)
+    spec = get_active_quick_filter_by_label(canonical)
+    if spec is None:
+        spec = next((item for item in QUICK_FILTERS.values() if item.label == canonical), None)
     user = update.effective_user
     chat = update.effective_chat
     if not spec or not user or not chat:

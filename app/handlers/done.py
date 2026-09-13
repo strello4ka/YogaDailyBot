@@ -424,7 +424,6 @@ async def _strip_done_on_completed_messages(
             reply_markup=fallback_reply_markup if message_id == fallback_message_id else None,
             practice_id=practice_id,
             practice_catalog=practice_catalog,
-            keep_done_disabled=True,
         )
 
 
@@ -487,7 +486,6 @@ async def handle_practice_done_callback(update: Update, context: ContextTypes.DE
                 user_id,
                 practice_id,
                 practice_catalog or "yoga",
-                keep_done_disabled=True,
             )
             await _strip_done_on_completed_messages(context.bot, user_id)
 

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Literal, Optional
 
 from app.config import QUICK_PRACTICE_FILTERS
 
 
 Pool = Literal["yoga", "combined", "flow"]
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -167,30 +169,50 @@ async def select_and_deliver_quick_filter(
     from app.by_mood.send_utils import deliver_by_mood_practice
     from data.db import pick_random_by_mood_practice, pick_random_combined_mood_pool
 
-    if spec.pool == "yoga":
-        row = pick_random_by_mood_practice(
-            user_id,
-            spec.filter_key,
-            spec.where_sql,
-            spec.params,
+    waiting_message = None
+    try:
+        waiting_message = await context.bot.send_message(
+            chat_id=chat_id,
+            text="Подбираю практику…",
         )
-    else:
-        row = pick_random_combined_mood_pool(
-            user_id,
-            spec.filter_key,
-            spec.where_sql,
-            spec.params,
-        )
+    except Exception:
+        # Служебное сообщение не должно мешать самой выдаче практики.
+        logger.debug("Не удалось показать сообщение о подборе практики", exc_info=True)
 
-    record_quick_filter_click(user_id, spec, surface, row is not None)
-    if row is None:
-        return "empty"
-    if not await deliver_by_mood_practice(
-        context,
-        chat_id,
-        user_id,
-        spec.filter_key,
-        row,
-    ):
-        return "failed"
-    return "sent"
+    try:
+        if spec.pool == "yoga":
+            row = pick_random_by_mood_practice(
+                user_id,
+                spec.filter_key,
+                spec.where_sql,
+                spec.params,
+            )
+        else:
+            row = pick_random_combined_mood_pool(
+                user_id,
+                spec.filter_key,
+                spec.where_sql,
+                spec.params,
+            )
+
+        record_quick_filter_click(user_id, spec, surface, row is not None)
+        if row is None:
+            return "empty"
+        if not await deliver_by_mood_practice(
+            context,
+            chat_id,
+            user_id,
+            spec.filter_key,
+            row,
+        ):
+            return "failed"
+        return "sent"
+    finally:
+        if waiting_message is not None:
+            try:
+                await context.bot.delete_message(
+                    chat_id=chat_id,
+                    message_id=waiting_message.message_id,
+                )
+            except Exception:
+                logger.debug("Не удалось удалить сообщение о подборе практики", exc_info=True)

@@ -30,9 +30,7 @@ PAUSE_REMINDER_TEXTS = [
 async def pause_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Переключает паузу рассылки: приостановить -> продолжить -> приостановить."""
     user = update.effective_user
-    message = update.effective_message
-    if update.callback_query:
-        await update.callback_query.answer()
+    message = update.message
     if not user or not message:
         return
 

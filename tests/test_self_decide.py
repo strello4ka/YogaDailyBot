@@ -1,8 +1,12 @@
 import sys
 import types
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 
+original_data_db = sys.modules.get("data.db")
+original_send_utils = sys.modules.get("app.by_mood.send_utils")
 fake_db = types.ModuleType("data.db")
 fake_db.get_available_combined_difficulties = lambda *_args, **_kwargs: set()
 fake_db.get_available_combined_tegs = lambda *_args, **_kwargs: set()
@@ -24,6 +28,15 @@ from app.by_mood import quick_filters
 from app.daily.extra_practices import get_extra_practices_inline_keyboard
 from app.keyboards import get_by_mood_reply_keyboard
 
+if original_data_db is None:
+    sys.modules.pop("data.db", None)
+else:
+    sys.modules["data.db"] = original_data_db
+if original_send_utils is None:
+    sys.modules.pop("app.by_mood.send_utils", None)
+else:
+    sys.modules["app.by_mood.send_utils"] = original_send_utils
+
 
 def keyboard_labels(markup) -> list[str]:
     return [button.text for row in markup.inline_keyboard for button in row]
@@ -38,6 +51,32 @@ def keyboard_rows(markup) -> list[list[str]]:
 
 
 class SelfDecideTegTest(unittest.TestCase):
+    @patch.object(self_decide, "_edit_selection", new_callable=AsyncMock)
+    @patch.object(self_decide, "deliver_by_mood_practice", new_callable=AsyncMock, return_value=True)
+    @patch.object(self_decide, "pick_random_combined_mood_pool", return_value=(1,))
+    def test_final_choice_shows_and_removes_practice_selection_message(self, _pick, _deliver, _edit):
+        message = SimpleNamespace(message_id=12, reply_text=AsyncMock())
+        query = SimpleNamespace(
+            data="self_difficulty:t10:any:iany",
+            answer=AsyncMock(),
+            message=message,
+        )
+        bot = SimpleNamespace(
+            send_message=AsyncMock(return_value=SimpleNamespace(message_id=99)),
+            delete_message=AsyncMock(),
+        )
+        update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(id=1),
+            effective_chat=SimpleNamespace(id=2),
+        )
+        context = SimpleNamespace(bot=bot)
+
+        __import__("asyncio").run(self_decide.handle_difficulty_callback(update, context))
+
+        bot.send_message.assert_awaited_once_with(chat_id=2, text="Подбираю практику…")
+        bot.delete_message.assert_awaited_once_with(chat_id=2, message_id=99)
+
     def test_teg_keyboard_shows_only_available_tegs_and_any(self):
         markup = self_decide.teg_keyboard(
             "t15_20",

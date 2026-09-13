@@ -1,56 +1,47 @@
-"""Сохраняемый этап онбординга в существующем system_state, без сброса данных."""
+"""Persist onboarding state in the existing system_state table."""
 
 import json
-
 from data.postgres_db import get_connection, _tomorrow_date_moscow
 
-PREFIX = "onboarding_v2:"
+PREFIX = "onboarding_v3:"
 
 
 def load_state(user_id):
     conn = get_connection()
     try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT value FROM system_state WHERE key = %s", (f"{PREFIX}{user_id}",))
-            row = cursor.fetchone()
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM system_state WHERE key=%s", (f"{PREFIX}{user_id}",))
+            row = cur.fetchone()
             return json.loads(row[0]) if row else None
     finally:
         conn.close()
 
 
-def save_state(state, *, create_user=False, schedule_time=None, complete=False):
-    """Изменение состояния и пользователя в одной транзакции; ошибка не маскируется."""
+def save_state(state, *, schedule_time=None, complete=False):
     conn = get_connection()
     try:
         with conn:
-            with conn.cursor() as cursor:
-                if create_user:
-                    cursor.execute("""
-                        INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname,
-                            onboarding_required, bot_mode, daily_schedule_enabled, traffic_source)
-                        VALUES (%s, %s, '00:00', %s, %s, TRUE, 'pending', FALSE, %s)
-                        ON CONFLICT (user_id) DO NOTHING
-                    """, (state["user_id"], state["chat_id"], state.get("name"),
-                          state.get("nickname"), state.get("traffic_source")))
+            with conn.cursor() as cur:
                 if schedule_time is not None:
-                    cursor.execute("""
-                        UPDATE users SET notify_time = %s, bot_mode = 'daily',
-                            daily_schedule_enabled = TRUE, onboarding_required = FALSE,
-                            first_daily_send_date = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE user_id = %s AND bot_mode != 'challenge'
-                    """, (schedule_time, _tomorrow_date_moscow(), state["user_id"]))
-                    if cursor.rowcount != 1:
-                        raise ValueError("Пользователь отсутствует или уже вступил в челлендж")
+                    cur.execute(
+                        """UPDATE users SET notify_time=%s, bot_mode='daily', daily_schedule_enabled=TRUE,
+                        first_daily_send_date=%s, updated_at=CURRENT_TIMESTAMP WHERE user_id=%s""",
+                        (schedule_time, _tomorrow_date_moscow(), state["user_id"]),
+                    )
                 if complete:
-                    cursor.execute("""
-                        UPDATE users SET onboarding_required = FALSE,
-                            bot_mode = CASE WHEN bot_mode = 'pending' THEN 'by_mood' ELSE bot_mode END
-                        WHERE user_id = %s
-                    """, (state["user_id"],))
-                cursor.execute("""
-                    INSERT INTO system_state (key, value) VALUES (%s, %s)
-                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                """, (f"{PREFIX}{state['user_id']}", json.dumps(state, ensure_ascii=False)))
+                    cur.execute(
+                        """UPDATE users SET onboarding_required=FALSE,
+                        notify_time=CASE WHEN bot_mode='pending' THEN '00:00' ELSE notify_time END,
+                        daily_schedule_enabled=CASE WHEN bot_mode='pending' THEN FALSE ELSE daily_schedule_enabled END,
+                        bot_mode=CASE WHEN bot_mode='pending' THEN 'by_mood' ELSE bot_mode END,
+                        updated_at=CURRENT_TIMESTAMP WHERE user_id=%s""",
+                        (state["user_id"],),
+                    )
+                cur.execute(
+                    """INSERT INTO system_state(key,value) VALUES(%s,%s)
+                    ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value""",
+                    (f"{PREFIX}{state['user_id']}", json.dumps(state, ensure_ascii=False)),
+                )
     finally:
         conn.close()
 
@@ -58,13 +49,13 @@ def save_state(state, *, create_user=False, schedule_time=None, complete=False):
 def pending_states():
     conn = get_connection()
     try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT s.value FROM system_state s
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT s.value FROM system_state s
                 JOIN users u ON s.key = %s || u.user_id::text
-                WHERE COALESCE(u.is_blocked, FALSE) = FALSE
-            """, (PREFIX,))
-            states = [json.loads(row[0]) for row in cursor.fetchall()]
-            return [s for s in states if s["step"] not in ("complete", "declined", "challenge")]
+                WHERE COALESCE(u.is_blocked, FALSE) = FALSE""",
+                (PREFIX,),
+            )
+            return [json.loads(row[0]) for row in cur.fetchall()]
     finally:
         conn.close()

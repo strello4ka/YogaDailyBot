@@ -10,7 +10,9 @@ from telegram.ext import ContextTypes
 from app.keyboards import (
     get_favorites_carousel_keyboard,
     get_practice_action_keyboard,
+    get_practice_completed_keyboard,
     get_practice_favorite_keyboard,
+    message_has_completed_button,
     message_has_done_button,
 )
 from app.practice_ref import parse_practice_callback
@@ -173,7 +175,6 @@ async def strip_done_from_favorites_carousel(
     user_id: int,
     practice_id: int,
     practice_catalog: str = PRACTICE_CATALOG_YOGA,
-    keep_done_disabled: bool = False,
 ) -> None:
     """Убирает «Я сделал!» с карусели, оставляя избранное и навигацию."""
     favorites = list_user_favorites(user_id)
@@ -202,7 +203,6 @@ async def strip_done_from_favorites_carousel(
                 total,
                 catalog,
                 show_done=False,
-                done_disabled=keep_done_disabled,
             ),
         )
     except Exception as e:
@@ -278,11 +278,12 @@ async def handle_fav_toggle_callback(update: Update, context: ContextTypes.DEFAU
 
     is_fav = is_user_favorite(user.id, practice_id, practice_catalog)
     markup = query.message.reply_markup if query.message else None
-    keyboard_fn = (
-        get_practice_action_keyboard
-        if message_has_done_button(markup)
-        else get_practice_favorite_keyboard
-    )
+    if message_has_done_button(markup):
+        keyboard_fn = get_practice_action_keyboard
+    elif message_has_completed_button(markup):
+        keyboard_fn = get_practice_completed_keyboard
+    else:
+        keyboard_fn = get_practice_favorite_keyboard
     try:
         await query.edit_message_reply_markup(
             reply_markup=keyboard_fn(practice_id, is_fav, practice_catalog),

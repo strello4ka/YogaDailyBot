@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 
+original_data_db = sys.modules.get("data.db")
 fake_db = types.ModuleType("data.db")
 fake_db.get_better_than_completed_percent = lambda *_args, **_kwargs: None
 fake_db.get_challenge_completed_in_last_n_days = lambda *_args, **_kwargs: 0
@@ -16,6 +17,11 @@ sys.modules["data.db"] = fake_db
 
 from app.handlers import progress
 
+if original_data_db is None:
+    sys.modules.pop("data.db", None)
+else:
+    sys.modules["data.db"] = original_data_db
+
 
 class ProgressResetTest(unittest.IsolatedAsyncioTestCase):
     async def test_challenge_progress_shows_reset_button(self):
@@ -23,16 +29,22 @@ class ProgressResetTest(unittest.IsolatedAsyncioTestCase):
         update = types.SimpleNamespace(
             effective_user=types.SimpleNamespace(id=123),
             effective_message=message,
+            effective_chat=types.SimpleNamespace(id=456),
         )
+        context = types.SimpleNamespace(bot=object())
 
         with (
             patch.object(progress, "get_completed_count", return_value=4),
+            patch.object(progress, "get_streak_days", return_value=1),
+            patch.object(progress, "get_challenge_completed_in_last_n_days", return_value=2),
             patch.object(progress, "get_user_bot_mode", return_value="challenge"),
             patch.object(progress, "_progress_text", return_value="Прогресс"),
             patch.object(progress, "format_social_proof_line", return_value=""),
         ):
-            await progress.handle_progress_callback(update, None)
+            await progress.handle_progress_callback(update, context)
 
+        message.reply_text.assert_awaited_once()
+        self.assertEqual(message.reply_text.await_args.args[0], "Прогресс")
         markup = message.reply_text.await_args.kwargs["reply_markup"]
         self.assertEqual(markup.inline_keyboard[0][0].text, "Сбросить прогресс")
 

@@ -682,15 +682,8 @@ def _get_onboarding_example_practice():
     return get_yoga_practice_by_video_id(ONBOARDING_EXAMPLE_VIDEO_ID)
 
 
-async def onboarding_show_example_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет пример практики без влияния на прогресс и расписание."""
-    query = update.callback_query
-    if not query:
-        return
-    await query.answer()
-    await remove_callback_keyboard(query)
-    chat_id = update.effective_chat.id
-
+def get_onboarding_example_text():
+    """Формирует существующую карточку практики-примера для любого онбординга."""
     sample = _get_onboarding_example_practice()
     if sample:
         (
@@ -712,7 +705,7 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
         difficulty = None
         channel_name = "YouTube"
 
-    text = format_practice_message(
+    return format_practice_message(
         title="Практика дня",
         my_description=my_description,
         time_practices=time_practices,
@@ -720,6 +713,18 @@ async def onboarding_show_example_callback(update: Update, context: ContextTypes
         channel_name=channel_name,
         video_url=ONBOARDING_EXAMPLE_VIDEO_URL,
     )
+
+
+async def onboarding_show_example_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет пример практики без влияния на прогресс и расписание."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    await remove_callback_keyboard(query)
+    chat_id = update.effective_chat.id
+
+    text = get_onboarding_example_text()
     example_message = await context.bot.send_message(
         chat_id=chat_id,
         text=text,
@@ -1048,4 +1053,3 @@ async def back_to_hours_callback(update: Update, context: CallbackContext):
     Оставлен для совместимости, но не вызывается.
     """
     pass
-
