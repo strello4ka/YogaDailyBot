@@ -50,7 +50,7 @@ def _management_keyboard(*, challenge: bool, paused: bool) -> InlineKeyboardMark
 def _management_text(settings) -> tuple[str, bool]:
     is_challenge = settings.get("bot_mode") == "challenge" and settings.get("challenge_start_id") is not None
     if is_challenge:
-        return "Сейчас ты в челлендже 🧡", True
+        return f"Сейчас ты в челлендже 🧡\nТвоё время — {settings['notify_time']}", True
     status = "приостановлена 🪫" if settings.get("paused") else "активна ✅"
     return f"Рассылка {status}\nТвое время сейчас — {settings['notify_time']}", False
 

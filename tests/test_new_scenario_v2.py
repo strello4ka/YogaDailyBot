@@ -223,6 +223,7 @@ class NewScenarioCopyTest(unittest.TestCase):
 
         text = message.reply_text.await_args.args[0]
         self.assertIn("Сейчас ты в челлендже", text)
+        self.assertIn("Твоё время — 07:00", text)
         self.assertNotIn("/challenge_off", text)
         rows = message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard
         self.assertEqual(rows[0][0].text, "Остановить рассылку")
