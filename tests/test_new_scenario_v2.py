@@ -443,10 +443,16 @@ class NewScenarioCopyTest(unittest.TestCase):
         week_text = "".join(week["blocks"][0]["text"])
         self.assertIn("🌀 2–3 бодрые, 5–15 минут\n", week_text)
 
-        tips_week = next(block for block in _tips_blocks() if block.get("summary") == "Как строится неделя")
-        tips_week_text = "".join(tips_week["blocks"][0]["text"])
-        self.assertIn("🌀 2–3 бодрые, 5–15 минут\n", tips_week_text)
-        self.assertIn("🌀 по вторникам — всегда работа", tips_week_text)
+        sleep_tip = next(
+            block for block in _tips_blocks()
+            if block.get("summary") == "Почему плохо выполнять активные практики перед сном?"
+        )
+        sleep_tip_text = "".join(
+            part if isinstance(part, str) else part["text"]
+            for part in sleep_tip["blocks"][0]["text"]
+        )
+        self.assertIn("активируется симпатическая нервная система", sleep_tip_text)
+        self.assertNotIn("Как строится неделя", str(_tips_blocks()))
 
     @patch("app.handlers.help.edit_rich_message", new_callable=AsyncMock)
     def test_help_section_edits_same_message_and_has_back_button(self, edit):
