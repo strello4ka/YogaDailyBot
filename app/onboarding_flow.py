@@ -68,7 +68,7 @@ async def _send_step(context, state):
             text = copy.welcome(html.escape(state.get("name") or ""))
             keyboard = onboarding_reply_keyboard(WELCOME_BUTTONS)
         elif step == "subscription":
-            text, keyboard = copy.SUBSCRIPTION, onboarding_reply_keyboard([["Следующий шаг"]])
+            text, keyboard = copy.SUBSCRIPTION, onboarding_reply_keyboard([["Начать 14 дней бесплатно"]])
         elif step == "schedule_offer":
             text = copy.SCHEDULE_OFFER
             keyboard = onboarding_reply_keyboard([["Пропустить", "Настроить расписание"]])
@@ -291,7 +291,7 @@ async def handle_reply(update, context):
     if step == "welcome" and text == "Настроить бот":
         await _transition(context, state, "agreement")
         return True
-    if step == "subscription" and text == "Следующий шаг":
+    if step == "subscription" and text == "Начать 14 дней бесплатно":
         await _transition(context, state, "schedule_offer")
         return True
     if step == "schedule_offer" and text == "Пропустить":
