@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 
 from app.keyboards import get_practice_action_keyboard
 from app.block import mark_blocked_if_forbidden
@@ -27,8 +28,10 @@ def format_by_mood_practice_message(
     difficulty: str,
     channel_name: str,
     video_url: str,
+    title: Optional[str] = None,
 ) -> str:
-    parts = ["*Практика для тебя*\n"]
+    heading = escape_markdown((title or "").strip() or "Практика для тебя", version=1)
+    parts = [f"*{heading}*\n"]
     if my_description:
         parts.append(my_description)
     else:
@@ -54,7 +57,7 @@ async def deliver_on_demand_practice(
     practice_row, practice_catalog = split_practice_row_with_catalog(practice_row)
     (
         practice_id,
-        _title,
+        title,
         video_url,
         time_practices,
         channel_name,
@@ -67,10 +70,6 @@ async def deliver_on_demand_practice(
     ) = practice_row
 
     try:
-        from app.handlers.done import strip_previous_day_done_button
-
-        await strip_previous_day_done_button(context.bot, chat_id, user_id)
-
         if record_seen_filter_key:
             record_by_mood_seen(
                 user_id, record_seen_filter_key, practice_id, practice_catalog
@@ -82,6 +81,7 @@ async def deliver_on_demand_practice(
             difficulty or "",
             channel_name,
             video_url,
+            title=title,
         )
         is_fav = is_user_favorite(user_id, practice_id, practice_catalog)
         msg = await context.bot.send_message(

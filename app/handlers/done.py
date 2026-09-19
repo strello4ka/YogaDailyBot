@@ -88,6 +88,10 @@ STREAK_ACHIEVEMENT_MESSAGES = {
     40: "40 ДНЕЙ С ПРАКТИКОЙ! Ты не тренируешься — ты доминируешь...",
     50: "ПОЛСОТНИ — теперь ты легально гуру йоги 🧘‍♂️🧘‍♂️🧘‍♂️",
     60: "Два месяца день за днем…ты вообще человек?",
+    70: "Это твоя ПРАЙМ ЭРА 🔋",
+    80: "{name} роскошно!",
+    90: "{name}, ты само совершенство!",
+    100: "Уберите детей от экранов, ЭТО СТО ДНЕЙ СТРАЙКА!!!!!!!",
 
 }
 
@@ -391,7 +395,7 @@ def schedule_done_evening_reminders(application) -> None:
 
 
 async def strip_stale_done_buttons_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """В 00:00 МСК снимает «Я сделал!» со всех неотмеченных практик не за сегодня."""
+    """В 00:00 и 06:00 МСК отключает кнопки неотмеченных практик прошлых дней."""
     targets = list_stale_done_button_messages()
     stripped = await _strip_done_button_targets(context.bot, targets) if targets else 0
     fav_stripped = await _strip_stale_favorites_carousels(context.bot)
@@ -404,7 +408,7 @@ async def strip_stale_done_buttons_job(context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 def schedule_strip_done_buttons_midnight(application) -> None:
-    """Снятие «Я сделал!» каждый день в 00:00 МСК (прод всегда онлайн)."""
+    """Отключение старых кнопок в 00:00 и резервный запуск в 06:00 МСК."""
     try:
         job_queue = application.job_queue
         if not job_queue:
@@ -415,7 +419,12 @@ def schedule_strip_done_buttons_midnight(application) -> None:
             time=time(0, 0, tzinfo=MOSCOW_TZ),
             name="strip_done_buttons_midnight",
         )
-        logger.info("Снятие кнопок «Я сделал!» запланировано на 00:00 МСК")
+        job_queue.run_daily(
+            strip_stale_done_buttons_job,
+            time=time(6, 0, tzinfo=MOSCOW_TZ),
+            name="strip_done_buttons_morning",
+        )
+        logger.info("Отключение старых кнопок запланировано на 00:00 и 06:00 МСК")
     except Exception as e:
         logger.error("Ошибка планирования снятия кнопок «Я сделал!»: %s", e)
 

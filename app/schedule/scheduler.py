@@ -100,11 +100,6 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             )
             return
 
-        # Снимаем «Я сделал!» только если предыдущая практика не за сегодня
-        from app.handlers.done import strip_previous_day_done_button
-
-        await strip_previous_day_done_button(context.bot, chat_id, user_id)
-
         # Вычисляем плановые счётчики, но подтверждаем их только после успешной отправки.
         # Это защищает от скачков прогресса при сетевых таймаутах Telegram API.
         program_position = get_program_position(user_id)
@@ -313,10 +308,6 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
     """
     try:
         logger.info(f"Отправка тестовой практики пользователю {user_id}")
-
-        from app.handlers.done import strip_previous_day_done_button
-
-        await strip_previous_day_done_button(context.bot, chat_id, user_id)
 
         program_position = get_program_position(user_id)
         next_position = program_position + 1
