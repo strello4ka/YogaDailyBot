@@ -4192,8 +4192,15 @@ def get_users_for_done_evening_reminder(reminder_time: str = "19:30:00") -> list
               AND COALESCE(pl.done_reminder_dismissed, FALSE) = FALSE
               AND pl.sent_at::date = (NOW() AT TIME ZONE %s)::date
               AND pl.sent_at::time <= %s::time
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM practice_logs completed
+                  WHERE completed.user_id = u.user_id
+                    AND completed.completed_at IS NOT NULL
+                    AND completed.completed_at::date = (NOW() AT TIME ZONE %s)::date
+              )
             ''',
-            (DEFAULT_TZ, reminder_time),
+            (DEFAULT_TZ, reminder_time, DEFAULT_TZ),
         )
         users = cursor.fetchall()
         conn.close()

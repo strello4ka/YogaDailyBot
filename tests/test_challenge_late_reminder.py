@@ -11,7 +11,11 @@ from zoneinfo import ZoneInfo
 class LateReminderTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         tree = ast.parse((Path(__file__).parents[1] / 'app/handlers/done.py').read_text())
-        names = {'send_challenge_late_reminders_job', 'schedule_done_evening_reminders'}
+        names = {
+            'send_evening_done_reminder_backup_job',
+            'send_challenge_late_reminders_job',
+            'schedule_done_evening_reminders',
+        }
         tree.body = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
         self.ns = dict(
             ContextTypes=SimpleNamespace(DEFAULT_TYPE=object),
@@ -20,7 +24,9 @@ class LateReminderTest(unittest.IsolatedAsyncioTestCase):
             pick_done_reminder_text=Mock(return_value='Практика все еще ждет тебя 🧡'),
             mark_blocked_if_forbidden=Mock(return_value=False),
             logger=Mock(), time=time, MOSCOW_TZ=ZoneInfo('Europe/Moscow'),
-            send_evening_done_reminders_failsafe_job=Mock(),
+            EVENING_REMINDER_TIME=time(19, 30), BACKUP_REMINDER_TIME=time(20, 0),
+            get_users_for_done_evening_reminder=Mock(return_value=[(1, 11)]),
+            dismiss_done_reminders=Mock(),
         )
         exec(compile(tree, '<reminders>', 'exec'), self.ns)
         self.context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()))
@@ -50,8 +56,30 @@ class LateReminderTest(unittest.IsolatedAsyncioTestCase):
         await self.run_job(5)
         self.context.bot.send_message.assert_not_awaited()
 
-    def test_schedule_moscow_2350_and_existing_failsafe(self):
+    async def test_2000_backup_skips_user_who_completed_any_practice_today(self):
+        self.ns['has_completed_practice_today'].return_value = True
+        await self.ns['send_evening_done_reminder_backup_job'](self.context)
+        self.context.bot.send_message.assert_not_awaited()
+        self.ns['dismiss_done_reminders'].assert_not_called()
+
+    async def test_2000_backup_sends_once_to_eligible_user(self):
+        await self.ns['send_evening_done_reminder_backup_job'](self.context)
+        self.context.bot.send_message.assert_awaited_once_with(
+            chat_id=11,
+            text='Практика все еще ждет тебя 🧡',
+            parse_mode='Markdown',
+        )
+        self.ns['dismiss_done_reminders'].assert_called_once_with(1)
+
+    def test_schedule_moscow_2000_backup_and_2350_challenge_reminder(self):
         queue = Mock()
         self.ns['schedule_done_evening_reminders'](SimpleNamespace(job_queue=queue))
-        self.assertEqual(queue.run_daily.call_args.kwargs['time'], time(23, 50, tzinfo=ZoneInfo('Europe/Moscow')))
-        queue.run_repeating.assert_called_once()
+        scheduled_times = [call.kwargs['time'] for call in queue.run_daily.call_args_list]
+        self.assertEqual(
+            scheduled_times,
+            [
+                time(23, 50, tzinfo=ZoneInfo('Europe/Moscow')),
+                time(20, 0, tzinfo=ZoneInfo('Europe/Moscow')),
+            ],
+        )
+        queue.run_repeating.assert_not_called()

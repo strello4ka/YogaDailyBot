@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 MOSCOW_TZ = ZoneInfo(DEFAULT_TZ)
 
 EVENING_REMINDER_TIME = time(19, 30)
+BACKUP_REMINDER_TIME = time(20, 0)
 
 DONE_REMINDER_TEXTS_EVENING = [
     "Практика все еще ждет тебя 🧡",
@@ -315,20 +316,19 @@ async def schedule_done_reminders(
         )
 
 
-async def send_evening_done_reminders_failsafe_job(
+async def send_evening_done_reminder_backup_job(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Резервная отправка после 19:30 МСК, чтобы переживать перезапуски бота."""
-    now = _now_moscow()
-    evening = datetime.combine(now.date(), EVENING_REMINDER_TIME, tzinfo=MOSCOW_TZ)
-    if now < evening:
-        return
-
+    """Однократная проверка в 20:00 для пропущенного напоминания за 19:30."""
     users = get_users_for_done_evening_reminder(EVENING_REMINDER_TIME.strftime("%H:%M:%S"))
     if not users:
         return
 
     for user_id, chat_id in users:
+        # Повторяем проверку непосредственно перед отправкой: пользователь мог
+        # отметить любую сегодняшнюю практику после формирования списка.
+        if has_completed_practice_today(user_id):
+            continue
         try:
             await context.bot.send_message(
                 chat_id=chat_id,
@@ -336,11 +336,11 @@ async def send_evening_done_reminders_failsafe_job(
                 parse_mode="Markdown",
             )
             dismiss_done_reminders(user_id)
-            logger.info("Отправлено резервное 19:30-напоминание user=%s", user_id)
+            logger.info("Отправлено резервное 20:00-напоминание user=%s", user_id)
         except Exception as e:
             if not mark_blocked_if_forbidden(user_id, e):
                 logger.error(
-                    "Ошибка резервного 19:30-напоминания user=%s: %s",
+                    "Ошибка резервного 20:00-напоминания user=%s: %s",
                     user_id,
                     e,
                 )
@@ -372,7 +372,7 @@ async def send_challenge_late_reminders_job(context: ContextTypes.DEFAULT_TYPE) 
 
 
 def schedule_done_evening_reminders(application) -> None:
-    """Фоновая проверка каждые 5 минут: догоняет пропущенные 19:30-напоминания."""
+    """Планирует напоминание на 19:30 и одну резервную проверку на 20:00."""
     try:
         job_queue = application.job_queue
         if not job_queue:
@@ -383,13 +383,12 @@ def schedule_done_evening_reminders(application) -> None:
             time=time(23, 50, tzinfo=MOSCOW_TZ),
             name="challenge_late_done_reminders",
         )
-        job_queue.run_repeating(
-            send_evening_done_reminders_failsafe_job,
-            interval=60 * 5,
-            first=20,
-            name="done_evening_reminders_failsafe",
+        job_queue.run_daily(
+            send_evening_done_reminder_backup_job,
+            time=BACKUP_REMINDER_TIME.replace(tzinfo=MOSCOW_TZ),
+            name="done_evening_reminder_backup_2000",
         )
-        logger.info("Резервные 19:30-напоминания «Я сделал!» запланированы")
+        logger.info("Резервная проверка напоминаний на 20:00 запланирована")
     except Exception as e:
         logger.error("Ошибка планирования резервных 19:30-напоминаний: %s", e)
 
