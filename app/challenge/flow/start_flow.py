@@ -14,7 +14,7 @@ from telegram.ext import ContextTypes
 from app.challenge.cohort import get_challenge_start_date, is_cohort_configured
 from app.config import DEFAULT_TZ
 from app.keyboards import get_common_reply_keyboard, get_welcome_keyboard
-from app.onboarding_messages import WEEK_DESCRIPTION, expandable_quote, quote
+from app.onboarding.messages import WEEK_DESCRIPTION, expandable_quote, quote
 from data.db import (
     complete_user_challenge_setup,
     get_current_weekday,
@@ -58,7 +58,7 @@ async def send_challenge_welcome_dm(
     from data.db import is_user_onboarding_required
 
     if is_user_onboarding_required(user_id):
-        from app.onboarding_state import load_state, save_state
+        from app.onboarding.state import load_state, save_state
         state = load_state(user_id)
         if not state or state.get("step") in ("declined", "complete"):
             return False, "сначала нужно завершить /start"

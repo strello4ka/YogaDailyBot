@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from app import onboarding_messages as messages
+from app.onboarding import messages
 from app.keyboards import (
     get_common_reply_keyboard,
     get_practice_completed_keyboard,
@@ -13,10 +13,10 @@ from app.challenge.flow.exit_flow import build_challenge_finished_text
 from app.handlers.progress import _progress_blocks
 from app.handlers.help import _faq_blocks, _root_blocks, _suggest_blocks, _tips_blocks, help_section_callback
 from app.challenge.flow.post_challenge import keyboard as post_challenge_keyboard, offer_text
-from app.onboarding_flow import _finish, _send_step, agreement_callback, handle_reply
+from app.onboarding.flow import _finish, _send_step, agreement_callback, handle_reply
 from app.handlers.reply_handlers import get_practice_command
 from app.handlers.keyboard_refresh import refresh_old_user_keyboard
-from app.onboarding_state import save_state as save_onboarding_state
+from app.onboarding.state import save_state as save_onboarding_state
 from app.handlers.schedule import (
     FIRST_SETUP_TEXT,
     SCHEDULE_MENU_TIME_KEY,
@@ -27,8 +27,8 @@ from app.handlers.schedule import (
 
 
 class NewScenarioCopyTest(unittest.TestCase):
-    @patch("app.onboarding_flow._send_step", new_callable=AsyncMock)
-    @patch("app.onboarding_flow.save_state")
+    @patch("app.onboarding.flow._send_step", new_callable=AsyncMock)
+    @patch("app.onboarding.flow.save_state")
     def test_final_onboarding_messages_are_five_seconds_apart(self, _save, _send):
         job_queue = SimpleNamespace(run_once=unittest.mock.Mock())
         context = SimpleNamespace(job_queue=job_queue)
@@ -73,7 +73,7 @@ class NewScenarioCopyTest(unittest.TestCase):
         self.assertIn("<blockquote>", confirmation)
         self.assertNotIn("waiting_for_time", context.user_data)
 
-    @patch("app.onboarding_state.get_connection")
+    @patch("app.onboarding.state.get_connection")
     def test_onboarding_completion_without_schedule_clears_stale_time(self, get_connection):
         from unittest.mock import MagicMock
 
@@ -139,12 +139,12 @@ class NewScenarioCopyTest(unittest.TestCase):
         needs_refresh.assert_not_called()
         bot.send_message.assert_not_awaited()
 
-    @patch("app.onboarding_flow.SUBSCRIPTION_ONBOARDING_ENABLED", False)
-    @patch("app.onboarding_flow._transition", new_callable=AsyncMock)
-    @patch("app.onboarding_flow.edit_rich_message", new_callable=AsyncMock)
-    @patch("app.onboarding_flow.save_state")
+    @patch("app.onboarding.flow.SUBSCRIPTION_ONBOARDING_ENABLED", False)
+    @patch("app.onboarding.flow._transition", new_callable=AsyncMock)
+    @patch("app.onboarding.flow.edit_rich_message", new_callable=AsyncMock)
+    @patch("app.onboarding.flow.save_state")
     @patch(
-        "app.onboarding_flow.load_state",
+        "app.onboarding.flow.load_state",
         return_value={"user_id": 1, "chat_id": 10, "step": "agreement", "screen_id": 20},
     )
     def test_accepted_agreement_skips_hidden_subscription(
@@ -162,11 +162,11 @@ class NewScenarioCopyTest(unittest.TestCase):
 
         self.assertEqual(transition.await_args.args[2], "schedule_offer")
 
-    @patch("app.onboarding_flow.time.time", return_value=1000)
-    @patch("app.onboarding_flow._send_step", new_callable=AsyncMock)
-    @patch("app.onboarding_flow.save_state")
+    @patch("app.onboarding.flow.time.time", return_value=1000)
+    @patch("app.onboarding.flow._send_step", new_callable=AsyncMock)
+    @patch("app.onboarding.flow.save_state")
     def test_skipping_subscription_keeps_three_day_deadline(self, _save, _send, _time):
-        from app.onboarding_flow import _transition
+        from app.onboarding.flow import _transition
 
         state = {"step": "agreement"}
         __import__("asyncio").run(_transition(SimpleNamespace(), state, "schedule_offer"))
@@ -405,7 +405,7 @@ class NewScenarioCopyTest(unittest.TestCase):
         self.assertIn("*12/28*", finished)
         self.assertNotIn("Продолжай пользоваться", finished)
 
-    @patch("app.onboarding_flow.load_state", return_value={"step": "declined"})
+    @patch("app.onboarding.flow.load_state", return_value={"step": "declined"})
     def test_declined_user_cannot_bypass_agreement_with_text(self, _state):
         message = SimpleNamespace(text="09.30", reply_text=AsyncMock())
         update = SimpleNamespace(effective_user=SimpleNamespace(id=1), effective_message=message)
@@ -470,7 +470,7 @@ class NewScenarioCopyTest(unittest.TestCase):
         self.assertIn("help_back", str(blocks))
         self.assertEqual(edit.await_args.args[1:3], (10, 20))
 
-    @patch("app.onboarding_flow.save_state")
+    @patch("app.onboarding.flow.save_state")
     def test_welcome_screen_does_not_require_time(self, save_state):
         bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=42)))
         state = {"step": "welcome", "chat_id": 10, "name": "Катя"}

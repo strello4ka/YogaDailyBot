@@ -15,7 +15,7 @@ from app.schedule.scheduler import format_practice_message
 ONBOARDING_EXAMPLE_VIDEO_URL = "https://youtu.be/2s0T9z9v-aQ?si=cdK69rPKdQXTu0l4"
 ONBOARDING_EXAMPLE_VIDEO_ID = "2s0T9z9v-aQ"
 
-from .keyboards import (
+from app.keyboards import (
     get_by_mood_reply_keyboard,
     get_choose_mode_keyboard,
     get_mode_choice_keyboard,

@@ -18,7 +18,7 @@ from data.db import get_user_bot_mode
 
 PRACTICE_KEYBOARD_HINT = "разверни кнопки клавиатуры, чтобы выбрать практику под настроение"
 PRACTICE_KEYBOARD_TUTORIAL = (
-    Path(__file__).resolve().parent.parent / "assets" / "practice_keyboard_tutorial.mp4"
+    Path(__file__).resolve().parent.parent / "content" / "practice_keyboard_tutorial.mp4"
 )
 _ALIASES = {spec.label.lower(): spec.label for spec in QUICK_FILTERS.values()}
 _BY_MOOD_LABELS = frozenset(_ALIASES) | {"САМ решу"}
@@ -63,7 +63,7 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         update: Объект обновления от Telegram
         context: Контекст бота
     """
-    from app.onboarding_flow import handle_reply as handle_onboarding_reply
+    from app.onboarding.flow import handle_reply as handle_onboarding_reply
     if await handle_onboarding_reply(update, context):
         return
 
@@ -112,7 +112,7 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     elif message_text == "Советы":
         print("=== Обработка кнопки 'Советы' ===")
-        from app.daily.tips import handle_tips_callback
+        from app.handlers.tips import handle_tips_callback
         await handle_tips_callback(update, context)
 
     elif message_text == "Пауза":

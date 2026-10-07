@@ -9,10 +9,10 @@ from datetime import timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, ReplyParameters
 from telegram.ext import ApplicationHandlerStop
 
-from app import onboarding_messages as copy
+from app.onboarding import messages as copy
 from app.config import SUBSCRIPTION_ONBOARDING_ENABLED
 from app.keyboards import COMMON_REPLY_KEYBOARD_VERSION, get_common_reply_keyboard, onboarding_reply_keyboard
-from app.onboarding_state import load_state, pending_states, save_state
+from app.onboarding.state import load_state, pending_states, save_state
 from app.rich_messages import button_row, edit_rich_message, paragraph, send_rich_message
 
 logger = logging.getLogger(__name__)

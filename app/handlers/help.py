@@ -5,7 +5,7 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.onboarding_messages import FILTER_HELP, WEEK_DESCRIPTION
+from app.onboarding.messages import FILTER_HELP, WEEK_DESCRIPTION
 from app.rich_messages import button_row, edit_rich_message, paragraph, send_rich_message
 
 

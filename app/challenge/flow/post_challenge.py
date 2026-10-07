@@ -7,7 +7,7 @@ from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.onboarding_messages import quote
+from app.onboarding.messages import quote
 from app.challenge.cohort import CHALLENGE_DURATION
 from data.db import save_user_time_after_challenge
 from data.postgres_db import _delete_system_state, _get_system_state, _set_system_state

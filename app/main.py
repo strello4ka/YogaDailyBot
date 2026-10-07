@@ -90,7 +90,7 @@ from .handlers.favorites import (
     handle_fav_noop_callback,
 )
 from .bot_commands import setup_bot_commands
-from .onboarding_flow import (
+from .onboarding.flow import (
     start_command,
     restart_yes as start_restart_yes_callback,
     agreement_callback,

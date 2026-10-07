@@ -5,7 +5,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.onboarding_messages import WEEK_DESCRIPTION, expandable_quote
+from app.onboarding.messages import WEEK_DESCRIPTION, expandable_quote
 from app.daily.set_time import validate_time_format
 from data.db import (
     get_user_schedule_settings,
