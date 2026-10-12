@@ -55,7 +55,7 @@ from .handlers.secret import (
     secret_edit_command,
     handle_secret_edit_input,
 )
-from .block import handle_user_block_event
+from .block import clear_stale_block_on_private_activity, handle_user_block_event
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
 from .challenge.jobs import schedule_challenge_jobs
 from .challenge.summary.commands import (
@@ -276,6 +276,20 @@ def main():
     application.add_handler(
         ChatMemberHandler(handle_user_block_event, ChatMemberHandler.MY_CHAT_MEMBER),
         group=-1,
+    )
+    # Страховка на случай потерянного события разблокировки Telegram: если
+    # пользователь пишет или нажимает кнопку в личке, бот точно уже разблокирован.
+    application.add_handler(
+        MessageHandler(
+            filters.ALL & filters.ChatType.PRIVATE,
+            clear_stale_block_on_private_activity,
+            block=False,
+        ),
+        group=-5,
+    )
+    application.add_handler(
+        CallbackQueryHandler(clear_stale_block_on_private_activity, block=False),
+        group=-5,
     )
     application.add_handler(
         MessageHandler(filters.ALL & filters.ChatType.PRIVATE, refresh_old_user_keyboard),

@@ -152,10 +152,19 @@ async def begin(update, context):
 
 
 async def start_command(update, context):
-    from data.db import user_exists
+    from data.db import clear_user_blocked_if_needed, user_exists
     from app.keyboards import get_restart_confirm_keyboard
     from app.onboarding import START_RESTART_WARNING
-    if user_exists(update.effective_user.id):
+    user_id = update.effective_user.id
+    just_unblocked = bool(context.user_data.pop("just_unblocked", False))
+    was_stale_blocked = clear_user_blocked_if_needed(user_id)
+    if just_unblocked or was_stale_blocked:
+        await update.effective_message.reply_text(
+            "С возвращением 🧡",
+            reply_markup=get_common_reply_keyboard(),
+        )
+        return
+    if user_exists(user_id):
         await update.effective_message.reply_text(START_RESTART_WARNING, reply_markup=get_restart_confirm_keyboard())
         return
     from data.db import set_user_onboarding_required

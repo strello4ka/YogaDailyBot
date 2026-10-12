@@ -2081,6 +2081,37 @@ def set_user_blocked(user_id: int, is_blocked: bool) -> bool:
         return False
 
 
+def clear_user_blocked_if_needed(user_id: int) -> bool:
+    """Снимает устаревший is_blocked только если флаг действительно установлен.
+
+    Возвращает True, если запись была изменена. Для уже активного пользователя
+    не обновляет updated_at: это важно, потому что поле участвует в логике первой
+    плановой рассылки.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET is_blocked = FALSE, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = %s AND COALESCE(is_blocked, FALSE) = TRUE
+            ''',
+            (user_id,),
+        )
+        changed = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return changed
+    except Exception as e:
+        print(f"Ошибка clear_user_blocked_if_needed {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
 def get_user_notify_time(user_id: int):
     """Возвращает время уведомления пользователя (HH:MM) или None."""
     try:

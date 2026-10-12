@@ -13,7 +13,13 @@ from app.challenge.flow.exit_flow import build_challenge_finished_text
 from app.handlers.progress import _progress_blocks
 from app.handlers.help import _faq_blocks, _root_blocks, _suggest_blocks, _tips_blocks, help_section_callback
 from app.challenge.flow.post_challenge import keyboard as post_challenge_keyboard, offer_text
-from app.onboarding.flow import _finish, _send_step, agreement_callback, handle_reply
+from app.onboarding.flow import (
+    _finish,
+    _send_step,
+    agreement_callback,
+    handle_reply,
+    start_command,
+)
 from app.handlers.reply_handlers import get_practice_command
 from app.handlers.keyboard_refresh import refresh_old_user_keyboard
 from app.onboarding.state import save_state as save_onboarding_state
@@ -27,6 +33,49 @@ from app.handlers.schedule import (
 
 
 class NewScenarioCopyTest(unittest.TestCase):
+    @patch("data.db.clear_user_blocked_if_needed", return_value=False)
+    @patch("data.db.user_exists", return_value=True)
+    def test_start_after_unblock_restores_menu_without_restart_warning(self, _exists, _clear):
+        message = SimpleNamespace(reply_text=AsyncMock())
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=1),
+            effective_message=message,
+        )
+        context = SimpleNamespace(user_data={"just_unblocked": True})
+
+        __import__("asyncio").run(start_command(update, context))
+
+        self.assertEqual(message.reply_text.await_args.args[0], "С возвращением 🧡")
+        self.assertNotIn("just_unblocked", context.user_data)
+
+    @patch("data.db.clear_user_blocked_if_needed", return_value=True)
+    @patch("data.db.user_exists", return_value=True)
+    def test_start_with_stale_block_restores_menu(self, _exists, _clear):
+        message = SimpleNamespace(reply_text=AsyncMock())
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=1),
+            effective_message=message,
+        )
+
+        __import__("asyncio").run(start_command(update, SimpleNamespace(user_data={})))
+
+        self.assertEqual(message.reply_text.await_args.args[0], "С возвращением 🧡")
+
+    @patch("data.db.clear_user_blocked_if_needed", return_value=False)
+    @patch("data.db.user_exists", return_value=True)
+    def test_regular_repeated_start_keeps_restart_confirmation(self, _exists, _clear):
+        from app.onboarding import START_RESTART_WARNING
+
+        message = SimpleNamespace(reply_text=AsyncMock())
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=1),
+            effective_message=message,
+        )
+
+        __import__("asyncio").run(start_command(update, SimpleNamespace(user_data={})))
+
+        self.assertEqual(message.reply_text.await_args.args[0], START_RESTART_WARNING)
+
     @patch("app.onboarding.flow._send_step", new_callable=AsyncMock)
     @patch("app.onboarding.flow.save_state")
     def test_final_onboarding_messages_are_five_seconds_apart(self, _save, _send):
