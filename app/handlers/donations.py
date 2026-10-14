@@ -1,7 +1,10 @@
 """Handler for donations information."""
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
+
+
+MINIAPP_PREVIEW_URL = "https://miniapp-preview-production-4b53.up.railway.app/"
 
 
 async def handle_donations_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -24,16 +27,17 @@ async def handle_donations_callback(update: Update, context: ContextTypes.DEFAUL
     # Получаем chat_id
     chat_id = update.effective_chat.id
     
-    # Лаконичное сообщение о поддержке проекта
+    # До запуска оплаты в рабочем боте показываем только предпросмотр тарифов.
     donations_text = (
-        "YogaDailyBot - пока бесплатный проект, но если он делает твою жизнь лучше, ты можешь поддержать его развитие!\n\n"
-        "Любая поддержка ценна, от 1 рубля до бесконечности"
+        "Скоро здесь появится подписка 🧡\n\n"
+        "Пока YogaDailyBot бесплатный. Если хочешь поддержать его развитие, "
+        "можешь сделать это через Telegram Stars.\n\n"
+        "Тарифы уже можно посмотреть, но оплата подписки пока недоступна."
     )
     
-    # Создаем клавиатуру с двумя кнопками
     keyboard = [
-        [InlineKeyboardButton("💳 Перевести по номеру карты", callback_data="donate_card")],
-        [InlineKeyboardButton("⭐️ Поддержать через Telegram Stars", callback_data="donate_stars")]
+        [InlineKeyboardButton("⭐️ Поддержать через Telegram Stars", callback_data="donate_stars")],
+        [InlineKeyboardButton("Посмотреть тарифы", web_app=WebAppInfo(url=MINIAPP_PREVIEW_URL))],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -47,34 +51,8 @@ async def handle_donations_callback(update: Update, context: ContextTypes.DEFAUL
 
 
 async def handle_donate_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопки 'Перевести по номеру карты'.
-    
-    Показывает номер карты и благодарность.
-    
-    Args:
-        update: Объект обновления от Telegram
-        context: Контекст бота
-    """
-    # Отвечаем на callback query
-    if hasattr(update, 'callback_query') and update.callback_query:
-        await update.callback_query.answer()
-    
-    # Получаем chat_id
-    chat_id = update.effective_chat.id
-    
-    # Сообщение с номером карты и благодарностью
-    card_text = (
-        "💳 **Номер карты для перевода:**\n"
-        "`2200701902278180`\n\n"
-        "Спасибо за желание поддержать проект 🧡"
-    )
-    
-    # Отправляем сообщение
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=card_text,
-        parse_mode='Markdown'
-    )
+    """Старые сообщения с кнопкой перевода больше не открывают реквизиты."""
+    await update.callback_query.answer("Перевод по карте сейчас недоступен", show_alert=True)
 
 
 async def handle_donate_stars_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -174,7 +152,7 @@ async def handle_stars_amount_callback(update: Update, context: ContextTypes.DEF
         error_text = (
             "🚨 *Ошибка при создании инвойса*\n\n"
             "К сожалению, не удалось создать инвойс для оплаты. "
-            "Попробуй еще раз или используй перевод по номеру карты."
+            "Попробуй ещё раз позже."
         )
         await context.bot.send_message(
             chat_id=chat_id,
