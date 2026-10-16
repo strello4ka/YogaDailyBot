@@ -4,9 +4,10 @@ import asyncio
 import html
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, ReplyParameters
+from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
+                      ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyParameters)
 from telegram.ext import ApplicationHandlerStop
 
 from app.onboarding import messages as copy
@@ -18,6 +19,37 @@ from app.rich_messages import button_row, edit_rich_message, paragraph, send_ric
 logger = logging.getLogger(__name__)
 
 WELCOME_BUTTONS = [["Покажи пример", "Настроить бот"]]
+
+
+def _subscription_step_enabled(context, user_id):
+    from app.subscription.access import repository_for
+    return SUBSCRIPTION_ONBOARDING_ENABLED or repository_for(context, user_id) is not None
+
+
+async def _subscription_variant(context, user_id):
+    """Use durable access history, not a restarted onboarding state."""
+    from app.subscription.access import AccessState, repository_for
+    repository = repository_for(context, user_id)
+    if repository is None:
+        return "new"
+    subscription = await asyncio.to_thread(repository.get, user_id)
+    if subscription is None:
+        return "new"
+    if subscription.state(datetime.now().astimezone()) != AccessState.FREE:
+        return "active"
+    return "used" if subscription.trial is not None else "new"
+
+
+def _used_subscription_keyboard(context):
+    return onboarding_reply_keyboard([["Продолжить бесплатно"]])
+
+
+async def _send_onboarding_tariffs(context, chat_id):
+    url = context.bot_data.get('subscription_miniapp_url', '')
+    if url:
+        from app.subscription.subscription_menu import tariff_keyboard
+        from app.subscription.messages import TARIFF_PROMPT
+        await context.bot.send_message(chat_id, TARIFF_PROMPT, reply_markup=tariff_keyboard(url))
 
 
 def _lock(context, user_id):
@@ -68,7 +100,13 @@ async def _send_step(context, state):
             text = copy.welcome(html.escape(state.get("name") or ""))
             keyboard = onboarding_reply_keyboard(WELCOME_BUTTONS)
         elif step == "subscription":
-            text, keyboard = copy.SUBSCRIPTION, onboarding_reply_keyboard([["Начать 14 дней бесплатно"]])
+            if await _subscription_variant(context, state["user_id"]) == "used":
+                text = copy.SUBSCRIPTION_USED
+                if not context.bot_data.get("subscription_miniapp_url"):
+                    text = text.replace("\n\nСмотри тарифы ниже 👇", "")
+                keyboard = _used_subscription_keyboard(context)
+            else:
+                text, keyboard = copy.SUBSCRIPTION, onboarding_reply_keyboard([["Начать 14 дней бесплатно"]])
         elif step == "schedule_offer":
             text = copy.SCHEDULE_OFFER
             keyboard = onboarding_reply_keyboard([["Пропустить", "Настроить расписание"]])
@@ -82,6 +120,9 @@ async def _send_step(context, state):
         else:
             raise ValueError(f"Unknown onboarding step: {step}")
         message = await context.bot.send_message(state["chat_id"], text, parse_mode="HTML", reply_markup=keyboard)
+        if step == 'subscription' and isinstance(keyboard, ReplyKeyboardMarkup):
+            if any(button.text == 'Продолжить бесплатно' for row in keyboard.keyboard for button in row):
+                await _send_onboarding_tariffs(context, state['chat_id'])
     state["screen_id"] = message.message_id
     save_state(state)
 
@@ -99,8 +140,16 @@ async def _finish_second_message(context, state):
         latest = load_state(state["user_id"])
         if not latest or latest.get("step") != "location":
             return
+        from app.subscription.access import AccessState, current_subscription
+        subscription = await asyncio.to_thread(current_subscription, context, latest['user_id'])
+        free = subscription is not None and subscription.state(datetime.now().astimezone()) == AccessState.FREE
+        if free:
+            from app.subscription.free import reply_keyboard
+            text, keyboard = copy.COMPLETE_FREE, reply_keyboard()
+        else:
+            text, keyboard = copy.COMPLETE, get_common_reply_keyboard()
         message = await context.bot.send_message(
-            latest["chat_id"], copy.COMPLETE, parse_mode="HTML", reply_markup=get_common_reply_keyboard()
+            latest["chat_id"], text, parse_mode="HTML", reply_markup=keyboard
         )
         latest.update(step="complete", screen_id=message.message_id, completed_at=time.time())
         save_state(latest, complete=True)
@@ -113,6 +162,48 @@ async def _finish_job(context):
     state = load_state(context.job.data["user_id"])
     if state and state.get("step") == "location":
         await _finish_second_message(context, state)
+
+
+async def continue_after_subscription_payment(context, user_id):
+    """Resume only the current subscription screen from durable terminal orders."""
+    from app.subscription.access import repository_for
+    from app.subscription.messages import PAYMENT_FAILED
+    repository = repository_for(context, user_id)
+    if repository is None:
+        return
+    async with _lock(context, user_id):
+        state = await asyncio.to_thread(load_state, user_id)
+        if not state or state.get('step') != 'subscription':
+            return
+        since = datetime.fromtimestamp(state['entered_at']).astimezone()
+        results = await asyncio.to_thread(repository.onboarding_payment_results, user_id, since)
+        # A successful retry takes precedence over earlier cancellations.
+        successful = [order_id for order_id, status in results if status == 'succeeded']
+        if successful:
+            if not any([await asyncio.to_thread(repository.notification_sent, user_id,
+                                               'payment_success:' + order_id)
+                        for order_id in successful]):
+                return  # Confirmation must be delivered before the next screen.
+            subscription = await asyncio.to_thread(repository.get, user_id)
+            if not subscription or not subscription.paid:
+                return
+            next_state = dict(state, step='schedule_offer', entered_at=time.time(), reminded=[],
+                              subscription_paid_period_token=str(int(subscription.paid.starts_at.timestamp())))
+            # _send_step persists only after Telegram accepts the screen, so a
+            # failed send leaves the subscription screen available for retry.
+            await _send_step(context, next_state)
+            return
+        for order_id, status in results:
+            if status != 'canceled':
+                continue
+            event_key = 'onboarding_payment_canceled:' + order_id
+            if await asyncio.to_thread(repository.notification_sent, user_id, event_key):
+                continue
+            await context.bot.send_message(state['chat_id'], PAYMENT_FAILED, parse_mode='HTML',
+                                           reply_markup=_used_subscription_keyboard(context))
+            await _send_onboarding_tariffs(context, state['chat_id'])
+            await asyncio.to_thread(repository.mark_notification_sent, user_id, event_key,
+                                    datetime.now().astimezone())
 
 
 async def _finish(context, state):
@@ -229,11 +320,10 @@ async def agreement_callback(update, context):
         await edit_rich_message(context.bot, state["chat_id"], agreement_message_id, _agreement_result_blocks(True))
     except Exception:
         logger.exception("Не удалось обновить Rich Message соглашения user=%s", state["user_id"])
-    await _transition(
-        context,
-        state,
-        "subscription" if SUBSCRIPTION_ONBOARDING_ENABLED else "schedule_offer",
-    )
+    next_step = ("subscription" if _subscription_step_enabled(context, state["user_id"])
+                 and await _subscription_variant(context, state["user_id"]) != "active"
+                 else "schedule_offer")
+    await _transition(context, state, next_step)
 
 
 async def agreement_aux_callback(update, context):
@@ -279,8 +369,11 @@ async def handle_reply(update, context):
         return True
     text = update.effective_message.text
     step = state["step"]
+    if step == 'subscription' and text == 'Посмотреть тарифы':
+        await _send_step(context, state)
+        return True
     # Мягко переносим дальше тех, кто остановился здесь до скрытия шага.
-    if step == "subscription" and not SUBSCRIPTION_ONBOARDING_ENABLED:
+    if step == "subscription" and not _subscription_step_enabled(context, state["user_id"]):
         await _transition(context, state, "schedule_offer")
         return True
     if step == "welcome" and text == "Покажи пример":
@@ -301,7 +394,22 @@ async def handle_reply(update, context):
         await _transition(context, state, "agreement")
         return True
     if step == "subscription" and text == "Начать 14 дней бесплатно":
+        if await _subscription_variant(context, state["user_id"]) == "used":
+            await _send_step(context, state)
+            return True
+        from app.subscription.access import repository_for
+        repository = repository_for(context, state["user_id"])
+        if repository is not None:
+            await asyncio.to_thread(
+                repository.begin_fast_trial, state["user_id"], datetime.now().astimezone())
         await _transition(context, state, "schedule_offer")
+        return True
+    if step == "subscription" and text == "Продолжить бесплатно":
+        variant = await _subscription_variant(context, state["user_id"])
+        if variant == "used":
+            await _finish(context, state)
+        elif variant == "active":
+            await _transition(context, state, "schedule_offer")
         return True
     if step == "schedule_offer" and text == "Пропустить":
         await _finish(context, state)
@@ -327,7 +435,7 @@ async def handle_reply(update, context):
 async def reminders_job(context):
     now = time.time()
     for state in pending_states():
-        if state.get("step") == "subscription" and not SUBSCRIPTION_ONBOARDING_ENABLED:
+        if state.get("step") == "subscription" and not _subscription_step_enabled(context, state["user_id"]):
             await _transition(context, state, "schedule_offer")
             continue
         if state.get("step") == "location":

@@ -53,6 +53,7 @@ tools/.env.broadcast
 *.sqlite3
 *.dump
 *.sql
+!data/migrations/20261013_subscriptions.sql
 
 # Временные файлы
 .DS_Store

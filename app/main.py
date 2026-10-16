@@ -5,6 +5,7 @@ Main application file that initializes the bot and registers all handlers.
 import asyncio
 import logging
 import re
+import os
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, ChatMemberHandler, filters, ContextTypes
 from telegram import Update
 
@@ -272,6 +273,12 @@ def main():
         .build()
     )
 
+    # Opt-in subscription test rollout; installer validates the explicit test
+    # settings, rollout allowlist and dedicated database name.
+    from app.subscription.subscription_menu import install_test_subscriptions
+    from data.postgres_db import get_connection
+    install_test_subscriptions(application, os.environ, get_connection)
+
     # Блокировка / разблокировка бота пользователем
     application.add_handler(
         ChatMemberHandler(handle_user_block_event, ChatMemberHandler.MY_CHAT_MEMBER),
@@ -384,6 +391,8 @@ def main():
         "strello4ka",
         "хард",
         "практика дня",
+        "Практика дня",
+        "🔒 Подобрать практику",
         "САМ решу",
         "расписание",
         "Покажи пример",

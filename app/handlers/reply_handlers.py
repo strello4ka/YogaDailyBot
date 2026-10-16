@@ -2,6 +2,7 @@
 Обработчики для Reply-клавиатуры с основными функциями бота.
 """
 
+import asyncio
 from pathlib import Path
 
 from telegram import Update
@@ -25,6 +26,22 @@ _BY_MOOD_LABELS = frozenset(_ALIASES) | {"САМ решу"}
 
 
 async def get_practice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from app.subscription.access import AccessState, current_subscription
+    from app.subscription.tariff import MOSCOW
+    from datetime import datetime
+    user = getattr(update, "effective_user", None)
+    subscription = (await asyncio.to_thread(current_subscription, context, user.id)
+                    if user is not None else None)
+    if subscription is not None and subscription.state(datetime.now(MOSCOW)) == AccessState.FREE:
+        from app.subscription.free import reply_keyboard
+        await update.effective_message.reply_text(
+            "Разверни кнопки клавиатуры, чтобы выбрать практику.",
+            reply_markup=reply_keyboard(),
+        )
+        return
+    else:
+        from app.keyboards import get_common_reply_keyboard
+        keyboard = get_common_reply_keyboard()
     cached_file_id = context.bot_data.get("practice_keyboard_tutorial_file_id")
     configured_video = context.bot_data.get("practice_keyboard_tutorial_video")
     video = cached_file_id or configured_video
@@ -34,6 +51,7 @@ async def get_practice_command(update: Update, context: ContextTypes.DEFAULT_TYP
             video=video,
             caption=PRACTICE_KEYBOARD_HINT,
             supports_streaming=True,
+            reply_markup=keyboard,
         )
     elif PRACTICE_KEYBOARD_TUTORIAL.is_file():
         with PRACTICE_KEYBOARD_TUTORIAL.open("rb") as video_file:
@@ -41,9 +59,10 @@ async def get_practice_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 video=video_file,
                 caption=PRACTICE_KEYBOARD_HINT,
                 supports_streaming=True,
+                reply_markup=keyboard,
             )
     else:
-        await update.effective_message.reply_text(PRACTICE_KEYBOARD_HINT)
+        await update.effective_message.reply_text(PRACTICE_KEYBOARD_HINT, reply_markup=keyboard)
         return
 
     if message.video:
@@ -93,7 +112,7 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         await schedule_command(update, context)
         return
 
-    if user_id and get_user_bot_mode(user_id) in ("by_mood", "daily", "challenge") and message_text in _BY_MOOD_LABELS:
+    if user_id and get_user_bot_mode(user_id) in ("by_mood", "daily", "challenge") and (message_text.lower() in _ALIASES or message_text in _BY_MOOD_LABELS):
         await _dispatch_by_mood_button(update, context, message_text)
         return
 

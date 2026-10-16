@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import logging
 from typing import Literal, Optional
@@ -169,6 +170,13 @@ async def select_and_deliver_quick_filter(
     from app.by_mood.send_utils import deliver_by_mood_practice
     from data.db import pick_random_by_mood_practice, pick_random_combined_mood_pool
 
+    from app.subscription.access import Feature, runtime_has_access
+    feature = Feature.PRACTICE_OF_DAY if spec.slug == "day" else Feature.SELECTION
+    if not await asyncio.to_thread(runtime_has_access, context, user_id, feature):
+        from app.subscription.free import send_locked
+        await send_locked(context.bot, chat_id, feature, context.bot_data["subscription_miniapp_url"])
+        return "locked"
+
     waiting_message = None
     try:
         waiting_message = await context.bot.send_message(
@@ -180,7 +188,21 @@ async def select_and_deliver_quick_filter(
         logger.debug("Не удалось показать сообщение о подборе практики", exc_info=True)
 
     try:
-        if spec.pool == "yoga":
+        from app.subscription.access import repository_for
+        repository = repository_for(context, user_id)
+        if spec.slug == "day" and repository is not None:
+            from datetime import datetime
+            from app.subscription.tariff import MOSCOW
+            from data.db import get_practice_by_catalog
+
+            def choose():
+                selected = pick_random_by_mood_practice(user_id, spec.filter_key, spec.where_sql, spec.params)
+                return (selected, "yoga") if selected is not None else None
+
+            row = await asyncio.to_thread(
+                repository.daily_practice, user_id, datetime.now(MOSCOW), choose,
+                get_practice_by_catalog)
+        elif spec.pool == "yoga":
             row = pick_random_by_mood_practice(
                 user_id,
                 spec.filter_key,

@@ -3,6 +3,8 @@
 import json
 import logging
 import time
+import asyncio
+from datetime import datetime
 from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -56,6 +58,15 @@ def keyboard(value):
     ])
 
 
+def subscription_keyboard(miniapp_url):
+    rows = []
+    if miniapp_url:
+        from app.subscription.subscription_menu import tariff_keyboard
+        rows.extend(tariff_keyboard(miniapp_url).inline_keyboard)
+    rows.append([InlineKeyboardButton("Не хочу", callback_data="pc:no")])
+    return InlineKeyboardMarkup(rows)
+
+
 def offer_text(value):
     """Второе сообщение через 10 секунд: предложение продолжить расписание."""
     return (
@@ -65,11 +76,33 @@ def offer_text(value):
     )
 
 
+async def _subscription_access(context, user_id):
+    from app.subscription.access import AccessState, repository_for
+    from app.subscription.tariff import MOSCOW
+    repository = repository_for(context, user_id)
+    if repository is None:
+        return True, None  # Пользователь ещё не включён в подписочный rollout.
+    subscription = await asyncio.to_thread(repository.get, user_id)
+    active = bool(subscription and subscription.state(datetime.now(MOSCOW)) != AccessState.FREE)
+    return active, repository
+
+
 async def send_offer(context, state):
+    has_subscription, repository = await _subscription_access(context, state["user_id"])
+    if has_subscription:
+        if repository is not None:
+            await asyncio.to_thread(repository.dismiss_restore_offer, state["user_id"])
+        text = offer_text(state["time"])
+        reply_markup = keyboard(state["time"])
+    else:
+        from app.subscription.messages import challenge_finished_without_subscription
+        text = challenge_finished_without_subscription()
+        reply_markup = subscription_keyboard(context.bot_data.get("subscription_miniapp_url", ""))
     message = await context.bot.send_message(
-        state["chat_id"], offer_text(state["time"]), parse_mode="HTML", reply_markup=keyboard(state["time"])
+        state["chat_id"], text, parse_mode="HTML", reply_markup=reply_markup
     )
-    state.update(message_id=message.message_id, entered_at=time.time(), reminded=[], stage="offer")
+    state.update(message_id=message.message_id, entered_at=time.time(), reminded=[], stage="offer",
+                 subscription_required=not has_subscription)
     save(state)
 
 
@@ -96,6 +129,20 @@ async def callback(update, context):
             "Настроить расписание можно в любой момент в меню.\n\nДо встречи 🧡"
         )
         return
+    if query.data in ("pc:continue", "pc:change"):
+        has_subscription, _ = await _subscription_access(context, state["user_id"])
+        if not has_subscription:
+            from app.subscription.messages import challenge_finished_without_subscription
+            message = await query.message.reply_text(
+                challenge_finished_without_subscription(),
+                parse_mode="HTML",
+                reply_markup=subscription_keyboard(
+                    context.bot_data.get("subscription_miniapp_url", "")),
+            )
+            state.update(message_id=message.message_id, entered_at=time.time(), reminded=[],
+                         stage="offer", subscription_required=True)
+            save(state)
+            return
     if query.data == "pc:continue":
         await _save_schedule(
             update,
@@ -188,8 +235,12 @@ async def reminders_job(context):
         if not due:
             continue
         index = max(due)
+        has_subscription, _ = await _subscription_access(context, state["user_id"])
+        state["subscription_required"] = not has_subscription
         await context.bot.send_message(
-            state["chat_id"], REMINDERS[index], reply_markup=keyboard(state["time"])
+            state["chat_id"], REMINDERS[index],
+            reply_markup=(subscription_keyboard(context.bot_data.get("subscription_miniapp_url", ""))
+                          if state.get("subscription_required") else keyboard(state["time"]))
         )
         state["reminded"] = sorted(set(state.get("reminded", []) + due))
         save(state)

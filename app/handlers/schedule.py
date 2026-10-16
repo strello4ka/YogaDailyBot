@@ -5,7 +5,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.onboarding.messages import WEEK_DESCRIPTION, expandable_quote
+from app.onboarding.messages import WEEK_DESCRIPTION, expandable_quote, TIME_INPUT
 from app.daily.set_time import validate_time_format
 from data.db import (
     get_user_schedule_settings,
@@ -25,11 +25,7 @@ FIRST_SETUP_TEXT = (
     + expandable_quote(WEEK_DESCRIPTION)
 )
 
-TIME_INPUT_TEXT = (
-    "<b>Введи время в формате ЧЧ.ММ</b>\n"
-    "(например, 09.30)\n\n"
-    "PS. Время учитывается по МСК"
-)
+TIME_INPUT_TEXT = TIME_INPUT
 
 
 def _is_never_configured(settings) -> bool:
@@ -99,6 +95,11 @@ async def schedule_pick_time_callback(update: Update, context: ContextTypes.DEFA
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
         pass
+    await send_schedule_time_prompt(update, context)
+
+
+async def send_schedule_time_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enter schedule input directly, using the same screen as onboarding."""
     context.user_data[SCHEDULE_MENU_TIME_KEY] = True
     context.user_data["waiting_for_time"] = True
     context.user_data.pop("is_time_change", None)

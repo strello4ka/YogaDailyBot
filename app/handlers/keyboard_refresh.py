@@ -1,5 +1,6 @@
 """One-time delivery of the current reply keyboard to existing users."""
 
+import asyncio
 import logging
 
 from telegram import Update
@@ -17,6 +18,13 @@ async def refresh_old_user_keyboard(update: Update, context: ContextTypes.DEFAUL
     chat = update.effective_chat
     if not user or not chat:
         return
+
+    from app.subscription.access import AccessState, current_subscription
+    from app.subscription.tariff import MOSCOW
+    from datetime import datetime
+    subscription = await asyncio.to_thread(current_subscription, context, user.id)
+    if subscription is not None and subscription.state(datetime.now(MOSCOW)) == AccessState.FREE:
+        return  # Never overwrite the free keyboard with the legacy full keyboard.
 
     # /start сам запускает актуальный сценарий и в итоге устанавливает новую
     # клавиатуру. Не дублируем уведомление перед вопросом о перезапуске и при

@@ -12,7 +12,11 @@ from app.challenge.flow.start_flow import build_challenge_welcome_text, handle_c
 from app.challenge.flow.exit_flow import build_challenge_finished_text
 from app.handlers.progress import _progress_blocks
 from app.handlers.help import _faq_blocks, _root_blocks, _suggest_blocks, _tips_blocks, help_section_callback
-from app.challenge.flow.post_challenge import keyboard as post_challenge_keyboard, offer_text
+from app.challenge.flow.post_challenge import (
+    keyboard as post_challenge_keyboard,
+    offer_text,
+    subscription_keyboard,
+)
 from app.onboarding.flow import (
     _finish,
     _send_step,
@@ -356,7 +360,7 @@ class NewScenarioCopyTest(unittest.TestCase):
         query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
         self.assertTrue(context.user_data[SCHEDULE_MENU_TIME_KEY])
         self.assertTrue(context.user_data["waiting_for_time"])
-        self.assertIn("Введи время", bot.send_message.await_args.kwargs["text"])
+        self.assertEqual(messages.TIME_INPUT, bot.send_message.await_args.kwargs["text"])
 
     @patch("app.handlers.schedule.save_user_time", return_value=True)
     def test_schedule_time_is_normalized_saved_without_progress_reset(self, save_time):
@@ -400,6 +404,22 @@ class NewScenarioCopyTest(unittest.TestCase):
         self.assertTrue(effective_message.reply_video.await_args.kwargs["supports_streaming"])
         self.assertEqual(context.bot_data["practice_keyboard_tutorial_file_id"], "telegram-video-id")
 
+    @patch('app.subscription.access.current_subscription')
+    def test_free_practice_menu_sends_hint_without_video(self, current):
+        from app.subscription.access import Subscription
+        current.return_value = Subscription()
+        sent = SimpleNamespace(video=SimpleNamespace(file_id='video-id'))
+        message = SimpleNamespace(reply_video=AsyncMock(return_value=sent), reply_text=AsyncMock())
+        update = SimpleNamespace(effective_message=message, effective_user=SimpleNamespace(id=1))
+        context = SimpleNamespace(bot_data={'practice_keyboard_tutorial_video': 'source-video'})
+        __import__('asyncio').run(get_practice_command(update, context))
+        message.reply_video.assert_not_awaited()
+        message.reply_text.assert_awaited_once()
+        self.assertEqual(message.reply_text.await_args.args[0],
+                         'Разверни кнопки клавиатуры, чтобы выбрать практику.')
+        self.assertEqual(message.reply_text.await_args.kwargs['reply_markup'].keyboard[0][0].text,
+                         'Практика дня')
+
     def test_permanent_keyboard_has_final_layout_and_labels(self):
         keyboard = get_common_reply_keyboard()
         rows = [[button.text for button in row] for row in keyboard.keyboard]
@@ -428,7 +448,7 @@ class NewScenarioCopyTest(unittest.TestCase):
         self.assertNotIn("<blockquote expandable>", messages.SCHEDULE_OFFER)
         self.assertIn("<blockquote expandable>", messages.TIME_INPUT)
         self.assertIn("В какое время хочешь получать", messages.TIME_INPUT)
-        self.assertIn("Введи время в формате", messages.TIME_INPUT)
+        self.assertIn("ОТПРАВЬ МНЕ ВРЕМЯ В ФОРМАТЕ", messages.TIME_INPUT)
         self.assertIn("<blockquote expandable>", messages.COMPLETE)
 
     @patch("app.challenge.flow.start_flow.get_challenge_start_date")
@@ -453,6 +473,11 @@ class NewScenarioCopyTest(unittest.TestCase):
         finished = build_challenge_finished_text(12)
         self.assertIn("*12/28*", finished)
         self.assertNotIn("Продолжай пользоваться", finished)
+
+    def test_post_challenge_without_subscription_has_tariffs_and_decline(self):
+        rows = [[button.text for button in row]
+                for row in subscription_keyboard("https://example.org").inline_keyboard]
+        self.assertEqual(rows, [["Посмотреть тарифы"], ["Не хочу"]])
 
     @patch("app.onboarding.flow.load_state", return_value={"step": "declined"})
     def test_declined_user_cannot_bypass_agreement_with_text(self, _state):

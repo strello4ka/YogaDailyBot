@@ -92,6 +92,11 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
         # завершить ему челлендж и перевести его в pending. Перепроверяем режим
         # непосредственно перед отправкой, чтобы не прислать практику после финала.
         bot_mode = get_user_bot_mode(user_id)
+        if bot_mode != "challenge":
+            from app.subscription.access import Feature, runtime_has_access
+            if not await asyncio.to_thread(
+                    runtime_has_access, context, user_id, Feature.SCHEDULE):
+                return
         if bot_mode not in ("daily", "challenge"):
             logger.info(
                 "Пропуск рассылки user=%s: режим изменился на %s",
