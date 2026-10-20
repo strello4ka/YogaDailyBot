@@ -31,7 +31,7 @@ class TestGateway:
             return [body]
 
         target = path.removeprefix('/test-api/')
-        valid = target in ('session', 'payments')
+        valid = target in ('session', 'payments', 'yookassa/webhook')
         if target.startswith('payments/'):
             try:
                 valid = target == 'payments/' + str(UUID(target[len('payments/'):]))

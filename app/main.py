@@ -50,6 +50,7 @@ from .handlers.progress import (
     handle_progress_reset_no_callback,
 )
 from .handlers.secret import (
+    ADMIN_USER_ID,
     secret_command,
     handle_secret_input,
     secret_delete_command,
@@ -232,6 +233,9 @@ async def test_practice_command(update: Update, context):
     """Команда для тестирования отправки практики."""
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    if user_id != ADMIN_USER_ID:
+        await update.message.reply_text("Эта команда доступна только владельцу бота.")
+        return
     
     logger.info(f"Получена команда /test от пользователя {user_id}")
     

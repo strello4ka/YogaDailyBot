@@ -67,6 +67,11 @@ class MiniApp:
                 return respond('403 Forbidden', {'error': 'В предпросмотре оплата отключена'})
             if self.repository is None or self.payments is None:
                 return respond('503 Service Unavailable', {'error': 'Тестовая оплата ещё не подключена'})
+            if path == '/api/yookassa/webhook':
+                from app.payments.webhook import handle_notification
+                handle_notification(data, self.payments, now, self.allowed_users)
+                # Acknowledge only after verified durable state is committed.
+                return respond('200 OK', {'received': True})
             try:
                 user_id = authenticate(data.get('init_data'), self.bot_token, now.timestamp(), self.allowed_users)
             except ValueError:
@@ -82,7 +87,11 @@ class MiniApp:
                 elif trial_end and trial_end > now:
                     note = 'Подписка начнёт действовать с {} — после пробного периода.'.format(
                         trial_end.astimezone(MOSCOW).strftime('%d.%m.%Y'))
-                return respond('200 OK', {'tariffs': tariffs(), 'email': email or '', 'note': note,
+                allowed = getattr(self.payments, 'allowed_tariffs', None)
+                catalog = tariffs() if allowed is None else [t for t in tariffs() if t['code'] in allowed]
+                if allowed is not None:
+                    note = 'Настоящее списание 350 ₽. Проверка реального магазина. ' + note
+                return respond('200 OK', {'tariffs': catalog, 'email': email or '', 'note': note,
                                          'offer_url': OFFER_URL, 'preview': False,
                                          'order_id': self.repository.open_order_id(user_id)})
             if path == '/api/payments':
@@ -128,28 +137,33 @@ def create_test_app(environment, connection_factory, *, provider=None):
     from app.subscription.subscription_menu import test_settings
     from data.subscription_repository import SubscriptionRepository
     from app.payments.service import PaymentService
-    from app.payments.yookassa import YooKassaTestClient
+    from app.payments.config import payment_settings
 
     settings = test_settings(environment)
     if settings is None:
         raise ValueError('Test subscription mode is disabled')
     users, url, database_name = settings
-    shop_id = environment.get('SUBSCRIPTION_YOOKASSA_TEST_SHOP_ID', '')
-    secret = environment.get('SUBSCRIPTION_YOOKASSA_TEST_SECRET_KEY', '')
-    if not shop_id or not secret:
-        raise ValueError('Test YooKassa credentials are required for checkout')
-    repository = SubscriptionRepository(connection_factory)
+    config = payment_settings(environment)
+    if not config.shop_id or not config.secret or not url:
+        raise ValueError('YooKassa credentials and Mini App URL are required for checkout')
+    repository = SubscriptionRepository(connection_factory, payment_scope=config.scope)
     repository.verify_test_database(database_name)
     owns_provider = provider is None
     if owns_provider:
-        provider = YooKassaTestClient(shop_id, secret)
+        provider = config.client()
     try:
-        provider.verify_test_store()
+        if provider.expected_test is not (not config.live):
+            raise ValueError('Provider does not match configured payment mode')
+        if config.live:
+            provider.verify_store()
+        else:
+            provider.verify_test_store()
     except Exception:
         if owns_provider:
             provider.close()
         raise
-    return MiniApp(repository=repository, payments=PaymentService(repository, provider),
+    return MiniApp(repository=repository, payments=PaymentService(
+                       repository, provider, allowed_tariffs=('month',) if config.live else None),
                    bot_token=environment['BOT_TOKEN'], allowed_users=users, return_url=url)
 
 

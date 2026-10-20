@@ -177,7 +177,47 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.granted[:] = ['order-1']
         with patch('app.subscription.jobs._notice_lock', locked):
             await asyncio.gather(reconcile_test_payments(self.context),
-                                 reconcile_test_payments(self.context, user_ids={10}))
+                                 reconcile_test_payments(self.context, user_ids={10}, check_pending=False))
+        self.context.bot.send_message.assert_awaited_once()
+
+    async def test_fast_delivery_never_checks_other_pending_payment(self):
+        self.granted[:] = ['confirmed-order']
+        await reconcile_test_payments(self.context, user_ids={10}, check_pending=False)
+        self.service.refresh_details.assert_not_called()
+        self.repo.touch_order_check.assert_not_called()
+        self.assertIn('payment_success:confirmed-order', self.sent)
+
+    async def test_periodic_worker_delivers_ready_notice_before_provider_request(self):
+        self.granted[:] = ['confirmed-order']
+        def check(*args):
+            self.assertIn('payment_success:confirmed-order', self.sent)
+        self.service.refresh_details.side_effect = check
+        await reconcile_test_payments(self.context)
+        self.service.refresh_details.assert_called_once()
+        self.context.bot.send_message.assert_awaited_once()
+
+    async def test_fast_delivery_does_not_wait_for_inflight_periodic_provider_call(self):
+        import asyncio
+        import threading
+        entered, release = threading.Event(), threading.Event()
+        def slow_check(*args):
+            entered.set()
+            if not release.wait(3):
+                raise RuntimeError('Test did not release provider call')
+        self.service.refresh_details.side_effect = slow_check
+        periodic = asyncio.create_task(reconcile_test_payments(self.context))
+        try:
+            self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+            # A webhook commits this grant while another order's API call stalls.
+            self.granted[:] = ['webhook-confirmed']
+            await asyncio.wait_for(reconcile_test_payments(
+                self.context, user_ids={10}, check_pending=False), timeout=1)
+            self.assertIn('payment_success:webhook-confirmed', self.sent)
+            self.assertFalse(periodic.done())
+            self.service.refresh_details.assert_called_once()
+        finally:
+            release.set()
+            await periodic
         self.context.bot.send_message.assert_awaited_once()
 
     async def test_allowlist_is_required(self):

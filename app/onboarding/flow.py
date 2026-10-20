@@ -394,12 +394,19 @@ async def handle_reply(update, context):
         await _transition(context, state, "agreement")
         return True
     if step == "subscription" and text == "Начать 14 дней бесплатно":
-        if await _subscription_variant(context, state["user_id"]) == "used":
+        variant = await _subscription_variant(context, state["user_id"])
+        if variant == "used":
             await _send_step(context, state)
             return True
         from app.subscription.access import repository_for
         repository = repository_for(context, state["user_id"])
         if repository is not None:
+            if variant == 'active':
+                current = await asyncio.to_thread(repository.get, state['user_id'])
+                if current and current.paid:
+                    from app.subscription.jobs import reconcile_test_payments
+                    await reconcile_test_payments(context, user_ids={state['user_id']}, check_pending=False)
+                    return True
             await asyncio.to_thread(
                 repository.begin_fast_trial, state["user_id"], datetime.now().astimezone())
         await _transition(context, state, "schedule_offer")
@@ -409,7 +416,10 @@ async def handle_reply(update, context):
         if variant == "used":
             await _finish(context, state)
         elif variant == "active":
-            await _transition(context, state, "schedule_offer")
+            # A grant alone cannot skip the payment confirmation. The shared
+            # delivery path retries the notice and then resumes onboarding.
+            from app.subscription.jobs import reconcile_test_payments
+            await reconcile_test_payments(context, user_ids={state['user_id']}, check_pending=False)
         return True
     if step == "schedule_offer" and text == "Пропустить":
         await _finish(context, state)

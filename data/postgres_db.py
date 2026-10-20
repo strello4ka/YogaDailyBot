@@ -1609,6 +1609,26 @@ def get_users_pending_for_today(current_time: str) -> list:
         return []
 
 
+def resume_disabled_daily_schedule(user_id: int) -> bool:
+    """Explicit consent to resume a disabled schedule, preserving time/progress."""
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE users SET daily_schedule_enabled=TRUE, is_paused=FALSE, "
+                    "paused_at=NULL, last_pause_reminder_at=NULL, pause_reminder_step=0, "
+                    "first_daily_send_date=%s, bot_mode='daily', updated_at=CURRENT_TIMESTAMP "
+                    "WHERE user_id=%s AND bot_mode IS DISTINCT FROM 'challenge' "
+                    "AND daily_schedule_enabled=FALSE "
+                    "AND notify_time IS NOT NULL AND notify_time NOT IN ('','00:00')",
+                    (_tomorrow_date_moscow(), user_id),
+                )
+                return cursor.rowcount == 1
+    finally:
+        conn.close()
+
+
 def toggle_user_pause(user_id: int):
     """Переключает паузу рассылки для пользователя.
 

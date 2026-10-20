@@ -63,8 +63,21 @@ async def deliver_payment_notice(context, user_id, order_id, now):
         await asyncio.to_thread(repository.mark_notification_sent, user_id, event_key, now)
 
 
-async def reconcile_test_payments(context, *, user_ids=None):
-    """Poll durable orders, then deliver grants made by either worker or HTTP."""
+async def _deliver_ready_payments(context, user_id):
+    """Deliver durable results without making any provider requests."""
+    repository = context.bot_data['subscription_repository']
+    _, notices = await asyncio.to_thread(repository.payment_work, user_id)
+    for order_id in notices:
+        try:
+            await deliver_payment_notice(context, user_id, order_id, datetime.now(MOSCOW))
+        except Exception:
+            logger.warning('Test payment notification failed order=%s', order_id)
+    from app.onboarding.flow import continue_after_subscription_payment
+    await continue_after_subscription_payment(context, user_id)
+
+
+async def reconcile_test_payments(context, *, user_ids=None, check_pending=True):
+    """Deliver ready results first; only periodic reconciliation polls YooKassa."""
     repository = context.bot_data.get('subscription_repository')
     service = context.bot_data.get('subscription_payment_service')
     if repository is None:
@@ -73,6 +86,9 @@ async def reconcile_test_payments(context, *, user_ids=None):
     selected = allowed if user_ids is None else set(user_ids).intersection(allowed)
     for user_id in selected:
         try:
+            await _deliver_ready_payments(context, user_id)
+            if not check_pending:
+                continue
             pending, _ = await asyncio.to_thread(repository.payment_work, user_id)
             if service is not None:
                 for order_id in pending:
@@ -86,15 +102,9 @@ async def reconcile_test_payments(context, *, user_ids=None):
                     finally:
                         await asyncio.to_thread(repository.touch_order_check, order_id, user_id,
                                                 datetime.now(MOSCOW))
-            # Reload: includes grants committed in the just-completed checks.
-            _, notices = await asyncio.to_thread(repository.payment_work, user_id)
-            for order_id in notices:
-                try:
-                    await deliver_payment_notice(context, user_id, order_id, datetime.now(MOSCOW))
-                except Exception:
-                    logger.warning('Test payment notification failed order=%s', order_id)
-            from app.onboarding.flow import continue_after_subscription_payment
-            await continue_after_subscription_payment(context, user_id)
+            # Also deliver grants discovered by this periodic reconciliation.
+            if service is not None and pending:
+                await _deliver_ready_payments(context, user_id)
         except Exception:
             logger.warning('Test payment worker failed user=%s', user_id)
 

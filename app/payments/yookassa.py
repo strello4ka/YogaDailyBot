@@ -5,7 +5,7 @@ Credentials and payment bodies are never logged.
 """
 
 from datetime import timedelta
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qsl, urlencode
 from uuid import UUID
 
 import httpx
@@ -57,6 +57,12 @@ class YooKassaClient:
         if age < timedelta(0) or age >= timedelta(hours=23):
             raise ValueError('Order requires reconciliation before another creation attempt')
         UUID(order.order_id)
+        # Preserve ?test=1 and identify this order after the provider redirect,
+        # including when the browser has lost its sessionStorage.
+        query = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                 if key != 'checkout_order']
+        query.append(('checkout_order', order.order_id))
+        return_url = parsed._replace(query=urlencode(query)).geturl()
         self.verify_store()
         payment = self._request('POST', 'payments', headers={'Idempotence-Key': order.order_id}, json={
             'amount': {'value': order.amount, 'currency': 'RUB'},

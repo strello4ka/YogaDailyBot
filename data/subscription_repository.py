@@ -23,8 +23,14 @@ def _snapshot(row) -> Subscription:
 
 
 class SubscriptionRepository:
-    def __init__(self, connection_factory: Callable):
+    def __init__(self, connection_factory: Callable, *, payment_scope=None):
         self.connection_factory = connection_factory
+        self.payment_scope = payment_scope
+
+    def _payment_scope_sql(self, alias=''):
+        if self.payment_scope is None:
+            return '', ()
+        return ' AND {}payment_scope=%s '.format(alias), (self.payment_scope,)
 
     @contextmanager
     def _transaction(self):
@@ -60,6 +66,9 @@ class SubscriptionRepository:
             row = cursor.fetchone()
             if row[0] != expected_name or any(table is None for table in row[1:]):
                 raise ValueError("Wrong test database or subscription migration has not been applied")
+            if self.payment_scope is not None:
+                # Fail at startup, not after the buyer returns from checkout.
+                cursor.execute('SELECT payment_scope FROM subscription_orders LIMIT 0')
 
     def save_order(self, order):
         """Persist before calling the provider; caller retains this ID on retries."""
@@ -68,12 +77,16 @@ class SubscriptionRepository:
                            (order.user_id,))
             if cursor.fetchone() is None:
                 raise ValueError('User is not enrolled in subscription testing')
+            scope_column = ',payment_scope' if self.payment_scope is not None else ''
+            scope_value = ',%s' if self.payment_scope is not None else ''
             cursor.execute("INSERT INTO subscription_orders "
                            "(order_id,user_id,tariff_code,duration_days,base_amount_kopecks,"
-                           "amount_kopecks,email,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                           "amount_kopecks,email,created_at,updated_at" + scope_column +
+                           ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s" + scope_value + ")",
                            (order.order_id, order.user_id, order.tariff_code, order.duration_days,
                             order.amount_kopecks, order.amount_kopecks, order.email,
-                            order.created_at, order.created_at))
+                            order.created_at, order.created_at) +
+                           ((self.payment_scope,) if self.payment_scope is not None else ()))
 
     @contextmanager
     def payment_creation_lock(self, user_id):
@@ -84,9 +97,11 @@ class SubscriptionRepository:
             yield
 
     def open_order_id(self, user_id):
+        scope, params = self._payment_scope_sql()
         with self._transaction() as cursor:
             cursor.execute("SELECT order_id FROM subscription_orders WHERE user_id=%s "
-                           "AND status IN ('created','pending') ORDER BY created_at LIMIT 1", (user_id,))
+                           "AND status IN ('created','pending')" + scope +
+                           " ORDER BY created_at LIMIT 1", (user_id,) + params)
             row = cursor.fetchone()
             return str(row[0]) if row else None
 
@@ -104,16 +119,20 @@ class SubscriptionRepository:
 
     def payment_work(self, user_id, limit=20):
         """Durable work survives a closed Mini App and bot restarts."""
+        scope, params = self._payment_scope_sql()
+        notice_scope, _ = self._payment_scope_sql('o.')
         with self._transaction() as cursor:
             cursor.execute("SELECT order_id FROM subscription_orders WHERE user_id=%s "
-                           "AND status IN ('created','pending') ORDER BY updated_at,created_at LIMIT %s",
-                           (user_id, limit))
+                           "AND status IN ('created','pending')" + scope +
+                           " ORDER BY updated_at,created_at LIMIT %s",
+                           (user_id,) + params + (limit,))
             pending = [str(row[0]) for row in cursor.fetchall()]
             cursor.execute("SELECT o.order_id FROM subscription_orders o WHERE o.user_id=%s "
                            "AND o.status='succeeded' AND o.granted_at IS NOT NULL AND NOT EXISTS "
                            "(SELECT 1 FROM subscription_notifications n WHERE n.user_id=o.user_id "
                            "AND n.event_key='payment_success:' || o.order_id::text) "
-                           "ORDER BY o.granted_at LIMIT %s", (user_id, limit))
+                           + notice_scope + " ORDER BY o.granted_at LIMIT %s",
+                           (user_id,) + params + (limit,))
             return pending, [str(row[0]) for row in cursor.fetchall()]
 
     def payment_notice(self, order_id, user_id):
@@ -126,11 +145,12 @@ class SubscriptionRepository:
 
     def onboarding_payment_results(self, user_id, since):
         """Only terminal orders created during this subscription step."""
+        scope, params = self._payment_scope_sql()
         with self._transaction() as cursor:
             cursor.execute("SELECT order_id,status FROM subscription_orders WHERE user_id=%s "
                            "AND created_at >= %s AND (status='canceled' OR "
-                           "(status='succeeded' AND granted_at IS NOT NULL)) ORDER BY created_at",
-                           (user_id, since))
+                           "(status='succeeded' AND granted_at IS NOT NULL))" + scope +
+                           " ORDER BY created_at", (user_id, since) + params)
             return [(str(row[0]), row[1]) for row in cursor.fetchall()]
 
     @contextmanager
@@ -148,10 +168,25 @@ class SubscriptionRepository:
 
     def get_order(self, order_id, user_id):
         from app.payments.service import Order
+        scope, params = self._payment_scope_sql()
         with self._transaction() as cursor:
             cursor.execute("SELECT order_id,user_id,tariff_code,duration_days,amount_kopecks,"
                            "email,created_at,provider_payment_id FROM subscription_orders "
-                           "WHERE order_id=%s AND user_id=%s", (order_id, user_id))
+                           "WHERE order_id=%s AND user_id=%s" + scope,
+                           (order_id, user_id) + params)
+            row = cursor.fetchone()
+            return Order(str(row[0]), *row[1:]) if row else None
+
+    def webhook_order(self, payment_id, order_hint=None):
+        """Untrusted IDs only select a scoped order; they never grant access."""
+        from app.payments.service import Order
+        scope, params = self._payment_scope_sql()
+        with self._transaction() as cursor:
+            cursor.execute("SELECT order_id,user_id,tariff_code,duration_days,amount_kopecks,"
+                           "email,created_at,provider_payment_id FROM subscription_orders "
+                           "WHERE (provider_payment_id=%s OR "
+                           "(order_id=%s AND provider_payment_id IS NULL))" + scope,
+                           (payment_id, order_hint) + params)
             row = cursor.fetchone()
             return Order(str(row[0]), *row[1:]) if row else None
 

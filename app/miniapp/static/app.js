@@ -3,6 +3,13 @@ const $ = id => document.getElementById(id);
 const tg = window.Telegram?.WebApp;
 // This switch selects a route only; the local server authenticates every request.
 const testCheckout = new URLSearchParams(window.location.search).get('test') === '1';
+const returnedOrder = new URLSearchParams(window.location.search).get('checkout_order');
+function clearSavedOrder() {
+  sessionStorage.removeItem('yoga-order');
+  const url = new URL(window.location.href);
+  url.searchParams.delete('checkout_order');
+  window.history.replaceState(null, '', url.href);
+}
 const money = value => new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 0}).format(value / 100) + ' ₽';
 const tariffMonths = {month: 1, quarter: 3, half_year: 6, year: 12};
 function monthlyPrice(tariff) {
@@ -74,11 +81,13 @@ function updatePrice() {
   $('pay').disabled = preview || !tariff;
 }
 function status(title, text) {
+  $('loading').hidden = true;
   $('checkout').hidden = true; $('payment-status').hidden = false;
   $('status-title').textContent = title; $('status-text').textContent = text;
 }
 async function checkPayment() {
   if (checking || !orderId) return;
+  status('Проверяем оплату', 'Если ты уже оплатил, повторно платить не нужно.');
   checking = true; $('check').disabled = true; clearTimeout(poll);
   try {
     const data = await api(`/api/payments/${encodeURIComponent(orderId)}`);
@@ -87,11 +96,11 @@ async function checkPayment() {
       const date = data.ends_on?.split('-').reverse().join('.') || '';
       status('Оплата принята 🧡', `Подписка действует по ${date} включительно.`);
       $('check').hidden = true; $('close').hidden = !tg?.initData;
-      sessionStorage.removeItem('yoga-order');
+      clearSavedOrder();
     } else if (data.status === 'canceled') {
       status('Оплата не завершена', 'Попробуй ещё раз или выбери другой способ оплаты.');
       $('check').hidden = true; $('back').hidden = false;
-      sessionStorage.removeItem('yoga-order');
+      clearSavedOrder();
     } else {
       status('Проверяем оплату', 'Если ты уже оплатил, повторно платить не нужно.');
       if (data.confirmation_url) {
@@ -102,7 +111,7 @@ async function checkPayment() {
     }
   } catch (e) {
     if (e.status === 404) {
-      sessionStorage.removeItem('yoga-order'); orderId = null;
+      clearSavedOrder(); orderId = null;
       $('back').hidden = false; $('check').hidden = true;
     }
     status('Пока не удалось проверить оплату', 'Повторно платить не нужно. ' + e.message);
@@ -128,6 +137,7 @@ $('payment-form').addEventListener('submit', async event => {
   } catch (e) { error(e.message); updatePrice(); }
 });
 $('check').addEventListener('click', checkPayment);
+$('reload').addEventListener('click', () => window.location.reload());
 $('close').addEventListener('click', () => tg?.close());
 $('back').addEventListener('click', () => {
   clearTimeout(poll); orderId = null;
@@ -152,8 +162,18 @@ async function load() {
       $('tariffs').append(label);
     }
     updatePrice();
-    orderId = data.order_id || sessionStorage.getItem('yoga-order');
-    if (orderId && !preview) await checkPayment();
-  } catch (e) { error(e.message); }
+    // The returned UUID selects an order, never authorizes or confirms a payment.
+    // The server checks Telegram identity, ownership and the provider status.
+    orderId = returnedOrder || data.order_id || sessionStorage.getItem('yoga-order');
+    if (orderId && !preview) {
+      await checkPayment();
+    } else {
+      $('loading').hidden = true;
+      $('checkout').hidden = false;
+    }
+  } catch (e) {
+    $('loading-text').textContent = 'Не удалось загрузить данные. ' + e.message;
+    $('reload').hidden = false;
+  }
 }
 load();

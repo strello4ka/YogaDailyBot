@@ -15,6 +15,7 @@ class PaymentWakeupTest(unittest.IsolatedAsyncioTestCase):
         async def reconcile(*args, **kwargs):
             calls.append('payment')
             self.assertEqual(kwargs['user_ids'], {10})
+            self.assertFalse(kwargs['check_pending'])
         async def restore(*args):
             calls.append('schedule')
         with patch('app.subscription.payment_wakeup.reconcile_test_payments', side_effect=reconcile), patch(

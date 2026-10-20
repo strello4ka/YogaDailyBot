@@ -1,6 +1,7 @@
 """Payment boundaries without network calls, secrets or a database."""
 import json
 import unittest
+from urllib.parse import urlparse, parse_qs
 from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -135,9 +136,10 @@ class PaymentsTest(unittest.TestCase):
         self.assertLess([c[0] for c in repo.method_calls].index('grant_order'),
                         [c[0] for c in repo.method_calls].index('signal_payment'))
         repo.signal_payment.reset_mock()
+        repo.signal_payment.side_effect = None
         repo.grant_order.return_value = False
         self.assertEqual(PaymentService(repo, provider).refresh(self.order.order_id, 10, NOW), 'succeeded')
-        repo.signal_payment.assert_not_called()
+        repo.signal_payment.assert_called_once_with(10)
 
     def test_repeated_confirmation_has_no_second_write(self):
         factory = MagicMock()
@@ -211,12 +213,15 @@ class PaymentsTest(unittest.TestCase):
         client = YooKassaTestClient('123', 'fake', transport=httpx.MockTransport(transport))
         try:
             for _ in range(2):
-                client.create_payment(self.order, 'https://example.org/return', NOW)
+                client.create_payment(self.order, 'https://example.org/return?test=1&checkout_order=stale', NOW)
             posts = [r for r in calls if r.method == 'POST']
             self.assertEqual([r.headers['Idempotence-Key'] for r in posts], [self.order.order_id] * 2)
             payload = json.loads(posts[0].content)
             self.assertEqual(payload['amount']['value'], '350.00')
             self.assertTrue(payload['capture'])
+            returned = urlparse(payload['confirmation']['return_url'])
+            self.assertEqual(parse_qs(returned.query)['checkout_order'], [self.order.order_id])
+            self.assertEqual(parse_qs(returned.query)['test'], ['1'])
             with self.assertRaises(ValueError):
                 client.create_payment(self.order, 'https://example.org/return', NOW + timedelta(days=1))
             self.assertEqual(len(calls), 4)

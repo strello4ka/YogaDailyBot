@@ -91,11 +91,13 @@ def install_test_subscriptions(application, environment, connection_factory):
     from data.subscription_repository import SubscriptionRepository
     from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler, filters
     users, configured_url, database_name = settings
+    from app.payments.config import payment_settings
+    payment_config = payment_settings(environment)
     # Trial reminders can always show the existing tariff preview. Real test
     # checkout is enabled only with an explicitly configured Mini App URL.
     from app.handlers.donations import MINIAPP_PREVIEW_URL
     url = configured_url or MINIAPP_PREVIEW_URL
-    repository = SubscriptionRepository(connection_factory)
+    repository = SubscriptionRepository(connection_factory, payment_scope=payment_config.scope)
     repository.verify_test_database(database_name)
     application.bot_data.update(subscription_repository=repository,
                                 subscription_test_users=users, subscription_miniapp_url=url)
@@ -107,15 +109,16 @@ def install_test_subscriptions(application, environment, connection_factory):
         if user_id <= 0 or end.utcoffset() is None or (users is not None and user_id not in users):
             raise ValueError('An allowed test user and timezone-aware expiry are required')
         application.bot_data['subscription_test_paid_expiry'] = (user_id, end)
-    shop_id = environment.get('SUBSCRIPTION_YOOKASSA_TEST_SHOP_ID', '')
-    secret = environment.get('SUBSCRIPTION_YOOKASSA_TEST_SECRET_KEY', '')
-    if bool(shop_id) != bool(secret):
-        raise ValueError('Both test shop ID and test secret key must be configured')
-    if shop_id and configured_url:
+    if payment_config.shop_id and configured_url:
         from app.payments.service import PaymentService
-        from app.payments.yookassa import YooKassaTestClient
+        provider = payment_config.client()
+        try:
+            provider.verify_store()
+        except Exception:
+            provider.close()
+            raise
         application.bot_data['subscription_payment_service'] = PaymentService(
-            repository, YooKassaTestClient(shop_id, secret))
+            repository, provider, allowed_tariffs=('month',) if payment_config.live else None)
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, guard_update), group=-6)
     application.add_handler(CallbackQueryHandler(guard_update), group=-6)
     application.add_handler(CallbackQueryHandler(restore_schedule_callback,

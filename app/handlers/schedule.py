@@ -12,6 +12,7 @@ from data.db import (
     get_yoga_practice_by_challenge_order,
     save_user_time,
     toggle_user_pause,
+    resume_disabled_daily_schedule,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,8 +48,12 @@ def _management_text(settings) -> tuple[str, bool]:
     is_challenge = settings.get("bot_mode") == "challenge" and settings.get("challenge_start_id") is not None
     if is_challenge:
         return f"Сейчас ты в челлендже 🧡\nТвоё время — {settings['notify_time']}", True
-    status = "приостановлена 🪫" if settings.get("paused") else "активна ✅"
+    status = "приостановлена 🪫" if _schedule_inactive(settings) else "активна ✅"
     return f"Рассылка {status}\nТвое время сейчас — {settings['notify_time']}", False
+
+
+def _schedule_inactive(settings):
+    return bool(settings.get('paused')) or settings.get('enabled') is False
 
 
 def cancel_schedule_menu_time(context):
@@ -73,7 +78,7 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text,
             reply_markup=_management_keyboard(
                 challenge=is_challenge,
-                paused=bool(settings.get("paused")),
+                paused=_schedule_inactive(settings),
             ),
         )
         return
@@ -128,7 +133,15 @@ async def schedule_toggle_callback(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
-    success, is_paused_now, _had_challenge = toggle_user_pause(user_id)
+    resumed_disabled = bool(before and before.get('enabled') is False)
+    if resumed_disabled:
+        if _is_never_configured(before):
+            await send_schedule_time_prompt(update, context)
+            return
+        success = resume_disabled_daily_schedule(user_id)
+        is_paused_now = False
+    else:
+        success, is_paused_now, _had_challenge = toggle_user_pause(user_id)
     if not success:
         await query.message.reply_text("Не получилось переключить рассылку. Попробуй еще раз чуть позже.")
         return
@@ -147,6 +160,8 @@ async def schedule_toggle_callback(update: Update, context: ContextTypes.DEFAULT
             "Продолжаем без потери прогресса, как будто паузы и не было.\n"
             f"Следующая практика придет по твоему времени: <b>{notify_time}</b>"
         )
+        if resumed_disabled:
+            text = text.replace("Следующая практика придет", "Практики начнут приходить с завтрашнего дня")
 
     after = get_user_schedule_settings(user_id)
     if after:
@@ -156,7 +171,7 @@ async def schedule_toggle_callback(update: Update, context: ContextTypes.DEFAULT
                 text=management_text,
                 reply_markup=_management_keyboard(
                     challenge=is_challenge,
-                    paused=bool(after.get("paused")),
+                    paused=_schedule_inactive(after),
                 ),
             )
         except Exception:

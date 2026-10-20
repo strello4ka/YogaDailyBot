@@ -42,6 +42,7 @@ config.py
 test/.env.test
 tools/.env.broadcast
 !app/config.py
+!app/payments/config.py
 
 # Telethon session (логин личного аккаунта — не коммитить)
 *.session
@@ -54,6 +55,7 @@ tools/.env.broadcast
 *.dump
 *.sql
 !data/migrations/20261013_subscriptions.sql
+!data/migrations/20261020_payment_scope.sql
 
 # Временные файлы
 .DS_Store

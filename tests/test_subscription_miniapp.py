@@ -51,6 +51,7 @@ class MiniAppAuthTest(unittest.TestCase):
 class MiniAppHTTPTest(unittest.TestCase):
     def setUp(self):
         self.repo, self.payments = Mock(), Mock()
+        self.payments.allowed_tariffs = None
         self.repo.checkout_profile.return_value = ('user@example.org', None, None)
         self.repo.open_order_id.return_value = None
         self.auth = MiniAppAuthTest()
@@ -128,6 +129,15 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertEqual(data['email'], 'user@example.org')
         self.assertEqual(data['tariffs'][0]['days'], 30)
         self.repo.checkout_profile.assert_called_once_with(10)
+
+    def test_live_run_shows_only_month_and_real_charge_warning(self):
+        self.payments.allowed_tariffs = frozenset({'month'})
+        status, body = self.request('/api/session')
+        data = json.loads(body)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual([t['code'] for t in data['tariffs']], ['month'])
+        self.assertEqual(data['tariffs'][0]['amount'], 35000)
+        self.assertIn('Настоящее списание 350 ₽', data['note'])
 
     def test_success_is_returned_after_service_grant(self):
         order_id = str(uuid4())

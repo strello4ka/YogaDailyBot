@@ -38,7 +38,7 @@ async def process_wakeup(context, payload):
         return
     # The shared worker re-reads verified durable orders and uses the existing
     # PostgreSQL notification locks. Payload alone cannot grant or notify access.
-    await reconcile_test_payments(context, user_ids={user_id})
+    await reconcile_test_payments(context, user_ids={user_id}, check_pending=False)
     await _send_restore_offer(context, user_id, datetime.now(MOSCOW))
 
 
