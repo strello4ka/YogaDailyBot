@@ -42,6 +42,9 @@ def main():
     if not settings.mynalog_writes_enabled:
         logging.warning('MYNALOG_WRITES_ENABLED=false: payments are collected, receipts are not created')
     worker = build_worker(settings)
+    if settings.mynalog_auth_check_on_start:
+        worker.mynalog.authenticate()
+        logging.info('My Nalog authentication check succeeded')
     if args.once:
         print(json.dumps(worker.run_once(), ensure_ascii=False, sort_keys=True))
     else:

@@ -35,6 +35,7 @@ class Settings:
     poll_seconds: int
     sync_from: datetime
     mynalog_writes_enabled: bool
+    mynalog_auth_check_on_start: bool
     email_enabled: bool
 
     @classmethod
@@ -68,5 +69,6 @@ class Settings:
             poll_seconds=max(30, int(os.getenv('RECEIPT_POLL_SECONDS', '300'))),
             sync_from=sync_from.astimezone(timezone.utc),
             mynalog_writes_enabled=writes_enabled,
+            mynalog_auth_check_on_start=_boolean('MYNALOG_AUTH_CHECK_ON_START'),
             email_enabled=email_enabled,
         )
