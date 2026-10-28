@@ -111,14 +111,14 @@ class OldUsersRulesTest(unittest.TestCase):
         keyboard = first_message_keyboard("https://example.org/subscription")
         rows = keyboard.inline_keyboard
         self.assertEqual([row[0].text for row in rows], [
+            "Посмотреть тарифы",
             "Что входит в подписку?",
             "Что останется бесплатным?",
-            "Посмотреть тарифы",
         ])
-        self.assertEqual(rows[0][0].api_kwargs, {})
+        self.assertEqual(rows[0][0].api_kwargs, {"style": "primary"})
         self.assertEqual(rows[1][0].api_kwargs, {})
-        self.assertEqual(rows[2][0].api_kwargs, {"style": "primary"})
-        self.assertEqual(rows[2][0].web_app.url, "https://example.org/subscription")
+        self.assertEqual(rows[2][0].api_kwargs, {})
+        self.assertEqual(rows[0][0].web_app.url, "https://example.org/subscription")
 
     def test_first_message_detail_button_reuses_faq_copy(self):
         from app.handlers.help import SUBSCRIPTION_FAQ_TEXT

@@ -147,11 +147,11 @@ def first_message_keyboard(miniapp_url: str) -> InlineKeyboardMarkup:
     if url.scheme != "https" or not url.hostname or url.username or url.password:
         raise ValueError("Mini App requires a public HTTPS URL without credentials")
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton(TARIFF_BUTTON,
+                              web_app=WebAppInfo(url=miniapp_url),
+                              api_kwargs={"style": "primary"})],
         [InlineKeyboardButton(SUBSCRIPTION_DETAILS_BUTTON,
                               callback_data=SUBSCRIPTION_DETAILS_CALLBACK)],
         [InlineKeyboardButton(FREE_DETAILS_BUTTON,
                               callback_data=FREE_DETAILS_CALLBACK)],
-        [InlineKeyboardButton(TARIFF_BUTTON,
-                              web_app=WebAppInfo(url=miniapp_url),
-                              api_kwargs={"style": "primary"})],
     ])
