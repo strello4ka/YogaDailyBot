@@ -43,6 +43,7 @@ test/.env.test
 tools/.env.broadcast
 !app/config.py
 !app/payments/config.py
+!receipt_service/config.py
 
 # Telethon session (логин личного аккаунта — не коммитить)
 *.session

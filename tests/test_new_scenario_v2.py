@@ -284,7 +284,8 @@ class NewScenarioCopyTest(unittest.TestCase):
 
         kwargs = message.reply_text.await_args.kwargs
         self.assertEqual(message.reply_text.await_args.args[0], FIRST_SETUP_TEXT)
-        self.assertIn("<blockquote expandable>", FIRST_SETUP_TEXT)
+        self.assertIn("<blockquote>", FIRST_SETUP_TEXT)
+        self.assertNotIn("<blockquote expandable>", FIRST_SETUP_TEXT)
         self.assertEqual(kwargs["reply_markup"].inline_keyboard[0][0].text, "Выбрать время")
 
     @patch(
@@ -565,7 +566,7 @@ class NewScenarioCopyTest(unittest.TestCase):
         )
         self.assertIn("Практика дня", str(free))
         self.assertIn("направления", str(subscription))
-        self.assertIn("пробного периода", str(subscription))
+        self.assertNotIn("пробного периода", str(subscription))
         self.assertIn("Что означают кнопки-фильтры?", str(blocks))
         self.assertIn("Как составляется неделя?", str(blocks))
         self.assertIn("ленивые дни", str(blocks))

@@ -27,7 +27,8 @@ def first_message(gift_ends: datetime) -> str:
         "иногда путался в кнопках и мечтал стать большим ботом для здорового тела.\n\n"
         "Благодаря тебе я вырос и готов к новому этапу: в YogaDailyBot "
         "<b>появляется подписка.</b>\n\n"
-        "<blockquote>Конечно, я подготовил <b>подарки для своих:</b>\n"
+        "Конечно, я подготовил <b>подарки для своих:</b>\n"
+        "<blockquote>"
         f"• До <b>{access_until:%d.%m.%Y}</b> для тебя ничего не изменится, потому что у тебя "
         "есть <b>30 дней полного доступа бесплатно.</b>\n"
         "• Для тебя действуют <b>специальные цены</b> на все тарифы подписки</blockquote>\n\n"
@@ -145,15 +146,12 @@ def first_message_keyboard(miniapp_url: str) -> InlineKeyboardMarkup:
     url = urlsplit(miniapp_url)
     if url.scheme != "https" or not url.hostname or url.username or url.password:
         raise ValueError("Mini App requires a public HTTPS URL without credentials")
-    primary = {"style": "primary"}
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⭐ " + SUBSCRIPTION_DETAILS_BUTTON,
-                              callback_data=SUBSCRIPTION_DETAILS_CALLBACK,
-                              api_kwargs=primary)],
-        [InlineKeyboardButton("⭐ " + FREE_DETAILS_BUTTON,
-                              callback_data=FREE_DETAILS_CALLBACK,
-                              api_kwargs=primary)],
-        [InlineKeyboardButton("⭐ " + TARIFF_BUTTON,
+        [InlineKeyboardButton(SUBSCRIPTION_DETAILS_BUTTON,
+                              callback_data=SUBSCRIPTION_DETAILS_CALLBACK)],
+        [InlineKeyboardButton(FREE_DETAILS_BUTTON,
+                              callback_data=FREE_DETAILS_CALLBACK)],
+        [InlineKeyboardButton(TARIFF_BUTTON,
                               web_app=WebAppInfo(url=miniapp_url),
-                              api_kwargs=primary)],
+                              api_kwargs={"style": "primary"})],
     ])

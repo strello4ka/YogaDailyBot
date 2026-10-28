@@ -5,7 +5,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.onboarding.messages import WEEK_DESCRIPTION, expandable_quote, TIME_INPUT
+from app.onboarding.messages import WEEK_DESCRIPTION, quote, TIME_INPUT
 from app.daily.set_time import validate_time_format
 from data.db import (
     get_user_schedule_settings,
@@ -23,7 +23,7 @@ SCHEDULE_MENU_TIME_KEY = "waiting_for_schedule_menu_time"
 FIRST_SETUP_TEXT = (
     "Давай настроим удобное время для практик 🧡\n\n"
     "<b>В какое время хочешь получать ежедневные видео, начиная с завтрашнего дня?</b>\n\n"
-    + expandable_quote(WEEK_DESCRIPTION)
+    + quote(WEEK_DESCRIPTION)
 )
 
 TIME_INPUT_TEXT = TIME_INPUT

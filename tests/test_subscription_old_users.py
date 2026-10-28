@@ -103,14 +103,21 @@ class OldUsersRulesTest(unittest.TestCase):
         self.assertIn("До <b>30.10.2026</b>", text)
         self.assertIn("<blockquote>", text)
         self.assertNotIn("<blockquote expandable>", text)
+        self.assertIn(
+            "Конечно, я подготовил <b>подарки для своих:</b>\n<blockquote>• До",
+            text,
+        )
 
         keyboard = first_message_keyboard("https://example.org/subscription")
         rows = keyboard.inline_keyboard
         self.assertEqual([row[0].text for row in rows], [
-            "⭐ Что входит в подписку?",
-            "⭐ Что останется бесплатным?",
-            "⭐ Посмотреть тарифы",
+            "Что входит в подписку?",
+            "Что останется бесплатным?",
+            "Посмотреть тарифы",
         ])
+        self.assertEqual(rows[0][0].api_kwargs, {})
+        self.assertEqual(rows[1][0].api_kwargs, {})
+        self.assertEqual(rows[2][0].api_kwargs, {"style": "primary"})
         self.assertEqual(rows[2][0].web_app.url, "https://example.org/subscription")
 
     def test_first_message_detail_button_reuses_faq_copy(self):
