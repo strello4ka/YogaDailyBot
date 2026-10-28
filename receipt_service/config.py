@@ -37,6 +37,9 @@ class Settings:
     mynalog_writes_enabled: bool
     mynalog_auth_check_on_start: bool
     email_enabled: bool
+    backfill_payment_id: str
+    backfill_email: str
+    backfill_service_name: str
 
     @classmethod
     def from_env(cls):
@@ -71,4 +74,7 @@ class Settings:
             mynalog_writes_enabled=writes_enabled,
             mynalog_auth_check_on_start=_boolean('MYNALOG_AUTH_CHECK_ON_START'),
             email_enabled=email_enabled,
+            backfill_payment_id=os.getenv('RECEIPT_BACKFILL_PAYMENT_ID', '').strip(),
+            backfill_email=os.getenv('RECEIPT_BACKFILL_EMAIL', '').strip(),
+            backfill_service_name=os.getenv('RECEIPT_BACKFILL_SERVICE_NAME', '').strip(),
         )

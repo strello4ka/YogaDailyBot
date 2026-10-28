@@ -41,6 +41,15 @@ class YooKassaReader:
                 return
             params['cursor'] = cursor
 
+    def successful_payment(self, payment_id):
+        response = self.client.get('payments/' + payment_id)
+        response.raise_for_status()
+        payment = response.json()
+        if (payment.get('status') != 'succeeded' or payment.get('paid') is not True
+                or payment.get('test') is not False or not payment.get('captured_at')):
+            raise PermanentFailure('Backfill payment is not a captured live payment')
+        return payment
+
 
 class MyNalogClient:
     base_url = 'https://lknpd.nalog.ru/api/v1/'

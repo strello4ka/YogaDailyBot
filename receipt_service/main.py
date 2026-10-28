@@ -1,4 +1,5 @@
 import argparse
+from dataclasses import replace
 import json
 import logging
 import os
@@ -28,6 +29,41 @@ def build_worker(settings):
                          mynalog, mailer)
 
 
+def run_backfill(worker, settings):
+    values = (settings.backfill_payment_id, settings.backfill_email,
+              settings.backfill_service_name)
+    if not any(values):
+        return
+    if not all(values):
+        raise ValueError('All RECEIPT_BACKFILL_* variables are required')
+    for name in ('mynalog_refresh_token', 'mynalog_device_id', 'mynalog_inn',
+                 'smtp_host', 'smtp_user', 'smtp_password', 'smtp_from'):
+        if not getattr(settings, name):
+            raise ValueError(f'{name} is required for receipt backfill')
+
+    payment = worker.yookassa.successful_payment(settings.backfill_payment_id)
+    payment['metadata'] = {
+        'order_id': (payment.get('metadata') or {}).get('order_id') or payment['id'],
+        'customer_email': settings.backfill_email,
+        'service_name': settings.backfill_service_name,
+    }
+    worker.store.add_payment(payment)
+
+    one_shot = ReceiptWorker(replace(settings, mynalog_writes_enabled=True, email_enabled=True),
+                             worker.store, worker.yookassa, worker.mynalog, worker.mailer)
+    job = worker.store.job(settings.backfill_payment_id)
+    if job['state'] == 'unknown':
+        one_shot._reconcile(job)
+        job = worker.store.job(settings.backfill_payment_id)
+    if job['state'] == 'ready':
+        one_shot._register(job)
+        job = worker.store.job(settings.backfill_payment_id)
+    if job['state'] in {'registered', 'email_pending'}:
+        one_shot._email(job)
+        job = worker.store.job(settings.backfill_payment_id)
+    logging.info('Backfill payment %s finished in state=%s', payment['id'], job['state'])
+
+
 def main():
     parser = argparse.ArgumentParser(description='YooKassa to My Nalog receipt service')
     parser.add_argument('--once', action='store_true', help='run one synchronization cycle and exit')
@@ -45,6 +81,7 @@ def main():
     if settings.mynalog_auth_check_on_start:
         worker.mynalog.authenticate()
         logging.info('My Nalog authentication check succeeded')
+    run_backfill(worker, settings)
     if args.once:
         print(json.dumps(worker.run_once(), ensure_ascii=False, sort_keys=True))
     else:

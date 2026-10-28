@@ -57,6 +57,12 @@ class StateStore:
             return [dict(row) for row in connection.execute(
                 f'SELECT * FROM receipt_jobs WHERE state IN ({placeholders}) ORDER BY paid_at', states)]
 
+    def job(self, payment_id):
+        with self.connect() as connection:
+            row = connection.execute(
+                'SELECT * FROM receipt_jobs WHERE payment_id = ?', (payment_id,)).fetchone()
+            return dict(row) if row else None
+
     def counts(self):
         with self.connect() as connection:
             return {row['state']: row['total'] for row in connection.execute(
