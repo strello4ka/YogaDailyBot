@@ -14,6 +14,8 @@ from app.miniapp.server import MiniApp, create_preview_app, create_test_app
 from app.miniapp.gateway import TestGateway
 import httpx
 from app.subscription.tariff import MOSCOW
+from app.subscription.old_users.repository import CheckoutProfile
+from app.subscription.old_users.rules import launch_offer
 
 
 class MiniAppAuthTest(unittest.TestCase):
@@ -52,7 +54,7 @@ class MiniAppHTTPTest(unittest.TestCase):
     def setUp(self):
         self.repo, self.payments = Mock(), Mock()
         self.payments.allowed_tariffs = None
-        self.repo.checkout_profile.return_value = ('user@example.org', None, None)
+        self.repo.checkout_profile.return_value = CheckoutProfile('user@example.org', None, None, None)
         self.repo.open_order_id.return_value = None
         self.auth = MiniAppAuthTest()
         self.app = MiniApp(repository=self.repo, payments=self.payments,
@@ -71,9 +73,23 @@ class MiniAppHTTPTest(unittest.TestCase):
         preview = create_preview_app()
         status, body = self.request('/api/session', {}, app=preview)
         self.assertEqual(status, '200 OK')
-        self.assertEqual([x['amount'] for x in json.loads(body)['tariffs']], [35000,80000,140000,250000])
+        self.assertEqual([x['final_price'] for x in json.loads(body)['tariffs']],
+                         [35000,80000,140000,250000])
         status, _ = self.request('/api/payments', {}, app=preview)
         self.assertTrue(status.startswith('403'))
+
+    def test_old_user_preview_shows_special_prices_but_cannot_pay(self):
+        offer = launch_offer(datetime.fromtimestamp(self.auth.now, MOSCOW))
+        preview = MiniApp(preview=True, preview_offer=offer,
+                          clock=lambda: datetime.fromtimestamp(self.auth.now, MOSCOW))
+        status, body = self.request('/api/session', {}, app=preview)
+        data = json.loads(body)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual([x['final_price'] for x in data['tariffs']],
+                         [25000, 60000, 100000, 180000])
+        self.assertIsNotNone(data['offer_ends_on'])
+        status, _ = self.request('/api/payments', {}, app=preview)
+        self.assertEqual(status, '403 Forbidden')
 
     def test_forged_user_never_reaches_database(self):
         status, _ = self.request('/api/session', {'init_data': 'hash=forged'})
@@ -122,6 +138,19 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertEqual(status, '200 OK')
         self.assertIn('Email для чека'.encode(), body)
 
+    def test_special_offer_ui_places_terms_below_tariffs(self):
+        _, html = self.request('/', method='GET')
+        _, script = self.request('/app.js', method='GET')
+        page = html.decode()
+        client = script.decode()
+        self.assertLess(page.index('id="tariffs"'), page.index('id="offer-ends"'))
+        self.assertIn('Специальная цена действует до ${date} включительно\\n'
+                      'только на первую покупку', client)
+        self.assertIn("basePrice.className = 'tariff-base-price'", client)
+        self.assertIn("basePrice.className = 'pay-base-price'", client)
+        self.assertNotIn("promo-field", client)
+        self.assertIn("if (months === 1) return '';", client)
+
     def test_session_has_server_tariffs_and_saved_email(self):
         status, body = self.request('/api/session')
         data = json.loads(body)
@@ -130,19 +159,30 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertEqual(data['tariffs'][0]['days'], 30)
         self.repo.checkout_profile.assert_called_once_with(10)
 
+    def test_old_user_session_shows_special_prices_and_offer_end(self):
+        offer = launch_offer(datetime.fromtimestamp(self.auth.now, MOSCOW))
+        self.repo.checkout_profile.return_value = CheckoutProfile(
+            'user@example.org', None, None, offer)
+        status, body = self.request('/api/session')
+        data = json.loads(body)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual([(item['base_price'], item['final_price']) for item in data['tariffs']],
+                         [(35000,25000), (80000,60000), (140000,100000), (250000,180000)])
+        self.assertIsNotNone(data['offer_ends_on'])
+
     def test_live_run_shows_only_month_and_real_charge_warning(self):
         self.payments.allowed_tariffs = frozenset({'month'})
         status, body = self.request('/api/session')
         data = json.loads(body)
         self.assertEqual(status, '200 OK')
         self.assertEqual([t['code'] for t in data['tariffs']], ['month'])
-        self.assertEqual(data['tariffs'][0]['amount'], 35000)
+        self.assertEqual(data['tariffs'][0]['final_price'], 35000)
         self.assertIn('Настоящее списание 350 ₽', data['note'])
 
     def test_success_is_returned_after_service_grant(self):
         order_id = str(uuid4())
         end = datetime(2026, 11, 12, tzinfo=MOSCOW)
-        self.repo.checkout_profile.return_value = ('user@example.org', None, end)
+        self.repo.checkout_profile.return_value = CheckoutProfile('user@example.org', None, end, None)
         self.payments.refresh_details.return_value = {'status': 'succeeded'}
         status, body = self.request('/api/payments/' + order_id)
         self.assertEqual(status, '200 OK')
@@ -153,10 +193,12 @@ class MiniAppHTTPTest(unittest.TestCase):
         order_id = str(uuid4())
         self.payments.checkout.return_value = (order_id, {'confirmation': {'confirmation_url':'https://example.org'}})
         status, _ = self.request('/api/payments', {'init_data': self.auth.signed(), 'order_id':order_id,
-            'tariff_code':'month', 'email':'user@example.org', 'amount':1, 'user_id':999})
+            'tariff_code':'month', 'email':'user@example.org', 'amount':1,
+            'final_price':35000, 'user_id':999})
         self.assertEqual(status, '200 OK')
         args = self.payments.checkout.call_args.args
         self.assertEqual(args[1:4], (10, 'month', 'user@example.org'))
+        self.assertEqual(self.payments.checkout.call_args.kwargs['expected_final_price'], 35000)
 
     def test_provider_error_does_not_leak_details(self):
         self.repo.checkout_profile.side_effect = RuntimeError('SECRET DATABASE DETAIL')

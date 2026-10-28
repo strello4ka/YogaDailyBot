@@ -19,14 +19,17 @@ class Order:
     user_id: int
     tariff_code: str
     duration_days: int
-    amount_kopecks: int
+    base_price: int
+    final_price: int
+    special_offer_applied: bool
+    offer_ends_at_order: Optional[datetime]
     email: str
     created_at: datetime
     provider_payment_id: Optional[str] = None
 
     @property
     def amount(self):
-        return '{}.{:02d}'.format(*divmod(self.amount_kopecks, 100))
+        return '{}.{:02d}'.format(*divmod(self.final_price, 100))
 
 
 def normalize_email(value):
@@ -38,11 +41,20 @@ def normalize_email(value):
     return value
 
 
-def new_order(order_id, user_id, tariff_code, email, now):
+class PriceChanged(ValueError):
+    pass
+
+
+def new_order(order_id, user_id, tariff_code, email, now, *, price=None,
+              offer_ends_at_order=None):
     """Amounts and duration never come from browser input."""
     tariff = TARIFFS[tariff_code]
+    base_price = tariff.base_price if price is None else price.base_price
+    final_price = tariff.base_price if price is None else price.final_price
+    special = False if price is None else price.special_offer_applied
     return Order(str(order_id), user_id, tariff.code, tariff.days,
-                 tariff.amount_kopecks, normalize_email(email), local_time(now))
+                 base_price, final_price, special, offer_ends_at_order,
+                 normalize_email(email), local_time(now))
 
 
 def verify_payment(order, payment, *, expected_test=True):
@@ -85,7 +97,8 @@ class PaymentService:
         return verify_payment(order, payment,
                               expected_test=self.provider.expected_test)
 
-    def checkout(self, order_id, user_id, tariff_code, email, return_url, now):
+    def checkout(self, order_id, user_id, tariff_code, email, return_url, now,
+                 expected_final_price=None):
         """Serialize different browser tabs and return an unfinished order first."""
         if self.allowed_tariffs is not None and tariff_code not in self.allowed_tariffs:
             raise ValueError('Tariff is not enabled for this payment run')
@@ -93,19 +106,25 @@ class PaymentService:
             existing_id = self.repository.open_order_id(user_id)
             if existing_id and existing_id != str(order_id):
                 return existing_id, None
-            return str(order_id), self.create(order_id, user_id, tariff_code, email, return_url, now)
+            return str(order_id), self.create(order_id, user_id, tariff_code, email, return_url, now,
+                                              expected_final_price=expected_final_price)
 
-    def create(self, order_id, user_id, tariff_code, email, return_url, now):
+    def create(self, order_id, user_id, tariff_code, email, return_url, now,
+               expected_final_price=None):
         """A retry must reuse its UUID, including after an HTTP timeout."""
         if self.allowed_tariffs is not None and tariff_code not in self.allowed_tariffs:
             raise ValueError('Tariff is not enabled for this payment run')
         order_id = str(UUID(str(order_id)))
-        requested = new_order(order_id, user_id, tariff_code, email, now)
         order = self.repository.get_order(order_id, user_id)
         if order is None:
+            price, offer_ends = self.repository.checkout_price(user_id, tariff_code, now)
+            if expected_final_price is not None and int(expected_final_price) != price.final_price:
+                raise PriceChanged('Цена изменилась. Проверь актуальные тарифы.')
+            requested = new_order(order_id, user_id, tariff_code, email, now, price=price,
+                                  offer_ends_at_order=offer_ends)
             self.repository.save_order(requested)
             order = requested
-        elif (order.tariff_code, order.email) != (requested.tariff_code, requested.email):
+        elif (order.tariff_code, order.email) != (tariff_code, normalize_email(email)):
             raise ValueError('An existing order cannot be changed; use a new order ID')
         if order.provider_payment_id:
             payment = self.provider.get_payment(order.provider_payment_id)

@@ -29,11 +29,11 @@ class Tariff:
     code: str
     title: str
     days: int
-    amount_kopecks: int
+    base_price: int
 
     @property
     def amount(self) -> str:
-        return "{}.{:02d}".format(*divmod(self.amount_kopecks, 100))
+        return "{}.{:02d}".format(*divmod(self.base_price, 100))
 
 
 TARIFFS = MappingProxyType({
@@ -42,7 +42,6 @@ TARIFFS = MappingProxyType({
     "half_year": Tariff("half_year", "6 месяцев", 180, 140000),
     "year": Tariff("year", "1 год", 365, 250000),
 })
-
 
 @dataclass(frozen=True)
 class PaidPeriod:
@@ -59,7 +58,7 @@ def purchased_period(
     purchased_at: datetime,
     *,
     trial_ends_at: Optional[datetime] = None,
-    paid_ends_at: Optional[datetime] = None,
+    subscription_ends: Optional[datetime] = None,
 ) -> PaidPeriod:
     """Calculate a new purchase, without recording or authorizing a payment.
 
@@ -69,5 +68,5 @@ def purchased_period(
     """
     tariff = TARIFFS[tariff_code]
     start = max(local_time(value) for value in
-                (purchased_at, trial_ends_at, paid_ends_at) if value is not None)
+                (purchased_at, trial_ends_at, subscription_ends) if value is not None)
     return PaidPeriod(start, midnight(start.date() + timedelta(days=tariff.days)))

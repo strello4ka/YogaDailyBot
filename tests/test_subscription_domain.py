@@ -56,7 +56,7 @@ class SubscriptionDomainTest(unittest.TestCase):
 
     def test_purchase_after_expired_periods_starts_immediately(self):
         now = at(20, 23)
-        paid = purchased_period("month", now, trial_ends_at=at(15), paid_ends_at=at(19))
+        paid = purchased_period("month", now, trial_ends_at=at(15), subscription_ends=at(19))
         self.assertEqual(paid.starts_at, now)
         self.assertEqual(paid.ends_at, datetime(2026, 11, 19, tzinfo=MOSCOW))
 
@@ -86,7 +86,7 @@ class SubscriptionDomainTest(unittest.TestCase):
         trial = start_trial(at(1))
         first = purchased_period("month", at(4), trial_ends_at=trial.ends_at)
         second = purchased_period("quarter", at(5), trial_ends_at=trial.ends_at,
-                                  paid_ends_at=first.ends_at)
+                                  subscription_ends=first.ends_at)
         self.assertEqual(second.starts_at, first.ends_at)
         self.assertEqual(second.ends_at - first.ends_at, timedelta(days=90))
 
@@ -128,14 +128,14 @@ class SubscriptionStorageBoundaryTest(unittest.TestCase):
 
     def test_existing_expired_trial_is_not_replaced(self):
         trial = start_trial(at(1))
-        self.cursor.fetchone.return_value = (trial.started_at, trial.ends_at, None, None)
+        self.cursor.fetchone.return_value = (trial.started_at, trial.ends_at, None, None, None, None)
         result = self.repository.begin_trial(10, at(30))
         self.assertEqual(result.trial, trial)
         self.assertFalse(any(c.args[0].startswith('UPDATE') for c in self.cursor.execute.call_args_list))
 
     def test_test_onboarding_keeps_existing_trial_but_explicit_replay_restarts_it(self):
         original = start_trial(at(1))
-        row = (original.started_at, original.ends_at, None, None)
+        row = (original.started_at, original.ends_at, None, None, None, None)
         self.cursor.fetchone.return_value = row
         unchanged = self.repository.begin_fast_trial(10, at(2))
         self.assertEqual(unchanged.trial, original)

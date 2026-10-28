@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 
-from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
+from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
                       ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyParameters)
 from telegram.ext import ApplicationHandlerStop
 
@@ -71,16 +71,21 @@ def _new_state(update):
 
 
 async def _send_agreement(context, state):
-    blocks = [
-        paragraph({"type": "bold", "text": "📄 Первым шагом документы"}),
-        paragraph("Чтобы пользоваться ботом, нужно принять условия пользовательского соглашения."),
-        button_row([
-            {"text": "Отказываюсь", "style": "link", "callback_data": f"ob3:decline:{copy.AGREEMENT_VERSION}"},
-            {"text": "Принять", "style": "primary", "callback_data": f"ob3:accept:{copy.AGREEMENT_VERSION}"},
-        ]),
-        button_row([{"text": "Ссылка на соглашение", "url": copy.AGREEMENT_URL}]),
-    ]
-    return await send_rich_message(context.bot, state["chat_id"], blocks, reply_markup=ReplyKeyboardRemove())
+    text = (
+        "📄 <b>Первым шагом документы</b>\n\n"
+        "Чтобы пользоваться ботом, нужно <b>принять</b> условия "
+        f'<a href="{copy.AGREEMENT_URL}">пользовательского соглашения</a> '
+        "и ознакомиться с "
+        f'<a href="{copy.PRIVACY_URL}">политикой конфиденциальности</a>.'
+    )
+    keyboard = onboarding_reply_keyboard([[
+        KeyboardButton("Отказываюсь"),
+        KeyboardButton("Принять", api_kwargs={"style": "primary"}),
+    ]])
+    return await context.bot.send_message(
+        state["chat_id"], text, parse_mode="HTML",
+        disable_web_page_preview=True, reply_markup=keyboard,
+    )
 
 
 def _agreement_result_blocks(accepted):
@@ -369,6 +374,27 @@ async def handle_reply(update, context):
         return True
     text = update.effective_message.text
     step = state["step"]
+    if step == "agreement" and text == "Отказываюсь":
+        state["step"] = "declined"
+        save_state(state)
+        await update.effective_message.reply_text(
+            "Ты не принял условия соглашения, поэтому продолжить настройку и получать практики пока нельзя.\n\n"
+            "Если передумаешь, вернись к соглашению по кнопке ниже. Твои сохранённые данные останутся на месте.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Вернуться к соглашению", callback_data="ob3:return")],
+                [InlineKeyboardButton("Помощь", callback_data="ob3:help")],
+            ]),
+        )
+        return True
+    if step == "agreement" and text == "Принять":
+        state["agreement_version"] = copy.AGREEMENT_VERSION
+        state["agreement_accepted_at"] = time.time()
+        save_state(state)
+        next_step = ("subscription" if _subscription_step_enabled(context, state["user_id"])
+                     and await _subscription_variant(context, state["user_id"]) != "active"
+                     else "schedule_offer")
+        await _transition(context, state, next_step)
+        return True
     if step == 'subscription' and text == 'Посмотреть тарифы':
         await _send_step(context, state)
         return True

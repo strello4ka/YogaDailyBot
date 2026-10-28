@@ -1,6 +1,7 @@
 """All copy for the mode-free onboarding."""
 
 AGREEMENT_URL = "https://seatbackandrelax.tilda.ws/yogadailybot-agreement"
+PRIVACY_URL = "https://seatbackandrelax.tilda.ws/yogadailybot-privacy"
 OFFER_URL = "https://seatbackandrelax.tilda.ws/yogadailybot-offer"
 AGREEMENT_VERSION = "2026-09-11-v1"
 

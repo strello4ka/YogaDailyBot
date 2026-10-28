@@ -55,6 +55,8 @@ tools/.env.broadcast
 *.dump
 *.sql
 !data/migrations/20261013_subscriptions.sql
+!data/migrations/20261020_readable_subscription_fields.sql
+!data/migrations/20261022_old_users.sql
 !data/migrations/20261020_payment_scope.sql
 
 # Временные файлы

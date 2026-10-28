@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from app.subscription.access import Subscription
 from app.subscription.demo import Trial, start_trial
+from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.jobs import due_reminders, reconcile_test_payments, deliver_payment_notice
 from app.subscription.jobs import deliver_test_reminders, Reminder, _send_reminder
 from app.subscription.tariff import MOSCOW, purchased_period
@@ -30,17 +31,30 @@ class SubscriptionRemindersTest(unittest.TestCase):
                 self.assertEqual([r.kind for r in events], [expected])
                 self.assertEqual(events[0].key, due_reminders(self.state, at(day, hour + 1))[0].key)
 
-    def test_prepaid_trial_has_no_sales_or_activation_reminder(self):
+    def test_prepaid_trial_has_no_sales_and_activates_at_eight(self):
         paid = purchased_period('month', at(2), trial_ends_at=self.trial.ends_at)
         state = Subscription(self.trial, paid)
-        for moment in (at(12, 13), at(14, 19), at(15, 8), at(22, 10)):
+        for moment in (at(12, 13), at(14, 19), at(22, 10)):
             self.assertEqual(due_reminders(state, moment), [])
+        self.assertEqual(
+            [event.kind for event in due_reminders(state, at(15, 8))],
+            ['trial_subscription_activated'],
+        )
+
+    def test_prepaid_gift_activates_at_eight(self):
+        gift = GiftPeriod(at(1), at(15))
+        paid = purchased_period('month', at(2), trial_ends_at=gift.ends_at)
+        state = Subscription(paid=paid, gift=gift)
+        self.assertEqual(due_reminders(state, at(15, 8) - timedelta(seconds=1)), [])
+        event = due_reminders(state, at(15, 8))[0]
+        self.assertEqual(event.kind, 'gift_subscription_activated')
+        self.assertEqual(event.period_ends_at, paid.ends_at)
 
     def test_renewal_invalidates_old_reminder(self):
         first = purchased_period('month', at(1))
         moment = first.ends_at - timedelta(days=3) + timedelta(hours=13)
         event = due_reminders(Subscription(paid=first), moment)[0]
-        renewed = purchased_period('month', moment, paid_ends_at=first.ends_at)
+        renewed = purchased_period('month', moment, subscription_ends=first.ends_at)
         # Repository will retain the original start for continuous coverage.
         from app.subscription.tariff import PaidPeriod
         combined = PaidPeriod(first.starts_at, renewed.ends_at)
@@ -68,13 +82,19 @@ class SubscriptionRemindersTest(unittest.TestCase):
         self.assertEqual(due_reminders(Subscription(start_trial(start)),
                                        start + timedelta(minutes=10)), [])
 
-    def test_fast_trial_purchase_suppresses_trial_sales_messages(self):
+    def test_fast_trial_purchase_suppresses_sales_and_reports_activation(self):
         start = at(1, 12)
         trial = Trial(start, start + timedelta(minutes=15))
         paid = purchased_period('month', start, trial_ends_at=trial.ends_at)
         fast_paid = Subscription(trial, paid)
-        for minute in (10, 14, 15, 17):
+        for minute in (10, 14):
             self.assertEqual(due_reminders(fast_paid, start + timedelta(minutes=minute)), [])
+        for minute in (15, 17):
+            self.assertEqual(
+                [event.kind for event in due_reminders(
+                    fast_paid, start + timedelta(minutes=minute))],
+                ['trial_subscription_activated'],
+            )
 
     def test_explicit_paid_test_deadline_and_renewal(self):
         from app.subscription.tariff import PaidPeriod
@@ -273,6 +293,23 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         text = self.context.bot.send_message.call_args.kwargs['text']
         self.assertIn('через 3 дня', text)
         self.assertIn('trial_three_days', next(iter(self.sent)))
+
+    async def test_prepaid_trial_activation_is_sent_once_without_tariff_button(self):
+        paid = purchased_period('month', at(2), trial_ends_at=self.trial.ends_at)
+        self.state = Subscription(self.trial, paid)
+        self.repo.synchronize_access.return_value = self.state
+        self.repo.get.return_value = self.state
+        moment = at(15, 8)
+        with patch('app.subscription.jobs.datetime') as clock:
+            clock.now.return_value = moment
+            clock.combine.side_effect = datetime.combine
+            await deliver_test_reminders(self.context)
+            await deliver_test_reminders(self.context)
+        self.context.bot.send_message.assert_awaited_once()
+        call = self.context.bot.send_message.call_args
+        self.assertIn('Пробный период завершился', call.kwargs['text'])
+        self.assertIn('Подписка активна', call.kwargs['text'])
+        self.assertIsNone(call.kwargs['reply_markup'])
 
     async def test_challenge_profile_receives_challenge_paid_reminder(self):
         paid = purchased_period('month', at(1))

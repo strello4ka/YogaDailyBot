@@ -84,6 +84,7 @@ from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
 from .handlers.help import help_command, help_section_callback
+from .subscription.old_users.handlers import access_details_callback as old_user_access_details_callback
 from .handlers.commands_list import commands_list_command
 from .handlers.favorites import (
     favorite_command,
@@ -354,6 +355,10 @@ def main():
     application.add_handler(CallbackQueryHandler(schedule_change_time_callback, pattern="^schedule_change_time$"))
     application.add_handler(CallbackQueryHandler(schedule_challenge_week_callback, pattern="^schedule_challenge_week$"))
     application.add_handler(CallbackQueryHandler(help_section_callback, pattern="^help_(faq|tips|suggest|back)$"))
+    application.add_handler(CallbackQueryHandler(
+        old_user_access_details_callback,
+        pattern="^old_users:(subscription_details|free_details)$",
+    ))
     application.add_handler(CallbackQueryHandler(handle_challenge_time_choice_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
     application.add_handler(CallbackQueryHandler(by_mood_self_teg_callback, pattern="^self_teg:"))

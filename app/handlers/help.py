@@ -9,6 +9,22 @@ from app.onboarding.messages import FILTER_HELP, WEEK_DESCRIPTION
 from app.rich_messages import button_row, edit_rich_message, paragraph, send_rich_message
 
 
+FREE_MODE_FAQ_TEXT = (
+    "В бесплатном режиме тебе доступны:\n\n"
+    "🌀 «Практика дня»\n"
+    "🌀 отметка «Я сделал» и прогресс\n"
+    "🌀 раздел помощи и советы"
+)
+SUBSCRIPTION_FAQ_TEXT = (
+    "Подписка открывает все возможности бесплатного режима, а также:\n\n"
+    "🌀 подбор практик под твоё настроение\n"
+    "🌀 настройку длительности, направления и сложности\n"
+    "🌀 практики по расписанию в удобное время\n"
+    "🌀 избранные практики\n\n"
+    "Во время пробного периода доступны те же возможности."
+)
+
+
 def _title(text):
     return paragraph({"type": "bold", "text": text})
 
@@ -62,6 +78,12 @@ def _root_blocks():
 def _faq_blocks():
     return [
         _title("Частые вопросы"),
+        {"type": "details", "summary": "Что доступно в бесплатном режиме?", "blocks": [paragraph(
+            FREE_MODE_FAQ_TEXT
+        )]},
+        {"type": "details", "summary": "Что входит в подписку?", "blocks": [paragraph(
+            SUBSCRIPTION_FAQ_TEXT
+        )]},
         {"type": "details", "summary": "Что если выполнять утренние практики вечером?", "blocks": [paragraph(
             "Не воспринимай буквально названия вроде «для бодрого утра» или «перед сном» — это скорее маркетинговые ярлыки на YouTube, чем строгие указания.\n\n"
             "Но постарайся не выполнять за 1–2 часа до сна практики средней и высокой сложности. Практики низкой сложности можно делать прямо перед сном."

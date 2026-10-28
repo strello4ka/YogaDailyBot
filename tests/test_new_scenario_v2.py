@@ -19,6 +19,7 @@ from app.challenge.flow.post_challenge import (
 )
 from app.onboarding.flow import (
     _finish,
+    _send_agreement,
     _send_step,
     agreement_callback,
     handle_reply,
@@ -37,6 +38,50 @@ from app.handlers.schedule import (
 
 
 class NewScenarioCopyTest(unittest.TestCase):
+    def test_agreement_is_plain_message_with_linked_documents_and_reply_buttons(self):
+        bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=20)))
+
+        __import__("asyncio").run(
+            _send_agreement(SimpleNamespace(bot=bot), {"chat_id": 10})
+        )
+
+        call = bot.send_message.await_args
+        text = call.args[1]
+        keyboard = call.kwargs["reply_markup"]
+        self.assertIn(f'href="{messages.AGREEMENT_URL}"', text)
+        self.assertIn(f'href="{messages.PRIVACY_URL}"', text)
+        self.assertEqual(
+            [[button.text for button in row] for row in keyboard.keyboard],
+            [["Отказываюсь", "Принять"]],
+        )
+        self.assertEqual(keyboard.keyboard[0][0].api_kwargs, {})
+        self.assertEqual(keyboard.keyboard[0][1].api_kwargs, {"style": "primary"})
+
+    @patch("app.onboarding.flow.SUBSCRIPTION_ONBOARDING_ENABLED", False)
+    @patch("app.onboarding.flow._transition", new_callable=AsyncMock)
+    @patch("app.onboarding.flow.save_state")
+    @patch(
+        "app.onboarding.flow.load_state",
+        return_value={"user_id": 1, "chat_id": 10, "step": "agreement"},
+    )
+    def test_agreement_reply_accepts_and_continues_onboarding(
+        self, _load, save, transition
+    ):
+        message = SimpleNamespace(text="Принять", reply_text=AsyncMock())
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=1), effective_message=message
+        )
+
+        handled = __import__("asyncio").run(
+            handle_reply(update, SimpleNamespace(bot_data={}))
+        )
+
+        self.assertTrue(handled)
+        saved_state = save.call_args.args[0]
+        self.assertEqual(saved_state["agreement_version"], messages.AGREEMENT_VERSION)
+        self.assertIn("agreement_accepted_at", saved_state)
+        self.assertEqual(transition.await_args.args[2], "schedule_offer")
+
     @patch("data.db.clear_user_blocked_if_needed", return_value=False)
     @patch("data.db.user_exists", return_value=True)
     def test_start_after_unblock_restores_menu_without_restart_warning(self, _exists, _clear):
@@ -510,6 +555,17 @@ class NewScenarioCopyTest(unittest.TestCase):
 
     def test_faq_reuses_onboarding_filter_and_week_copy(self):
         blocks = _faq_blocks()
+        free = next(
+            block for block in blocks
+            if block.get("summary") == "Что доступно в бесплатном режиме?"
+        )
+        subscription = next(
+            block for block in blocks
+            if block.get("summary") == "Что входит в подписку?"
+        )
+        self.assertIn("Практика дня", str(free))
+        self.assertIn("направления", str(subscription))
+        self.assertIn("пробного периода", str(subscription))
         self.assertIn("Что означают кнопки-фильтры?", str(blocks))
         self.assertIn("Как составляется неделя?", str(blocks))
         self.assertIn("ленивые дни", str(blocks))

@@ -11,6 +11,8 @@ from uuid import UUID
 
 import httpx
 
+from app.payments.service import PriceChanged
+from app.subscription.old_users.prices import checkout_price
 from app.subscription.tariff import MOSCOW, TARIFFS, last_access_date
 from .auth import authenticate
 
@@ -19,18 +21,23 @@ STATIC = Path(__file__).with_name('static')
 OFFER_URL = 'https://seatbackandrelax.tilda.ws/yogadailybot-offer'
 
 
-def tariffs():
-    return [dict(code=t.code, title=t.title, days=t.days, amount=t.amount_kopecks)
-            for t in TARIFFS.values()]
+def tariffs(offer=None, now=None):
+    result = []
+    for tariff in TARIFFS.values():
+        price = checkout_price(tariff.code, offer, now) if now is not None else None
+        result.append(dict(code=tariff.code, title=tariff.title, days=tariff.days,
+                           base_price=price.base_price if price else tariff.base_price,
+                           final_price=price.final_price if price else tariff.base_price))
+    return result
 
 
 class MiniApp:
     def __init__(self, *, repository=None, payments=None, bot_token='', allowed_users=(),
-                 return_url='', preview=False, clock=None):
+                 return_url='', preview=False, preview_offer=None, clock=None):
         self.repository, self.payments = repository, payments
         self.bot_token = bot_token
         self.allowed_users = frozenset(allowed_users) if allowed_users is not None else None
-        self.return_url, self.preview = return_url, preview
+        self.return_url, self.preview, self.preview_offer = return_url, preview, preview_offer
         self.clock = clock or (lambda: datetime.now(MOSCOW))
 
     def __call__(self, environ, start_response):
@@ -62,8 +69,12 @@ class MiniApp:
             now = self.clock()
             if self.preview:
                 if path == '/api/session':
-                    return respond('200 OK', {'tariffs': tariffs(), 'email': '', 'note': '',
-                                             'offer_url': OFFER_URL, 'preview': True, 'order_id': None})
+                    offer = self.preview_offer
+                    offer_ends_on = (last_access_date(offer.offer_ends).isoformat()
+                                     if offer and offer.special_price_active(now) else None)
+                    return respond('200 OK', {'tariffs': tariffs(offer, now), 'email': '', 'note': '',
+                                             'offer_ends_on': offer_ends_on, 'offer_url': OFFER_URL,
+                                             'preview': True, 'order_id': None})
                 return respond('403 Forbidden', {'error': 'В предпросмотре оплата отключена'})
             if self.repository is None or self.payments is None:
                 return respond('503 Service Unavailable', {'error': 'Тестовая оплата ещё не подключена'})
@@ -80,7 +91,7 @@ class MiniApp:
             if profile is None:
                 return respond('403 Forbidden', {'error': 'Сначала пройди онбординг в тестовом боте'})
             if path == '/api/session':
-                email, trial_end, paid_end = profile
+                email, trial_end, paid_end = profile.email, profile.trial_ends, profile.subscription_ends
                 note = ''
                 if paid_end and paid_end > now:
                     note = 'Новый период добавится к текущей подписке. Оставшиеся дни сохранятся.'
@@ -88,10 +99,16 @@ class MiniApp:
                     note = 'Подписка начнёт действовать с {} — после пробного периода.'.format(
                         trial_end.astimezone(MOSCOW).strftime('%d.%m.%Y'))
                 allowed = getattr(self.payments, 'allowed_tariffs', None)
-                catalog = tariffs() if allowed is None else [t for t in tariffs() if t['code'] in allowed]
+                catalog = tariffs(profile.old_user_offer, now)
+                if allowed is not None:
+                    catalog = [t for t in catalog if t['code'] in allowed]
                 if allowed is not None:
                     note = 'Настоящее списание 350 ₽. Проверка реального магазина. ' + note
+                offer_ends_on = (last_access_date(profile.old_user_offer.offer_ends).isoformat()
+                                 if profile.old_user_offer and
+                                 profile.old_user_offer.special_price_active(now) else None)
                 return respond('200 OK', {'tariffs': catalog, 'email': email or '', 'note': note,
+                                         'offer_ends_on': offer_ends_on,
                                          'offer_url': OFFER_URL, 'preview': False,
                                          'order_id': self.repository.open_order_id(user_id)})
             if path == '/api/payments':
@@ -99,8 +116,9 @@ class MiniApp:
                 code = data['tariff_code']
                 if code not in TARIFFS:
                     raise ValueError('Unknown tariff')
-                order_id, payment = self.payments.checkout(order_id, user_id, code, data['email'],
-                                                          self.return_url, now)
+                order_id, payment = self.payments.checkout(
+                    order_id, user_id, code, data['email'], self.return_url, now,
+                    expected_final_price=data.get('final_price'))
                 confirmation = (payment or {}).get('confirmation') or {}
                 return respond('200 OK', {'order_id': order_id,
                                          'confirmation_url': confirmation.get('confirmation_url')})
@@ -109,12 +127,15 @@ class MiniApp:
                 details = self.payments.refresh_details(order_id, user_id, now, self.return_url)
                 status = details['status']
                 # Refresh returns succeeded only after the grant transaction commits.
-                end = self.repository.checkout_profile(user_id)[2] if status == 'succeeded' else None
+                end = (self.repository.checkout_profile(user_id).subscription_ends
+                       if status == 'succeeded' else None)
                 return respond('200 OK', {'status': status, 'confirmation_url': details.get('confirmation_url'),
                                          'ends_on': last_access_date(end).isoformat() if end else None})
             return respond('404 Not Found', {'error': 'Страница не найдена'})
         except LookupError:
             return respond('404 Not Found', {'error': 'Заказ не найден'})
+        except PriceChanged as error:
+            return respond('409 Conflict', {'error': str(error), 'reload': True})
         except (ValueError, TypeError):
             return respond('400 Bad Request', {'error': 'Проверь выбранный тариф и адрес e-mail'})
         except httpx.HTTPError:
@@ -174,6 +195,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Local Mini App preview or explicit test checkout')
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--test', action='store_true', help='Require .env.test, allowlist and test YooKassa')
+    parser.add_argument('--old-user-preview', action='store_true',
+                        help='Preview the agreed old-user special-price screen')
     args = parser.parse_args()
     if args.test:
         from pathlib import Path
@@ -185,7 +208,11 @@ if __name__ == '__main__':
         from data.postgres_db import get_connection
         app = create_test_app(os.environ, get_connection)
     else:
-        app = MiniApp(preview=True)
+        if args.old_user_preview:
+            from app.subscription.old_users.rules import launch_offer
+            app = MiniApp(preview=True, preview_offer=launch_offer(datetime.now(MOSCOW)))
+        else:
+            app = MiniApp(preview=True)
     try:
         with make_server('127.0.0.1', args.port, app) as server:
             mode = 'test checkout' if args.test else 'preview, payments disabled'

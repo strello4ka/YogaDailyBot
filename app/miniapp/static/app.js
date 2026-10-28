@@ -14,8 +14,8 @@ const money = value => new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 0}
 const tariffMonths = {month: 1, quarter: 3, half_year: 6, year: 12};
 function monthlyPrice(tariff) {
   const months = tariffMonths[tariff.code];
-  if (months === 1) return 'в месяц';
-  return `${money(tariff.amount / months)} в месяц`;
+  if (months === 1) return '';
+  return `${money(tariff.final_price / months)} в месяц`;
 }
 let catalog = [], preview = false, orderId = null, poll = null, checking = false;
 let initData = tg?.initData || sessionStorage.getItem('yoga-init-data') || '';
@@ -77,7 +77,19 @@ document.addEventListener('pointerdown', event => {
 function selected() { return document.querySelector('input[name="tariff"]:checked')?.value; }
 function updatePrice() {
   const tariff = catalog.find(t => t.code === selected());
-  $('pay').textContent = tariff ? `Оплатить · ${money(tariff.amount)}` : 'Выбери период';
+  const pay = $('pay');
+  pay.replaceChildren();
+  if (!tariff) {
+    pay.textContent = 'Выбери период';
+  } else {
+    pay.append(document.createTextNode(`Оплатить · ${money(tariff.final_price)}`));
+    if (tariff.final_price < tariff.base_price) {
+      const basePrice = document.createElement('span');
+      basePrice.className = 'pay-base-price';
+      basePrice.textContent = money(tariff.base_price);
+      pay.append(basePrice);
+    }
+  }
   $('pay').disabled = preview || !tariff;
 }
 function status(title, text) {
@@ -127,14 +139,19 @@ $('payment-form').addEventListener('submit', async event => {
     // Reuse after an unknown network outcome rather than create a new charge.
     orderId = orderId || crypto.randomUUID();
     sessionStorage.setItem('yoga-order', orderId);
-    const data = await api('/api/payments', {order_id:orderId, tariff_code:selected(), email:$('email').value.trim()});
+    const tariff = catalog.find(t => t.code === selected());
+    const data = await api('/api/payments', {order_id:orderId, tariff_code:selected(),
+      final_price:tariff.final_price, email:$('email').value.trim()});
     orderId = data.order_id; sessionStorage.setItem('yoga-order', orderId);
     if (data.confirmation_url) {
       const url = new URL(data.confirmation_url);
       if (url.protocol !== 'https:') throw new Error('Некорректная ссылка оплаты');
       window.location.assign(url.href);
     } else { status('Проверяем оплату', 'Это может занять немного времени.'); await checkPayment(); }
-  } catch (e) { error(e.message); updatePrice(); }
+  } catch (e) {
+    if (e.status === 409) { clearSavedOrder(); window.location.reload(); return; }
+    error(e.message); updatePrice();
+  }
 });
 $('check').addEventListener('click', checkPayment);
 $('reload').addEventListener('click', () => window.location.reload());
@@ -150,14 +167,29 @@ async function load() {
     catalog = data.tariffs; preview = data.preview;
     emailInput.value = data.email;
     $('period-note').textContent = data.note; $('period-note').hidden = !data.note;
+    if (data.offer_ends_on) {
+      const date = data.offer_ends_on.split('-').reverse().join('.');
+      $('offer-ends').textContent = `Специальная цена действует до ${date} включительно\nтолько на первую покупку`;
+      $('offer-ends').hidden = false;
+    }
     $('offer').href = data.offer_url;
     for (const [index, tariff] of catalog.entries()) {
       const label = document.createElement('label'); label.className = 'tariff';
       const input = document.createElement('input'); input.type = 'radio'; input.name = 'tariff';
       input.value = tariff.code; input.checked = index === 0; input.addEventListener('change', updatePrice);
       label.append(input);
-      for (const [className, text] of [['tariff-title',tariff.title], ['tariff-price',money(tariff.amount)], ['tariff-monthly',monthlyPrice(tariff)]]) {
-        const span = document.createElement('span'); span.className = className; span.textContent = text; label.append(span);
+      const rows = [['tariff-title', tariff.title], ['tariff-price', money(tariff.final_price)]];
+      const monthly = monthlyPrice(tariff);
+      if (monthly) rows.push(['tariff-monthly', monthly]);
+      for (const [className, text] of rows) {
+        const span = document.createElement('span'); span.className = className; span.textContent = text;
+        if (className === 'tariff-price' && tariff.final_price < tariff.base_price) {
+          const basePrice = document.createElement('span');
+          basePrice.className = 'tariff-base-price';
+          basePrice.textContent = money(tariff.base_price);
+          span.append(basePrice);
+        }
+        label.append(span);
       }
       $('tariffs').append(label);
     }

@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Optional
 
 from .demo import Trial
+from .old_users.rules import GiftPeriod
 from .tariff import PaidPeriod, local_time
 
 
@@ -13,6 +14,8 @@ class AccessState(str, Enum):
     FREE = "free"
     TRIAL = "trial"
     TRIAL_PAID = "trial_paid"
+    GIFT = "gift"
+    GIFT_PAID = "gift_paid"
     PAID = "paid"
 
 
@@ -30,11 +33,16 @@ class Feature(str, Enum):
 class Subscription:
     trial: Optional[Trial] = None
     paid: Optional[PaidPeriod] = None
+    gift: Optional[GiftPeriod] = None
 
     def state(self, now: datetime) -> AccessState:
         current = local_time(now)
         if self.paid and local_time(self.paid.starts_at) <= current < local_time(self.paid.ends_at):
             return AccessState.PAID
+        if self.gift and self.gift.is_active(current):
+            if self.paid and local_time(self.paid.ends_at) > current:
+                return AccessState.GIFT_PAID
+            return AccessState.GIFT
         if self.trial and self.trial.is_active(current):
             if self.paid and local_time(self.paid.ends_at) > current:
                 return AccessState.TRIAL_PAID

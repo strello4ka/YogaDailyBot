@@ -13,6 +13,8 @@ import httpx
 from app.payments.service import PaymentService, new_order, normalize_email, verify_payment
 from app.payments.yookassa import YooKassaLiveClient, YooKassaTestClient
 from app.subscription.tariff import MOSCOW
+from app.subscription.old_users.prices import checkout_price
+from app.subscription.old_users.rules import launch_offer
 from data.subscription_repository import SubscriptionRepository
 
 
@@ -105,6 +107,7 @@ class PaymentsTest(unittest.TestCase):
     def test_creation_saves_before_provider_request_and_does_not_attach_bad_amount(self):
         repo, provider = Mock(), Mock(expected_test=True)
         repo.get_order.return_value = None
+        repo.checkout_price.return_value = (checkout_price('month', None, NOW), None)
         def create(order, return_url, now):
             repo.save_order.assert_called_once_with(order)
             return dict(self.payment, amount={'value': '1', 'currency': 'RUB'})
@@ -117,6 +120,7 @@ class PaymentsTest(unittest.TestCase):
     def test_timeout_keeps_saved_order_for_reconciliation(self):
         repo, provider = Mock(), Mock(expected_test=True)
         repo.get_order.return_value = None
+        repo.checkout_price.return_value = (checkout_price('month', None, NOW), None)
         provider.create_payment.side_effect = httpx.ReadTimeout('test timeout')
         with self.assertRaises(httpx.ReadTimeout):
             PaymentService(repo, provider).create(
@@ -124,6 +128,21 @@ class PaymentsTest(unittest.TestCase):
         repo.save_order.assert_called_once()
         repo.attach_payment.assert_not_called()
         repo.cancel_order.assert_not_called()
+
+    def test_special_price_is_resolved_by_server_and_snapshotted(self):
+        repo, provider = Mock(), Mock(expected_test=True)
+        repo.get_order.return_value = None
+        offer = launch_offer(NOW)
+        repo.checkout_price.return_value = (checkout_price('month', offer, NOW), offer.offer_ends)
+        provider.create_payment.return_value = dict(
+            self.payment, amount={'value': '250.00', 'currency': 'RUB'})
+        PaymentService(repo, provider).create(
+            self.order.order_id, 10, 'month', self.order.email, 'https://example.org', NOW,
+            expected_final_price=25000)
+        saved = repo.save_order.call_args.args[0]
+        self.assertEqual((saved.base_price, saved.final_price), (35000, 25000))
+        self.assertTrue(saved.special_offer_applied)
+        self.assertEqual(saved.offer_ends_at_order, offer.offer_ends)
 
     def test_wakeup_follows_committed_grant_and_failure_does_not_change_success(self):
         repo, provider = Mock(), Mock(expected_test=True)
@@ -145,8 +164,8 @@ class PaymentsTest(unittest.TestCase):
         factory = MagicMock()
         cursor = factory.return_value.cursor.return_value.__enter__.return_value
         end = NOW + timedelta(days=30)
-        cursor.fetchone.side_effect = [(None, None, NOW, end),
-                                      (NOW, 'succeeded', 30, self.order.provider_payment_id, 35000)]
+        cursor.fetchone.side_effect = [(None, None, NOW, end, None, None, None),
+                                      (NOW, 'succeeded', 30, self.order.provider_payment_id, 35000, False)]
         self.assertFalse(SubscriptionRepository(factory).grant_order(self.order, NOW))
         self.assertTrue(all(c.args[0].startswith('SELECT') for c in cursor.execute.call_args_list))
 
@@ -154,8 +173,9 @@ class PaymentsTest(unittest.TestCase):
         factory = MagicMock()
         cursor = factory.return_value.cursor.return_value.__enter__.return_value
         trial_end = datetime(2026, 10, 15, tzinfo=MOSCOW)
-        cursor.fetchone.side_effect = [(NOW - timedelta(days=12), trial_end, None, None),
-                                      (None, 'pending', 30, self.order.provider_payment_id, 35000)]
+        cursor.fetchone.side_effect = [(NOW - timedelta(days=12), trial_end, None, None,
+                                        None, None, None),
+                                      (None, 'pending', 30, self.order.provider_payment_id, 35000, False)]
         self.assertTrue(SubscriptionRepository(factory).grant_order(self.order, NOW))
         update = cursor.execute.call_args_list[-2]
         self.assertEqual(update.args[1][0], trial_end)

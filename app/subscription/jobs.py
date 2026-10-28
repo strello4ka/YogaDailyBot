@@ -141,6 +141,12 @@ def reminder_text(event, profile):
     if kind == 'paid_expired':
         return (messages.challenge_access_expired() if profile['challenge']
                 else messages.paid_expired())
+    if kind == 'trial_subscription_activated':
+        return messages.trial_subscription_activated(
+            profile['name'], event.period_ends_at)
+    if kind == 'gift_subscription_activated':
+        from .old_users.messages import gift_subscription_activated
+        return gift_subscription_activated(profile['name'], event.period_ends_at)
     if kind == 'trial_followup':
         categories = [_FILTER_LABELS.get(key, key) for key in profile['filter_keys']]
         return messages.trial_followup(has_favorites=profile['has_favorites'],
@@ -165,8 +171,12 @@ async def _send_reminder(context, user_id, event, profile, now):
         moment = datetime.now(MOSCOW)
         if current is None or event.key not in {item.key for item in _user_reminders(context, user_id, current, moment)}:
             return
-        keyboard = (reply_keyboard() if event.kind.endswith('expired')
-                    else optional_tariff_keyboard(context.bot_data['subscription_miniapp_url']))
+        if event.kind.endswith('expired'):
+            keyboard = reply_keyboard()
+        elif event.kind.endswith('subscription_activated'):
+            keyboard = None
+        else:
+            keyboard = optional_tariff_keyboard(context.bot_data['subscription_miniapp_url'])
         if event.kind.endswith('expired') and current.state(moment) != AccessState.FREE:
             return
         if not already_sent:
@@ -315,6 +325,21 @@ def due_reminders(subscription: Subscription, now: datetime, *, paid_test_end=No
         add("trial_three_days", end, end.date() - timedelta(days=3), 13)
         add("trial_last_day", end, end.date() - timedelta(days=1), 19)
     elif state == AccessState.PAID:
+        paid_start = local_time(subscription.paid.starts_at)
+        activation_kind = None
+        activation_time = _at(paid_start.date(), 8)
+        if (subscription.gift
+                and local_time(subscription.gift.ends_at) == paid_start):
+            activation_kind = "gift_subscription_activated"
+        elif (subscription.trial
+              and local_time(subscription.trial.ends_at) == paid_start):
+            activation_kind = "trial_subscription_activated"
+            if is_fast_trial(subscription.trial):
+                activation_time = paid_start
+        if (activation_kind and activation_time.date() == now.date()
+                and activation_time <= now):
+            result.append(Reminder(activation_kind, subscription.paid.ends_at,
+                                   activation_time))
         end = local_time(subscription.paid.ends_at)
         add("paid_three_days", end, end.date() - timedelta(days=3), 13)
         add("paid_last_day", end, end.date() - timedelta(days=1), 19)

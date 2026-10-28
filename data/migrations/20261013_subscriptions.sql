@@ -6,20 +6,21 @@ CREATE TABLE IF NOT EXISTS subscription_accounts (
     user_id BIGINT PRIMARY KEY,
     trial_started_at TIMESTAMPTZ,
     trial_ends_at TIMESTAMPTZ,
-    paid_starts_at TIMESTAMPTZ,
-    paid_ends_at TIMESTAMPTZ,
+    subscription_starts TIMESTAMPTZ,
+    subscription_ends TIMESTAMPTZ,
     email TEXT,
-    access_state TEXT NOT NULL DEFAULT 'free'
-        CHECK (access_state IN ('free', 'trial', 'trial_paid', 'paid')),
+    subscription_state TEXT NOT NULL DEFAULT 'free'
+        CONSTRAINT subscription_accounts_state_check
+        CHECK (subscription_state IN ('free', 'trial', 'trial_paid', 'paid')),
     schedule_restore_required BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK ((trial_started_at IS NULL AND trial_ends_at IS NULL) OR
            (trial_started_at IS NOT NULL AND trial_ends_at IS NOT NULL
             AND trial_ends_at > trial_started_at)),
-    CHECK ((paid_starts_at IS NULL AND paid_ends_at IS NULL) OR
-           (paid_starts_at IS NOT NULL AND paid_ends_at IS NOT NULL
-            AND paid_ends_at > paid_starts_at))
+    CHECK ((subscription_starts IS NULL AND subscription_ends IS NULL) OR
+           (subscription_starts IS NOT NULL AND subscription_ends IS NOT NULL
+            AND subscription_ends > subscription_starts))
 );
 
 CREATE TABLE IF NOT EXISTS subscription_orders (
@@ -27,8 +28,8 @@ CREATE TABLE IF NOT EXISTS subscription_orders (
     user_id BIGINT NOT NULL REFERENCES subscription_accounts(user_id),
     tariff_code TEXT NOT NULL,
     duration_days INTEGER NOT NULL CHECK (duration_days > 0),
-    base_amount_kopecks INTEGER NOT NULL CHECK (base_amount_kopecks > 0),
-    amount_kopecks INTEGER NOT NULL CHECK (amount_kopecks > 0),
+    base_price INTEGER NOT NULL CHECK (base_price > 0),
+    final_price INTEGER NOT NULL CHECK (final_price > 0),
     currency TEXT NOT NULL DEFAULT 'RUB' CHECK (currency = 'RUB'),
     email TEXT NOT NULL,
     provider_payment_id TEXT UNIQUE,

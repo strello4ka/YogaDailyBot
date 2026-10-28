@@ -71,6 +71,8 @@ class SubscriptionScreensTest(unittest.TestCase):
     def test_html_from_user_data_is_escaped(self):
         text = messages.payment_accepted('<b>A&B</b>', self.trial.ends_at)
         self.assertIn('&lt;b&gt;A&amp;B&lt;/b&gt;', text)
+        text = messages.trial_subscription_activated('<b>A&B</b>', self.trial.ends_at)
+        self.assertIn('&lt;b&gt;A&amp;B&lt;/b&gt;', text)
         text = messages.trial_last_day(completions=4, categories=['<a>'])
         self.assertIn('«&lt;a&gt;»', text)
 

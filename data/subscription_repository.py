@@ -11,14 +11,19 @@ from typing import Callable, Optional
 from app.subscription.access import Subscription
 from app.subscription.access import AccessState
 from app.subscription.demo import FAST_TRIAL_DURATION, Trial, start_trial
+from app.subscription.old_users.prices import checkout_price as old_user_checkout_price
+from app.subscription.old_users.repository import (CheckoutProfile, enroll as enroll_old_users,
+                                                   offer_from_values)
+from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.tariff import PaidPeriod, local_time, midnight
 
 
 def _snapshot(row) -> Subscription:
-    trial_start, trial_end, paid_start, paid_end = row
+    trial_start, trial_end, paid_start, paid_end, gift_start, gift_end = row
     return Subscription(
         Trial(trial_start, trial_end) if trial_start is not None else None,
         PaidPeriod(paid_start, paid_end) if paid_start is not None else None,
+        GiftPeriod(gift_start, gift_end) if gift_start is not None else None,
     )
 
 
@@ -46,7 +51,8 @@ class SubscriptionRepository:
         """None means not enrolled, not a free user to restrict automatically."""
         with self._transaction() as cursor:
             cursor.execute(
-                "SELECT trial_started_at, trial_ends_at, paid_starts_at, paid_ends_at "
+                "SELECT trial_started_at,trial_ends_at,subscription_starts,subscription_ends,"
+                "gift_starts,gift_ends "
                 "FROM subscription_accounts WHERE user_id = %s", (user_id,),
             )
             row = cursor.fetchone()
@@ -66,6 +72,10 @@ class SubscriptionRepository:
             row = cursor.fetchone()
             if row[0] != expected_name or any(table is None for table in row[1:]):
                 raise ValueError("Wrong test database or subscription migration has not been applied")
+            cursor.execute("SELECT is_old_user,gift_starts,gift_ends,offer_ends,special_offer_used_at "
+                           "FROM subscription_accounts LIMIT 0")
+            cursor.execute("SELECT base_price,final_price,special_offer_applied,offer_ends_at_order "
+                           "FROM subscription_orders LIMIT 0")
             if self.payment_scope is not None:
                 # Fail at startup, not after the buyer returns from checkout.
                 cursor.execute('SELECT payment_scope FROM subscription_orders LIMIT 0')
@@ -80,12 +90,14 @@ class SubscriptionRepository:
             scope_column = ',payment_scope' if self.payment_scope is not None else ''
             scope_value = ',%s' if self.payment_scope is not None else ''
             cursor.execute("INSERT INTO subscription_orders "
-                           "(order_id,user_id,tariff_code,duration_days,base_amount_kopecks,"
-                           "amount_kopecks,email,created_at,updated_at" + scope_column +
-                           ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s" + scope_value + ")",
+                           "(order_id,user_id,tariff_code,duration_days,base_price,final_price,"
+                           "special_offer_applied,offer_ends_at_order,email,created_at,updated_at"
+                           + scope_column + ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s"
+                           + scope_value + ")",
                            (order.order_id, order.user_id, order.tariff_code, order.duration_days,
-                            order.amount_kopecks, order.amount_kopecks, order.email,
-                            order.created_at, order.created_at) +
+                            order.base_price, order.final_price, order.special_offer_applied,
+                            order.offer_ends_at_order,
+                            order.email, order.created_at, order.created_at) +
                            ((self.payment_scope,) if self.payment_scope is not None else ()))
 
     @contextmanager
@@ -107,10 +119,23 @@ class SubscriptionRepository:
 
     def checkout_profile(self, user_id):
         with self._transaction() as cursor:
-            cursor.execute("SELECT email,trial_ends_at,paid_ends_at FROM subscription_accounts "
+            cursor.execute("SELECT email,trial_ends_at,subscription_ends,gift_starts,gift_ends,"
+                           "offer_ends,special_offer_used_at FROM subscription_accounts "
                            "WHERE user_id=%s", (user_id,))
             row = cursor.fetchone()
-            return row
+            if not row:
+                return None
+            offer = offer_from_values(row[3], row[4], row[5], row[6])
+            return CheckoutProfile(row[0], row[1], row[2], offer)
+
+    def checkout_price(self, user_id, tariff_code, now):
+        profile = self.checkout_profile(user_id)
+        if profile is None:
+            raise ValueError('Subscription account not found')
+        price = old_user_checkout_price(tariff_code, profile.old_user_offer, now)
+        offer_end = (profile.old_user_offer.offer_ends
+                     if price.special_offer_applied else None)
+        return price, offer_end
 
     def signal_payment(self, user_id):
         """Best-effort wakeup only; durable work remains in payment tables."""
@@ -137,7 +162,7 @@ class SubscriptionRepository:
 
     def payment_notice(self, order_id, user_id):
         with self._transaction() as cursor:
-            cursor.execute("SELECT u.chat_id,COALESCE(u.user_name,''),a.paid_ends_at "
+            cursor.execute("SELECT u.chat_id,COALESCE(u.user_name,''),a.subscription_ends "
                            "FROM subscription_orders o JOIN subscription_accounts a ON a.user_id=o.user_id "
                            "JOIN users u ON u.user_id=o.user_id WHERE o.order_id=%s AND o.user_id=%s "
                            "AND o.status='succeeded' AND o.granted_at IS NOT NULL", (order_id, user_id))
@@ -170,8 +195,9 @@ class SubscriptionRepository:
         from app.payments.service import Order
         scope, params = self._payment_scope_sql()
         with self._transaction() as cursor:
-            cursor.execute("SELECT order_id,user_id,tariff_code,duration_days,amount_kopecks,"
-                           "email,created_at,provider_payment_id FROM subscription_orders "
+            cursor.execute("SELECT order_id,user_id,tariff_code,duration_days,base_price,final_price,"
+                           "special_offer_applied,offer_ends_at_order,email,created_at,provider_payment_id "
+                           "FROM subscription_orders "
                            "WHERE order_id=%s AND user_id=%s" + scope,
                            (order_id, user_id) + params)
             row = cursor.fetchone()
@@ -182,8 +208,9 @@ class SubscriptionRepository:
         from app.payments.service import Order
         scope, params = self._payment_scope_sql()
         with self._transaction() as cursor:
-            cursor.execute("SELECT order_id,user_id,tariff_code,duration_days,amount_kopecks,"
-                           "email,created_at,provider_payment_id FROM subscription_orders "
+            cursor.execute("SELECT order_id,user_id,tariff_code,duration_days,base_price,final_price,"
+                           "special_offer_applied,offer_ends_at_order,email,created_at,provider_payment_id "
+                           "FROM subscription_orders "
                            "WHERE (provider_payment_id=%s OR "
                            "(order_id=%s AND provider_payment_id IS NULL))" + scope,
                            (payment_id, order_hint) + params)
@@ -203,33 +230,37 @@ class SubscriptionRepository:
         """Atomic and idempotent access grant after server-side verification."""
         with self._transaction() as cursor:
             # All grants for a user serialize before locking the individual order.
-            cursor.execute("SELECT trial_started_at,trial_ends_at,paid_starts_at,paid_ends_at "
+            cursor.execute("SELECT trial_started_at,trial_ends_at,subscription_starts,subscription_ends,"
+                           "gift_starts,gift_ends,special_offer_used_at "
                            "FROM subscription_accounts WHERE user_id=%s FOR UPDATE", (order.user_id,))
             row = cursor.fetchone()
             if row is None:
                 raise ValueError('Subscription account not found')
-            snapshot = _snapshot(row)
-            cursor.execute("SELECT granted_at,status,duration_days,provider_payment_id,amount_kopecks "
+            snapshot = _snapshot(row[:6])
+            cursor.execute("SELECT granted_at,status,duration_days,provider_payment_id,final_price,"
+                           "special_offer_applied "
                            "FROM subscription_orders WHERE order_id=%s AND user_id=%s FOR UPDATE",
                            (order.order_id, order.user_id))
             saved = cursor.fetchone()
-            if saved is None or saved[3] != order.provider_payment_id or saved[4] != order.amount_kopecks:
+            if saved is None or saved[3] != order.provider_payment_id or saved[4] != order.final_price:
                 raise ValueError('Order changed during payment verification')
             if saved[0] is not None:
                 return False
             if saved[1] not in ('created', 'pending'):
                 raise ValueError('Order is already terminal')
             start = max(local_time(value) for value in
-                        (now, row[1], row[3]) if value is not None)
+                        (now, row[1], row[3], row[5]) if value is not None)
             end = midnight(start.date() + timedelta(days=saved[2]))
             # Renewals extend the existing contiguous period, not its start.
             account_start = row[2] if row[3] and local_time(row[3]) >= local_time(now) else start
-            state = Subscription(snapshot.trial, PaidPeriod(account_start, end)).state(now)
-            cursor.execute("UPDATE subscription_accounts SET paid_starts_at=%s,paid_ends_at=%s,"
-                           "email=%s,access_state=%s,updated_at=%s,"
+            state = Subscription(snapshot.trial, PaidPeriod(account_start, end), snapshot.gift).state(now)
+            cursor.execute("UPDATE subscription_accounts SET subscription_starts=%s,subscription_ends=%s,"
+                           "email=%s,subscription_state=%s,updated_at=%s,"
+                           "special_offer_used_at=CASE WHEN %s THEN COALESCE(special_offer_used_at,%s) "
+                           "ELSE special_offer_used_at END,"
                            "schedule_restore_required=schedule_restore_required OR %s WHERE user_id=%s",
                            (account_start, end, order.email, state.value, now,
-                            snapshot.state(now) == AccessState.FREE, order.user_id))
+                            saved[5], now, snapshot.state(now) == AccessState.FREE, order.user_id))
             cursor.execute("UPDATE subscription_orders SET status='succeeded',granted_at=%s,"
                            "period_starts_at=%s,period_ends_at=%s,updated_at=%s WHERE order_id=%s",
                            (now, start, end, now, order.order_id))
@@ -245,15 +276,16 @@ class SubscriptionRepository:
     def synchronize_access(self, user_id, now):
         """Persist expiry and stop ordinary Daily delivery without losing settings."""
         with self._transaction() as cursor:
-            cursor.execute("SELECT trial_started_at, trial_ends_at, paid_starts_at, paid_ends_at "
+            cursor.execute("SELECT trial_started_at,trial_ends_at,subscription_starts,subscription_ends,"
+                           "gift_starts,gift_ends "
                            "FROM subscription_accounts WHERE user_id = %s FOR UPDATE", (user_id,))
             row = cursor.fetchone()
             if row is None:
                 return None
             snapshot = _snapshot(row)
             state = snapshot.state(now)
-            cursor.execute("UPDATE subscription_accounts SET access_state=%s, updated_at=%s "
-                           "WHERE user_id=%s AND access_state IS DISTINCT FROM %s",
+            cursor.execute("UPDATE subscription_accounts SET subscription_state=%s, updated_at=%s "
+                           "WHERE user_id=%s AND subscription_state IS DISTINCT FROM %s",
                            (state.value, now, user_id, state.value))
             if state == AccessState.FREE:
                 cursor.execute("UPDATE subscription_accounts SET schedule_restore_required=TRUE "
@@ -297,18 +329,19 @@ class SubscriptionRepository:
                 "ON CONFLICT (user_id) DO NOTHING", (user_id,),
             )
             cursor.execute(
-                "SELECT trial_started_at, trial_ends_at, paid_starts_at, paid_ends_at "
+                "SELECT trial_started_at,trial_ends_at,subscription_starts,subscription_ends,"
+                "gift_starts,gift_ends "
                 "FROM subscription_accounts WHERE user_id = %s FOR UPDATE", (user_id,),
             )
             state = _snapshot(cursor.fetchone())
             # A paid account must not get a trial through an old onboarding button.
-            if state.trial is None and state.paid is None:
+            if state.trial is None and state.paid is None and state.gift is None:
                 cursor.execute(
                     "UPDATE subscription_accounts SET trial_started_at = %s, trial_ends_at = %s, "
-                    "updated_at = %s, access_state = 'trial' WHERE user_id = %s",
+                    "updated_at = %s, subscription_state = 'trial' WHERE user_id = %s",
                     (trial.started_at, trial.ends_at, now, user_id),
                 )
-                state = Subscription(trial=trial)
+                state = Subscription(trial=trial, gift=state.gift)
         return state
 
     def begin_fast_trial(self, user_id: int, now: datetime, *, replay=False) -> Subscription:
@@ -321,13 +354,14 @@ class SubscriptionRepository:
                 "ON CONFLICT (user_id) DO NOTHING", (user_id,),
             )
             cursor.execute(
-                "SELECT trial_started_at, trial_ends_at, paid_starts_at, paid_ends_at "
+                "SELECT trial_started_at,trial_ends_at,subscription_starts,subscription_ends,"
+                "gift_starts,gift_ends "
                 "FROM subscription_accounts WHERE user_id = %s FOR UPDATE", (user_id,),
             )
             current = _snapshot(cursor.fetchone())
             if not replay and (current.trial is not None or current.paid is not None):
                 return current
-            if current.paid is not None:
+            if current.paid is not None or current.gift is not None:
                 raise ValueError("A paid test account cannot replay the trial")
             cursor.execute(
                 "SELECT EXISTS(SELECT 1 FROM subscription_orders WHERE user_id=%s "
@@ -337,10 +371,15 @@ class SubscriptionRepository:
                 raise ValueError("A test account with payment orders cannot replay the trial")
             cursor.execute(
                 "UPDATE subscription_accounts SET trial_started_at=%s, trial_ends_at=%s, "
-                "access_state='trial', updated_at=%s WHERE user_id=%s",
+                "subscription_state='trial', updated_at=%s WHERE user_id=%s",
                 (trial.started_at, trial.ends_at, start, user_id),
             )
         return Subscription(trial=trial)
+
+    def enroll_old_users(self, launch_at: datetime) -> int:
+        """Explicit one-off activation; never called by application startup."""
+        with self._transaction() as cursor:
+            return enroll_old_users(cursor, launch_at)
 
     def notification_sent(self, user_id: int, event_key: str) -> bool:
         with self._transaction() as cursor:
@@ -381,13 +420,13 @@ class SubscriptionRepository:
 
     def restore_offer(self, user_id, now):
         with self._transaction() as cursor:
-            cursor.execute("SELECT u.chat_id,u.notify_time,a.paid_starts_at FROM subscription_accounts a "
+            cursor.execute("SELECT u.chat_id,u.notify_time,a.subscription_starts FROM subscription_accounts a "
                            "JOIN users u ON u.user_id=a.user_id WHERE a.user_id=%s "
-                           "AND a.schedule_restore_required=TRUE AND a.paid_starts_at<=%s AND a.paid_ends_at>%s "
+                           "AND a.schedule_restore_required=TRUE AND a.subscription_starts<=%s AND a.subscription_ends>%s "
                            "AND u.bot_mode IS DISTINCT FROM 'challenge' AND EXISTS "
                            "(SELECT 1 FROM subscription_orders o JOIN subscription_notifications n "
                            "ON n.user_id=o.user_id AND n.event_key='payment_success:' || o.order_id::text "
-                           "WHERE o.user_id=a.user_id AND o.period_starts_at>=a.paid_starts_at)",
+                           "WHERE o.user_id=a.user_id AND o.period_starts_at>=a.subscription_starts)",
                            (user_id, now, now))
             return cursor.fetchone()
 
@@ -400,7 +439,7 @@ class SubscriptionRepository:
     def resolve_restore(self, user_id, period_token, now, accept):
         """Consume consent once; an old button cannot affect a later subscription."""
         with self._transaction() as cursor:
-            cursor.execute("SELECT paid_starts_at,paid_ends_at,schedule_restore_required "
+            cursor.execute("SELECT subscription_starts,subscription_ends,schedule_restore_required "
                            "FROM subscription_accounts WHERE user_id=%s FOR UPDATE", (user_id,))
             row = cursor.fetchone()
             if (not row or not row[0] or not row[2] or str(int(row[0].timestamp())) != period_token
