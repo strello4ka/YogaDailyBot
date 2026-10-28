@@ -239,6 +239,12 @@ class PaymentsTest(unittest.TestCase):
             payload = json.loads(posts[0].content)
             self.assertEqual(payload['amount']['value'], '350.00')
             self.assertTrue(payload['capture'])
+            self.assertEqual(payload['metadata'], {
+                'order_id': self.order.order_id,
+                'receipt_service': 'yoga_daily_v1',
+                'customer_email': 'user@example.org',
+                'service_name': 'Доступ к YogaDailyBot на 30 дней',
+            })
             returned = urlparse(payload['confirmation']['return_url'])
             self.assertEqual(parse_qs(returned.query)['checkout_order'], [self.order.order_id])
             self.assertEqual(parse_qs(returned.query)['test'], ['1'])

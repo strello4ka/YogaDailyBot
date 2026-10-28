@@ -69,7 +69,15 @@ class YooKassaClient:
             'capture': True,
             'confirmation': {'type': 'redirect', 'return_url': return_url},
             'description': 'YogaDailyBot: {} дней'.format(order.duration_days),
-            'metadata': {'order_id': order.order_id},
+            # This is the only contract with the standalone receipt service.
+            # It reads successful payments from YooKassa and never needs access
+            # to the YogaDailyBot database.
+            'metadata': {
+                'order_id': order.order_id,
+                'receipt_service': 'yoga_daily_v1',
+                'customer_email': order.email,
+                'service_name': 'Доступ к YogaDailyBot на {} дней'.format(order.duration_days),
+            },
         })
         if payment.get('test') is not self.expected_test:
             raise ValueError('Payment came from a store in the wrong mode')
