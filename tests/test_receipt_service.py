@@ -9,7 +9,7 @@ import httpx
 
 from receipt_service.state import StateStore
 from receipt_service.config import Settings
-from receipt_service.providers import MyNalogClient, UnknownWriteResult
+from receipt_service.providers import MyNalogClient, PermanentFailure, UnknownWriteResult
 from receipt_service.worker import ReceiptWorker
 from receipt_service.main import run_backfill
 
@@ -160,6 +160,24 @@ class MyNalogClientTest(unittest.TestCase):
 
         payload = json.loads(requests[-1].content)
         self.assertEqual(payload['paymentType'], 'ACCOUNT')
+        self.assertEqual(payload['operationTime'], '2026-10-28T03:00:00.000+03:00')
+        self.assertRegex(payload['requestTime'],
+                         r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+03:00$')
+
+    def test_receipt_rejection_keeps_bounded_provider_message(self):
+        def handler(request):
+            if request.url.path.endswith('/auth/token'):
+                return httpx.Response(200, json={'token': 'access'})
+            return httpx.Response(400, json={'code': 'validation.failed',
+                                             'message': 'Некорректная дата расчёта',
+                                             'private': 'must not be copied'})
+
+        client = MyNalogClient('refresh', 'device', transport=httpx.MockTransport(handler))
+        with self.assertRaisesRegex(
+                PermanentFailure,
+                'validation.failed: Некорректная дата расчёта'):
+            client.create_income('Услуга', '100.00',
+                                 datetime(2026, 10, 28, tzinfo=timezone.utc))
 
     def test_read_refreshes_expired_access_token_once(self):
         calls = {'auth': 0, 'incomes': 0}

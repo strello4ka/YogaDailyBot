@@ -23,6 +23,7 @@ h1 { font-size: clamp(28px, 8vw, 38px); line-height: 1.12; letter-spacing: -1.3p
 .note { padding: 12px 14px; border-radius: 14px; background: #eaddc8; line-height: 1.4; font-size: 14px; }
 fieldset { min-width: 0; padding: 0; border: 0; margin: 0 0 14px; }
 legend { padding: 0; margin-bottom: 9px; font-weight: 650; color: var(--ink); }
+.early-user-note { margin: -3px 0 10px; font-size: 14px; line-height: 1.35; color: var(--muted); }
 .offer-ends { margin: 10px 0 0; font-size: 14px; line-height: 1.35; color: var(--muted); white-space: pre-line; }
 .tariffs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .tariff { position: relative; cursor: pointer; display: flex; min-height: 118px; flex-direction: column; padding: 12px; border: 1px solid var(--line); background: var(--card); border-radius: 16px; }

@@ -143,8 +143,10 @@ class MiniAppHTTPTest(unittest.TestCase):
         _, script = self.request('/app.js', method='GET')
         page = html.decode()
         client = script.decode()
+        self.assertLess(page.index('id="early-user-note"'), page.index('id="tariffs"'))
+        self.assertIn('Скидки только для самых первых пользователей', page)
         self.assertLess(page.index('id="tariffs"'), page.index('id="offer-ends"'))
-        self.assertIn('Специальная цена действует до ${date} включительно\\n'
+        self.assertIn('Специальные цены действуют до ${date} включительно\\n'
                       'только на первую покупку', client)
         self.assertIn("basePrice.className = 'tariff-base-price'", client)
         self.assertIn("basePrice.className = 'pay-base-price'", client)

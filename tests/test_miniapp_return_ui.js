@@ -58,7 +58,8 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         assert.equal(new URL(route.request().url()).pathname.split('/').pop(),order);
         await paymentGate;
         await route.fulfill({contentType:'application/json',body:JSON.stringify({
-          status:scenario.status,ends_on:'2026-12-31'})});
+          status:scenario.status,ends_on:'2026-12-31',
+          confirmation_url:scenario.status==='pending' ? 'https://yookassa.ru/checkout' : null})});
       });
       await page.goto(`http://127.0.0.1:${server.address().port}/?test=1` +
         (scenario.returned ? `&checkout_order=${order}` : ''),{waitUntil:'domcontentloaded'});
@@ -71,6 +72,10 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         await page.locator('#reload').waitFor({state:'visible'});
         assert.equal(await page.locator('#checkout').isVisible(),false);
         assert.equal(await page.evaluate(() => window.checkoutShown),false);
+        if(scenario.status === 'pending') {
+          assert.equal(await page.locator('#resume').isVisible(),true);
+          assert.equal(await page.locator('#resume').getAttribute('href'),'https://yookassa.ru/checkout');
+        }
       } else {
         await page.locator('#payment-status').waitFor({state:'visible'});
         assert.equal(await page.locator('#checkout').isVisible(),false);

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import httpx
+from zoneinfo import ZoneInfo
 
 
 class UnknownWriteResult(RuntimeError):
@@ -53,6 +54,7 @@ class YooKassaReader:
 
 class MyNalogClient:
     base_url = 'https://lknpd.nalog.ru/api/v1/'
+    timezone = ZoneInfo('Europe/Moscow')
 
     def __init__(self, refresh_token, device_id, *, on_refresh_token=None, transport=None):
         self.refresh_token = refresh_token
@@ -86,8 +88,8 @@ class MyNalogClient:
 
     def create_income(self, name, amount, operation_time):
         amount = str(Decimal(amount).quantize(Decimal('0.01')))
-        payload = {'operationTime': operation_time.isoformat(timespec='seconds'),
-                   'requestTime': datetime.now().astimezone().isoformat(timespec='seconds'),
+        payload = {'operationTime': self._format_time(operation_time),
+                   'requestTime': self._format_time(datetime.now(timezone.utc)),
                    'services': [{'name': name, 'amount': amount, 'quantity': 1}],
                    'totalAmount': amount,
                    'client': {'contactPhone': None, 'displayName': None, 'inn': None,
@@ -108,11 +110,37 @@ class MyNalogClient:
         if response.status_code == 429:
             raise TemporaryFailure('My Nalog rate limit')
         if response.status_code >= 400:
-            raise PermanentFailure(f'My Nalog rejected receipt: HTTP {response.status_code}')
+            detail = self._error_detail(response)
+            suffix = f' ({detail})' if detail else ''
+            raise PermanentFailure(
+                f'My Nalog rejected receipt: HTTP {response.status_code}{suffix}')
         receipt_uuid = response.json().get('approvedReceiptUuid')
         if not receipt_uuid:
             raise UnknownWriteResult('My Nalog response has no receipt UUID')
         return receipt_uuid
+
+    @classmethod
+    def _format_time(cls, value):
+        """Match the millisecond, explicit-offset format used by the web client."""
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError('My Nalog timestamps must contain a timezone')
+        return value.astimezone(cls.timezone).isoformat(timespec='milliseconds')
+
+    @staticmethod
+    def _error_detail(response):
+        """Keep only bounded provider diagnostics; never copy arbitrary response bodies."""
+        try:
+            data = response.json()
+        except (ValueError, TypeError):
+            return ''
+        if not isinstance(data, dict):
+            return ''
+        parts = []
+        for key in ('code', 'message'):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                parts.append(value.strip()[:160])
+        return ': '.join(parts)[:240]
 
     def find_income(self, name, amount, operation_time):
         expected = Decimal(amount)

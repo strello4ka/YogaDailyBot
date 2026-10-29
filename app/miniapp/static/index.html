@@ -30,6 +30,7 @@
     <p id="period-note" class="note" hidden></p>
     <form id="payment-form" novalidate>
       <fieldset><legend>Выбери период подписки</legend>
+        <p id="early-user-note" class="early-user-note" hidden>Скидки только для самых первых пользователей</p>
         <div id="tariffs" class="tariffs"></div>
         <p id="offer-ends" class="offer-ends" hidden></p>
       </fieldset>
@@ -56,7 +57,7 @@
     <h1 id="status-title">Проверяем оплату</h1>
     <p id="status-text" class="intro">Это может занять немного времени.</p>
     <button id="check" class="primary" type="button">Проверить оплату</button>
-    <a id="resume" class="secondary" hidden>Продолжить оплату</a>
+    <a id="resume" class="secondary" target="_blank" rel="noopener noreferrer" hidden>Продолжить оплату</a>
     <button id="back" class="secondary" type="button" hidden>Вернуться к тарифам</button>
     <button id="close" class="primary" type="button" hidden>Вернуться в бот</button>
   </section>

@@ -18,6 +18,7 @@ function monthlyPrice(tariff) {
   return `${money(tariff.final_price / months)} в месяц`;
 }
 let catalog = [], preview = false, orderId = null, poll = null, checking = false;
+let confirmationUrl = '';
 let initData = tg?.initData || sessionStorage.getItem('yoga-init-data') || '';
 if (tg?.initData) sessionStorage.setItem('yoga-init-data', tg.initData);
 tg?.ready();
@@ -26,7 +27,7 @@ tg?.expand();
 async function api(path, body = {}) {
   const endpoint = testCheckout ? path.replace(/^\/api\//, '/test-api/') : path;
   const response = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({...body, init_data:initData}), signal:AbortSignal.timeout(20000)});
+    body:JSON.stringify({...body, init_data:initData}), signal:AbortSignal.timeout(12000)});
   const data = await response.json();
   if (!response.ok) {
     const error = new Error(data.error || 'Не удалось выполнить запрос. Попробуй ещё раз.');
@@ -97,6 +98,29 @@ function status(title, text) {
   $('checkout').hidden = true; $('payment-status').hidden = false;
   $('status-title').textContent = title; $('status-text').textContent = text;
 }
+function rememberConfirmation(value) {
+  confirmationUrl = '';
+  $('resume').hidden = true;
+  $('resume').removeAttribute('href');
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return false;
+    confirmationUrl = url.href;
+    $('resume').href = confirmationUrl;
+    $('resume').hidden = false;
+    return true;
+  } catch (_) { return false; }
+}
+function openConfirmation(value) {
+  if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
+  if (tg?.openLink) tg.openLink(confirmationUrl);
+  else window.location.assign(confirmationUrl);
+}
+function paymentErrorText(errorObject) {
+  if (errorObject?.status && errorObject.message) return errorObject.message;
+  return 'Не удалось связаться с сервером. Проверь интернет и попробуй ещё раз.';
+}
 async function checkPayment() {
   if (checking || !orderId) return;
   status('Проверяем оплату', 'Если ты уже оплатил, повторно платить не нужно.');
@@ -115,10 +139,7 @@ async function checkPayment() {
       clearSavedOrder();
     } else {
       status('Проверяем оплату', 'Если ты уже оплатил, повторно платить не нужно.');
-      if (data.confirmation_url) {
-        const url = new URL(data.confirmation_url);
-        if (url.protocol === 'https:') { $('resume').href = url.href; $('resume').hidden = false; }
-      }
+      rememberConfirmation(data.confirmation_url);
       poll = setTimeout(checkPayment, 5000);
     }
   } catch (e) {
@@ -126,7 +147,8 @@ async function checkPayment() {
       clearSavedOrder(); orderId = null;
       $('back').hidden = false; $('check').hidden = true;
     }
-    status('Пока не удалось проверить оплату', 'Повторно платить не нужно. ' + e.message);
+    status('Пока не удалось проверить оплату',
+      'Повторно платить не нужно. ' + paymentErrorText(e));
   } finally { checking = false; $('check').disabled = false; }
 }
 $('payment-form').addEventListener('submit', async event => {
@@ -144,9 +166,9 @@ $('payment-form').addEventListener('submit', async event => {
       final_price:tariff.final_price, email:$('email').value.trim()});
     orderId = data.order_id; sessionStorage.setItem('yoga-order', orderId);
     if (data.confirmation_url) {
-      const url = new URL(data.confirmation_url);
-      if (url.protocol !== 'https:') throw new Error('Некорректная ссылка оплаты');
-      window.location.assign(url.href);
+      status('Заверши оплату', 'После оплаты вернись сюда — статус обновится автоматически.');
+      openConfirmation(data.confirmation_url);
+      poll = setTimeout(checkPayment, 5000);
     } else { status('Проверяем оплату', 'Это может занять немного времени.'); await checkPayment(); }
   } catch (e) {
     if (e.status === 409) { clearSavedOrder(); window.location.reload(); return; }
@@ -154,6 +176,10 @@ $('payment-form').addEventListener('submit', async event => {
   }
 });
 $('check').addEventListener('click', checkPayment);
+$('resume').addEventListener('click', event => {
+  if (!confirmationUrl) { event.preventDefault(); return; }
+  if (tg?.openLink) { event.preventDefault(); tg.openLink(confirmationUrl); }
+});
 $('reload').addEventListener('click', () => window.location.reload());
 $('close').addEventListener('click', () => tg?.close());
 $('back').addEventListener('click', () => {
@@ -169,7 +195,8 @@ async function load() {
     $('period-note').textContent = data.note; $('period-note').hidden = !data.note;
     if (data.offer_ends_on) {
       const date = data.offer_ends_on.split('-').reverse().join('.');
-      $('offer-ends').textContent = `Специальная цена действует до ${date} включительно\nтолько на первую покупку`;
+      $('early-user-note').hidden = false;
+      $('offer-ends').textContent = `Специальные цены действуют до ${date} включительно\nтолько на первую покупку`;
       $('offer-ends').hidden = false;
     }
     $('offer').href = data.offer_url;
