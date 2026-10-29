@@ -44,6 +44,12 @@ python -m receipt_service.main --status
 выключенных общих флагах; повторный запуск безопасен благодаря уникальному ID в
 SQLite.
 
+На тарифах Railway без SMTP можно использовать Google Apps Script по HTTPS:
+установить `RECEIPT_EMAIL_TRANSPORT=apps_script`, `RECEIPT_APPS_SCRIPT_URL` и
+`RECEIPT_APPS_SCRIPT_SECRET`. Код шлюза находится в
+`receipt_service/google_apps_script/Code.gs`; секрет хранится в Script Properties,
+а каждый запрос подписывается HMAC и действует пять минут.
+
 ## Важное ограничение
 
 API «Мой налог» не является публичным стабильным API. Перед первым включением

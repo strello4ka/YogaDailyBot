@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from receipt_service.config import Settings
-from receipt_service.mailer import ReceiptMailer
+from receipt_service.mailer import AppsScriptMailer, ReceiptMailer
 from receipt_service.providers import MyNalogClient, YooKassaReader
 from receipt_service.state import StateStore
 from receipt_service.worker import ReceiptWorker
@@ -22,8 +22,11 @@ def build_worker(settings):
     mynalog = MyNalogClient(saved_refresh or settings.mynalog_refresh_token,
                             settings.mynalog_device_id,
                             on_refresh_token=lambda token: store.set_value('mynalog_refresh_token', token))
-    mailer = ReceiptMailer(settings.smtp_host, settings.smtp_port, settings.smtp_user,
-                           settings.smtp_password, settings.smtp_from)
+    if settings.email_transport == 'apps_script':
+        mailer = AppsScriptMailer(settings.apps_script_url, settings.apps_script_secret)
+    else:
+        mailer = ReceiptMailer(settings.smtp_host, settings.smtp_port, settings.smtp_user,
+                               settings.smtp_password, settings.smtp_from)
     return ReceiptWorker(settings, store,
                          YooKassaReader(settings.yookassa_shop_id, settings.yookassa_secret_key),
                          mynalog, mailer)
@@ -36,8 +39,12 @@ def run_backfill(worker, settings):
         return
     if not all(values):
         raise ValueError('All RECEIPT_BACKFILL_* variables are required')
-    for name in ('mynalog_refresh_token', 'mynalog_device_id', 'mynalog_inn',
-                 'smtp_host', 'smtp_user', 'smtp_password', 'smtp_from'):
+    required = ['mynalog_refresh_token', 'mynalog_device_id', 'mynalog_inn']
+    if settings.email_transport == 'apps_script':
+        required.extend(['apps_script_url', 'apps_script_secret'])
+    else:
+        required.extend(['smtp_host', 'smtp_user', 'smtp_password', 'smtp_from'])
+    for name in required:
         if not getattr(settings, name):
             raise ValueError(f'{name} is required for receipt backfill')
 

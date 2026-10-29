@@ -110,6 +110,7 @@ class ReceiptWorkerTest(unittest.TestCase):
                 mynalog_refresh_token='refresh', mynalog_device_id='device',
                 mynalog_inn='123456789012', smtp_host='smtp.example.com', smtp_port=465,
                 smtp_user='sender', smtp_password='password', smtp_from='sender@example.com',
+                email_transport='smtp', apps_script_url='', apps_script_secret='',
                 state_path=str(Path(directory) / 'state.db'), poll_seconds=300,
                 mynalog_auth_check_on_start=False,
                 backfill_payment_id='payment-1', backfill_email='buyer@example.com',

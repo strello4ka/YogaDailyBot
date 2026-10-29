@@ -31,6 +31,9 @@ class Settings:
     smtp_user: str
     smtp_password: str
     smtp_from: str
+    email_transport: str
+    apps_script_url: str
+    apps_script_secret: str
     state_path: str
     poll_seconds: int
     sync_from: datetime
@@ -45,6 +48,9 @@ class Settings:
     def from_env(cls):
         writes_enabled = _boolean('MYNALOG_WRITES_ENABLED')
         email_enabled = _boolean('RECEIPT_EMAIL_ENABLED')
+        email_transport = os.getenv('RECEIPT_EMAIL_TRANSPORT', 'smtp').strip().lower()
+        if email_transport not in {'smtp', 'apps_script'}:
+            raise ValueError('RECEIPT_EMAIL_TRANSPORT must be smtp or apps_script')
         start = os.getenv('RECEIPT_SYNC_FROM', '').strip()
         sync_from = (datetime.fromisoformat(start.replace('Z', '+00:00')) if start
                      else datetime.now(timezone.utc) - timedelta(hours=24))
@@ -59,15 +65,22 @@ class Settings:
                                os.getenv('MYNALOG_DEVICE_ID', '').strip()),
             mynalog_inn=(_required('MYNALOG_INN') if email_enabled else
                          os.getenv('MYNALOG_INN', '').strip()),
-            smtp_host=(_required('RECEIPT_SMTP_HOST') if email_enabled else
+            smtp_host=(_required('RECEIPT_SMTP_HOST') if email_enabled and email_transport == 'smtp' else
                        os.getenv('RECEIPT_SMTP_HOST', '').strip()),
             smtp_port=int(os.getenv('RECEIPT_SMTP_PORT', '465')),
-            smtp_user=(_required('RECEIPT_SMTP_USER') if email_enabled else
+            smtp_user=(_required('RECEIPT_SMTP_USER') if email_enabled and email_transport == 'smtp' else
                        os.getenv('RECEIPT_SMTP_USER', '').strip()),
-            smtp_password=(_required('RECEIPT_SMTP_PASSWORD') if email_enabled else
+            smtp_password=(_required('RECEIPT_SMTP_PASSWORD') if email_enabled and email_transport == 'smtp' else
                            os.getenv('RECEIPT_SMTP_PASSWORD', '').strip()),
             smtp_from=(os.getenv('RECEIPT_SMTP_FROM', '').strip()
                        or os.getenv('RECEIPT_SMTP_USER', '').strip()),
+            email_transport=email_transport,
+            apps_script_url=(_required('RECEIPT_APPS_SCRIPT_URL')
+                             if email_enabled and email_transport == 'apps_script'
+                             else os.getenv('RECEIPT_APPS_SCRIPT_URL', '').strip()),
+            apps_script_secret=(_required('RECEIPT_APPS_SCRIPT_SECRET')
+                                if email_enabled and email_transport == 'apps_script'
+                                else os.getenv('RECEIPT_APPS_SCRIPT_SECRET', '').strip()),
             state_path=os.getenv('RECEIPT_STATE_PATH', '/data/receipts.sqlite3'),
             poll_seconds=max(30, int(os.getenv('RECEIPT_POLL_SECONDS', '300'))),
             sync_from=sync_from.astimezone(timezone.utc),
