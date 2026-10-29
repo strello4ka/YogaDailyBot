@@ -52,11 +52,11 @@ def trial_status(days_left: int, starts_at: datetime, purchased: bool = False) -
 
 def gift_status(days_left: int, starts_at: datetime, purchased: bool = False) -> str:
     if purchased:
-        return ("<b>⏳ У тебя сейчас подарочный период</b>\n\n"
+        return ("<b>🎁 У тебя сейчас подарочный период</b>\n\n"
                 f"Осталось дней {days_left}\n\n"
                 "Ты уже оформил подписку, она начнет действовать с "
                 f"<b>{local_time(starts_at):%d.%m.%Y}</b>")
-    return ("<b>⏳ У тебя сейчас подарочный период</b>\n\n"
+    return ("<b>🎁 У тебя сейчас подарочный период</b>\n\n"
             "Полный доступ ко всем возможностям YogaDailyBot действует еще "
             f"<b>{_days_label(days_left)}</b>\n\n"
             "Ты можешь оформить подписку в любой момент, она начнет действовать с "

@@ -64,14 +64,14 @@ class SubscriptionScreensTest(unittest.TestCase):
     def test_gift_status_matches_trial_status_for_unpaid_and_paid_users(self):
         gift = GiftPeriod(self.now, self.now + timedelta(days=30))
         unpaid = menu_text(Subscription(gift=gift), self.now)
-        self.assertIn('У тебя сейчас подарочный период', unpaid)
+        self.assertIn('🎁 У тебя сейчас подарочный период', unpaid)
         self.assertIn('Полный доступ ко всем возможностям YogaDailyBot', unpaid)
         self.assertIn('<b>30 дней</b>', unpaid)
         self.assertIn('Ты можешь оформить подписку', unpaid)
 
         paid = purchased_period('month', self.now, trial_ends_at=gift.ends_at)
         purchased = menu_text(Subscription(paid=paid, gift=gift), self.now)
-        self.assertIn('У тебя сейчас подарочный период', purchased)
+        self.assertIn('🎁 У тебя сейчас подарочный период', purchased)
         self.assertIn('Осталось дней 30', purchased)
         self.assertIn('Ты уже оформил подписку', purchased)
         self.assertIn('<b>12.11.2026</b>', purchased)
