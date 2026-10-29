@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from app.subscription import messages
 from app.subscription.access import Feature, Subscription, repository_for, runtime_has_access
 from app.subscription.demo import Trial, start_trial
+from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.free import locked_text, reply_keyboard, send_locked
 from app.subscription.subscription_menu import (menu_text, send_menu, tariff_keyboard,
     test_settings, install_test_subscriptions, guard_update,
@@ -59,6 +60,22 @@ class SubscriptionScreensTest(unittest.TestCase):
         self.assertIn('<b>9 дней</b>', text)
         self.assertIn('<b>1 день</b>', messages.trial_status(1, self.trial.ends_at))
         self.assertIn('<b>2 дня</b>', messages.trial_status(2, self.trial.ends_at))
+
+    def test_gift_status_matches_trial_status_for_unpaid_and_paid_users(self):
+        gift = GiftPeriod(self.now, self.now + timedelta(days=30))
+        unpaid = menu_text(Subscription(gift=gift), self.now)
+        self.assertIn('У тебя сейчас подарочный период', unpaid)
+        self.assertIn('Полный доступ ко всем возможностям YogaDailyBot', unpaid)
+        self.assertIn('<b>30 дней</b>', unpaid)
+        self.assertIn('Ты можешь оформить подписку', unpaid)
+
+        paid = purchased_period('month', self.now, trial_ends_at=gift.ends_at)
+        purchased = menu_text(Subscription(paid=paid, gift=gift), self.now)
+        self.assertIn('У тебя сейчас подарочный период', purchased)
+        self.assertIn('Осталось дней 30', purchased)
+        self.assertIn('Ты уже оформил подписку', purchased)
+        self.assertIn('<b>12.11.2026</b>', purchased)
+        self.assertNotIn('нет активных подписок', purchased)
 
     def test_fast_trial_status_uses_minutes_without_changing_normal_status(self):
         fast = Trial(self.now, self.now + timedelta(minutes=15))

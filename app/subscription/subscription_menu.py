@@ -41,6 +41,13 @@ def menu_text(subscription: Subscription, now: datetime, *, tariffs_available=Tr
                      else subscription.trial.ends_at)
         return messages.trial_status(subscription.trial.days_left(now), starts_at,
                                      purchased=state == AccessState.TRIAL_PAID)
+    if state in (AccessState.GIFT, AccessState.GIFT_PAID):
+        starts_at = (subscription.paid.starts_at if state == AccessState.GIFT_PAID
+                     else subscription.gift.ends_at)
+        days_left = max(0, (subscription.gift.ends_at.astimezone(MOSCOW).date()
+                            - now.astimezone(MOSCOW).date()).days)
+        return messages.gift_status(days_left, starts_at,
+                                    purchased=state == AccessState.GIFT_PAID)
     if state == AccessState.PAID:
         return messages.paid_status(subscription.paid.ends_at)
     if tariffs_available:
