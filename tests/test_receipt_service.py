@@ -2,11 +2,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+import json
 import unittest
+
+import httpx
 
 from receipt_service.state import StateStore
 from receipt_service.config import Settings
-from receipt_service.providers import UnknownWriteResult
+from receipt_service.providers import MyNalogClient, UnknownWriteResult
 from receipt_service.worker import ReceiptWorker
 from receipt_service.main import run_backfill
 
@@ -44,6 +47,7 @@ class UncertainNalogStub(NalogStub):
 class MailStub:
     def __init__(self): self.sent = []
     def send(self, recipient, url): self.sent.append((recipient, url))
+    def send_alert(self, recipient, subject, body): self.sent.append((recipient, subject, body))
 
 
 class ReceiptWorkerTest(unittest.TestCase):
@@ -111,6 +115,7 @@ class ReceiptWorkerTest(unittest.TestCase):
                 mynalog_inn='123456789012', smtp_host='smtp.example.com', smtp_port=465,
                 smtp_user='sender', smtp_password='password', smtp_from='sender@example.com',
                 email_transport='smtp', apps_script_url='', apps_script_secret='',
+                admin_email='',
                 state_path=str(Path(directory) / 'state.db'), poll_seconds=300,
                 mynalog_auth_check_on_start=False,
                 backfill_payment_id='payment-1', backfill_email='buyer@example.com',
@@ -123,6 +128,55 @@ class ReceiptWorkerTest(unittest.TestCase):
             self.assertEqual(nalog.created, 1)
             self.assertEqual(len(mail.sent), 1)
             self.assertEqual(store.job('payment-1')['state'], 'emailed')
+
+    def test_problem_alert_is_sent_only_once(self):
+        with TemporaryDirectory() as directory:
+            store = StateStore(str(Path(directory) / 'state.db'))
+            store.add_payment(PAYMENT)
+            store.transition('payment-1', 'ready', 'manual_review', last_error='rejected')
+            mail = MailStub()
+            settings = SimpleNamespace(admin_email='owner@example.com')
+            worker = ReceiptWorker(settings, store, YooKassaStub(), NalogStub(), mail)
+
+            worker._send_problem_alerts()
+            worker._send_problem_alerts()
+
+            self.assertEqual(len(mail.sent), 1)
+            self.assertIsNotNone(store.job('payment-1')['alert_sent_at'])
+
+
+class MyNalogClientTest(unittest.TestCase):
+    def test_receipt_uses_non_cash_payment_type(self):
+        requests = []
+
+        def handler(request):
+            requests.append(request)
+            if request.url.path.endswith('/auth/token'):
+                return httpx.Response(200, json={'token': 'access'})
+            return httpx.Response(200, json={'approvedReceiptUuid': 'receipt-1'})
+
+        client = MyNalogClient('refresh', 'device', transport=httpx.MockTransport(handler))
+        client.create_income('Услуга', '100.00', datetime(2026, 10, 28, tzinfo=timezone.utc))
+
+        payload = json.loads(requests[-1].content)
+        self.assertEqual(payload['paymentType'], 'ACCOUNT')
+
+    def test_read_refreshes_expired_access_token_once(self):
+        calls = {'auth': 0, 'incomes': 0}
+
+        def handler(request):
+            if request.url.path.endswith('/auth/token'):
+                calls['auth'] += 1
+                return httpx.Response(200, json={'token': f'access-{calls["auth"]}'})
+            calls['incomes'] += 1
+            if calls['incomes'] == 1:
+                return httpx.Response(401)
+            return httpx.Response(200, json={'content': []})
+
+        client = MyNalogClient('refresh', 'device', transport=httpx.MockTransport(handler))
+        self.assertIsNone(client.find_income(
+            'Услуга', '100.00', datetime(2026, 10, 28, tzinfo=timezone.utc)))
+        self.assertEqual(calls, {'auth': 2, 'incomes': 2})
 
 
 if __name__ == '__main__':

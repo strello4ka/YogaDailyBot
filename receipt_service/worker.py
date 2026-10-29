@@ -32,6 +32,7 @@ class ReceiptWorker:
             self._register(job)
         for job in self.store.jobs('registered', 'email_pending'):
             self._email(job)
+        self._send_problem_alerts()
         counts = self.store.counts()
         logger.info('Receipt cycle complete: discovered=%s states=%s', discovered, counts)
         return {'discovered': discovered, 'states': counts}
@@ -80,11 +81,34 @@ class ReceiptWorker:
         try:
             self.mailer.send(job['customer_email'], url)
         except Exception as error:
+            self.store.transition(job['payment_id'], 'email_pending', 'email_pending',
+                                  last_error='Receipt email failed: {}'.format(type(error).__name__))
             logger.warning('Receipt email failed for payment %s: %s', job['payment_id'], type(error).__name__)
         else:
             # The address is needed for retry only. Remove it after delivery.
             self.store.transition(job['payment_id'], 'email_pending', 'emailed',
                                   customer_email=None, last_error=None)
+
+    def _send_problem_alerts(self):
+        recipient = getattr(self.settings, 'admin_email', '')
+        if not recipient:
+            return
+        for job in self.store.jobs('unknown', 'manual_review', 'email_pending'):
+            if job['state'] == 'email_pending' and not job.get('last_error'):
+                continue
+            if job.get('alert_sent_at'):
+                continue
+            subject = 'Проверка чека YogaDailyBot'
+            body = ('Платёж {} требует ручной проверки.\n'
+                    'Состояние: {}\nОшибка: {}\n').format(
+                        job['payment_id'], job['state'], job.get('last_error') or 'не указана')
+            try:
+                self.mailer.send_alert(recipient, subject, body)
+            except Exception as error:
+                logger.warning('Admin alert failed for payment %s: %s',
+                               job['payment_id'], type(error).__name__)
+            else:
+                self.store.mark_alert_sent(job['payment_id'])
 
     def run_forever(self):
         while True:

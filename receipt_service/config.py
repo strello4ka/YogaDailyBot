@@ -34,6 +34,7 @@ class Settings:
     email_transport: str
     apps_script_url: str
     apps_script_secret: str
+    admin_email: str
     state_path: str
     poll_seconds: int
     sync_from: datetime
@@ -81,6 +82,7 @@ class Settings:
             apps_script_secret=(_required('RECEIPT_APPS_SCRIPT_SECRET')
                                 if email_enabled and email_transport == 'apps_script'
                                 else os.getenv('RECEIPT_APPS_SCRIPT_SECRET', '').strip()),
+            admin_email=os.getenv('RECEIPT_ADMIN_EMAIL', '').strip(),
             state_path=os.getenv('RECEIPT_STATE_PATH', '/data/receipts.sqlite3'),
             poll_seconds=max(30, int(os.getenv('RECEIPT_POLL_SECONDS', '300'))),
             sync_from=sync_from.astimezone(timezone.utc),

@@ -92,7 +92,8 @@ class MyNalogClient:
                    'totalAmount': amount,
                    'client': {'contactPhone': None, 'displayName': None, 'inn': None,
                               'incomeType': 'FROM_INDIVIDUAL'},
-                   'paymentType': 'CASH', 'ignoreMaxTotalIncomeRestriction': False}
+                   # YooKassa is an electronic, non-cash settlement.
+                   'paymentType': 'ACCOUNT', 'ignoreMaxTotalIncomeRestriction': False}
         try:
             response = self.client.post('income', json=payload, headers=self.headers)
         except (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError) as error:
@@ -119,8 +120,7 @@ class MyNalogClient:
                   'to': (operation_time + timedelta(days=1)).isoformat(timespec='milliseconds'),
                   'offset': 0, 'sortBy': 'operation_time:desc', 'limit': 50}
         for _ in range(100):
-            response = self.client.get('incomes', params=params, headers=self.headers)
-            self._check_read(response)
+            response = self._authenticated_get('incomes', params=params)
             incomes = response.json().get('content', [])
             for income in incomes:
                 if (not income.get('cancellationInfo') and income.get('name') == name
@@ -130,6 +130,15 @@ class MyNalogClient:
                 return None
             params['offset'] += params['limit']
         raise TemporaryFailure('Too many My Nalog receipt pages')
+
+    def _authenticated_get(self, path, **kwargs):
+        """Retry one read after refreshing an expired access token."""
+        response = self.client.get(path, headers=self.headers, **kwargs)
+        if response.status_code == 401:
+            self.token = None
+            response = self.client.get(path, headers=self.headers, **kwargs)
+        self._check_read(response)
+        return response
 
     @staticmethod
     def _check_read(response):

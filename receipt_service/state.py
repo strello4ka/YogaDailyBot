@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS receipt_jobs (
       ('ready', 'creating', 'unknown', 'registered', 'email_pending', 'emailed', 'manual_review')),
     receipt_uuid TEXT,
     last_error TEXT,
+    alert_sent_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -29,6 +30,9 @@ class StateStore:
         self.path = path
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            columns = {row['name'] for row in connection.execute('PRAGMA table_info(receipt_jobs)')}
+            if 'alert_sent_at' not in columns:
+                connection.execute('ALTER TABLE receipt_jobs ADD COLUMN alert_sent_at TEXT')
 
     @contextmanager
     def connect(self):
@@ -96,6 +100,13 @@ class StateStore:
                 values,
             )
             return cursor.rowcount == 1
+
+    def mark_alert_sent(self, payment_id):
+        with self.connect() as connection:
+            connection.execute(
+                'UPDATE receipt_jobs SET alert_sent_at = CURRENT_TIMESTAMP WHERE payment_id = ?',
+                (payment_id,),
+            )
 
     def get_value(self, key):
         with self.connect() as connection:

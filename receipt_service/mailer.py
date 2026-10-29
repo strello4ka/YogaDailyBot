@@ -22,6 +22,16 @@ class ReceiptMailer:
             smtp.login(self.user, self.password)
             smtp.send_message(message)
 
+    def send_alert(self, recipient, subject, body):
+        message = EmailMessage()
+        message['Subject'] = subject
+        message['From'] = self.sender
+        message['To'] = recipient
+        message.set_content(body)
+        with smtplib.SMTP_SSL(self.host, self.port, timeout=30) as smtp:
+            smtp.login(self.user, self.password)
+            smtp.send_message(message)
+
 
 class AppsScriptMailer:
     def __init__(self, url, secret, transport=None):
@@ -44,3 +54,21 @@ class AppsScriptMailer:
         result = response.json()
         if result.get('ok') is not True:
             raise RuntimeError('Apps Script email relay rejected the request')
+
+    def send_alert(self, recipient, subject, body):
+        timestamp = str(int(time.time()))
+        request_id = hashlib.sha256(f'{recipient}\n{subject}\n{body}'.encode()).hexdigest()
+        signed = '\n'.join((timestamp, request_id, recipient, subject, body))
+        signature = hmac.new(self.secret.encode(), signed.encode(), hashlib.sha256).hexdigest()
+        response = self.client.post(self.url, json={
+            'kind': 'alert',
+            'timestamp': timestamp,
+            'requestId': request_id,
+            'recipient': recipient,
+            'subject': subject,
+            'body': body,
+            'signature': signature,
+        })
+        response.raise_for_status()
+        if response.json().get('ok') is not True:
+            raise RuntimeError('Apps Script alert relay rejected the request')

@@ -38,6 +38,20 @@ class AppsScriptMailerTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             mailer.send('buyer@example.com', 'https://example.com/receipt')
 
+    def test_sends_signed_alert(self):
+        captured = {}
+        transport = httpx.MockTransport(lambda request: (
+            captured.update(json.loads(request.content)) or httpx.Response(200, json={'ok': True})))
+        mailer = AppsScriptMailer('https://script.google.com/example', 'secret', transport=transport)
+        with patch('receipt_service.mailer.time.time', return_value=1234567890):
+            mailer.send_alert('owner@example.com', 'Проверка', 'Нужна ручная проверка')
+
+        signed = ('1234567890\n' + captured['requestId']
+                  + '\nowner@example.com\nПроверка\nНужна ручная проверка')
+        self.assertEqual(captured['kind'], 'alert')
+        self.assertEqual(captured['signature'],
+                         hmac.new(b'secret', signed.encode(), hashlib.sha256).hexdigest())
+
 
 if __name__ == '__main__':
     unittest.main()
