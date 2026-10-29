@@ -94,8 +94,10 @@ class MyNalogClient:
                    'totalAmount': amount,
                    'client': {'contactPhone': None, 'displayName': None, 'inn': None,
                               'incomeType': 'FROM_INDIVIDUAL'},
-                   # YooKassa is an electronic, non-cash settlement.
-                   'paymentType': 'ACCOUNT', 'ignoreMaxTotalIncomeRestriction': False}
+                   # This is the value accepted by the current My Nalog web API.
+                   # `ACCOUNT` looks semantically appropriate for YooKassa, but the
+                   # API rejects it as an invalid request format.
+                   'paymentType': 'CASH', 'ignoreMaxTotalIncomeRestriction': False}
         try:
             response = self.client.post('income', json=payload, headers=self.headers)
         except (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError) as error:

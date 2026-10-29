@@ -146,7 +146,7 @@ class ReceiptWorkerTest(unittest.TestCase):
 
 
 class MyNalogClientTest(unittest.TestCase):
-    def test_receipt_uses_non_cash_payment_type(self):
+    def test_receipt_uses_payment_type_accepted_by_my_nalog(self):
         requests = []
 
         def handler(request):
@@ -159,7 +159,7 @@ class MyNalogClientTest(unittest.TestCase):
         client.create_income('Услуга', '100.00', datetime(2026, 10, 28, tzinfo=timezone.utc))
 
         payload = json.loads(requests[-1].content)
-        self.assertEqual(payload['paymentType'], 'ACCOUNT')
+        self.assertEqual(payload['paymentType'], 'CASH')
         self.assertEqual(payload['operationTime'], '2026-10-28T03:00:00.000+03:00')
         self.assertRegex(payload['requestTime'],
                          r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+03:00$')
