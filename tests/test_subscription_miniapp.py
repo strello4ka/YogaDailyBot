@@ -158,7 +158,9 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertIn('orderId = null; replaceOpenOrder = true; clearSavedOrder();', client)
         self.assertIn('replace_open_order:replaceOpenOrder', client)
         self.assertIn("status('Оплата пока не завершена'", client)
-        self.assertIn("status('Оплата отменена'", client)
+        self.assertNotIn("status('Оплата отменена'", client)
+        self.assertIn("data.status === 'canceled'", client)
+        self.assertIn("$('payment-status').hidden = true; $('checkout').hidden = false;", client)
         self.assertIn('Специальные цены действуют до ${date} включительно\\n'
                       'только на первую покупку', client)
         self.assertIn("basePrice.className = 'tariff-base-price'", client)

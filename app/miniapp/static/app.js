@@ -117,6 +117,13 @@ function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
   window.location.assign(confirmationUrl);
 }
+function pressedTransition(element, callback) {
+  if (element.classList.contains('is-busy')) return;
+  element.classList.add('is-busy');
+  element.setAttribute('aria-disabled', 'true');
+  tg?.HapticFeedback?.impactOccurred?.('light');
+  window.setTimeout(callback, 110);
+}
 function paymentErrorText(errorObject) {
   if (errorObject?.status && errorObject.message) return errorObject.message;
   return 'Не удалось связаться с сервером. Проверь интернет и попробуй ещё раз.';
@@ -140,9 +147,10 @@ async function checkPayment() {
       clearSavedOrder();
     } else if (data.status === 'canceled') {
       $('resume').hidden = true;
-      status('Оплата отменена', 'Деньги не списаны. Ты можешь вернуться к тарифам и попробовать снова.');
-      $('check').hidden = true; $('back').hidden = false;
-      clearSavedOrder();
+      clearTimeout(poll); poll = null; clearSavedOrder(); orderId = null;
+      confirmationUrl = ''; replaceOpenOrder = false;
+      $('payment-status').hidden = true; $('checkout').hidden = false;
+      $('back').hidden = true; $('check').hidden = false; updatePrice();
     } else {
       const canResume = rememberConfirmation(data.confirmation_url);
       status('Оплата пока не завершена', canResume
@@ -192,17 +200,25 @@ $('check').addEventListener('click', checkPayment);
 $('resume').addEventListener('click', event => {
   if (!confirmationUrl) { event.preventDefault(); return; }
   event.preventDefault();
-  window.location.assign(confirmationUrl);
+  const target = confirmationUrl;
+  pressedTransition(event.currentTarget, () => window.location.assign(target));
 });
 $('reload').addEventListener('click', () => window.location.reload());
 $('close').addEventListener('click', () => tg?.close());
-$('back').addEventListener('click', event => {
-  event.currentTarget.blur();
+function returnToTariffs(button = null) {
   checkEpoch += 1;
   clearTimeout(poll); poll = null; orderId = null; replaceOpenOrder = true; clearSavedOrder();
-  $('payment-status').hidden = true; $('checkout').hidden = false;
-  $('back').hidden = true; $('check').hidden = false; updatePrice();
-});
+  const reveal = () => {
+    button?.blur();
+    button?.classList.remove('is-busy');
+    button?.removeAttribute('aria-disabled');
+    $('payment-status').hidden = true; $('checkout').hidden = false;
+    $('back').hidden = true; $('check').hidden = false; updatePrice();
+  };
+  if (button) pressedTransition(button, reveal);
+  else reveal();
+}
+$('back').addEventListener('click', event => returnToTariffs(event.currentTarget));
 async function load() {
   try {
     const data = await api('/api/session');

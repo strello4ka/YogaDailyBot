@@ -32,7 +32,7 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
       {name:'pending',returned:true,status:'pending',title:'Оплата пока не завершена'},
       {name:'pending ignores stale check after back',returned:true,status:'pending',
         title:'Оплата пока не завершена',stale:true},
-      {name:'canceled',returned:true,status:'canceled',title:'Оплата отменена'},
+      {name:'canceled returns directly to tariffs',returned:true,status:'canceled'},
       {name:'session failure',failed:true},
     ]) {
       const page = await browser.newPage({viewport:{width:390,height:844}});
@@ -84,6 +84,16 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         }
       } else {
         releasePayment();
+        if(scenario.status === 'canceled') {
+          await page.locator('#checkout').waitFor({state:'visible'});
+          assert.equal(await page.locator('#payment-status').isVisible(),false);
+          assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
+          assert.equal(await page.evaluate(() => sessionStorage.getItem('yoga-order')),null);
+          assert.deepEqual(errors,[]);
+          console.log('PASS',scenario.name);
+          await page.close();
+          continue;
+        }
         await page.locator('#payment-status').waitFor({state:'visible'});
         assert.equal(await page.locator('#checkout').isVisible(),false);
         await page.waitForFunction(title => document.getElementById('status-title').textContent===title,
@@ -98,6 +108,7 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
             assert.equal(paymentRequests,2);
           }
           await page.locator('#back').click();
+          await page.locator('#checkout').waitFor({state:'visible'});
           assert.equal(await page.locator('#checkout').isVisible(),true);
           assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
           assert.equal(await page.evaluate(() => sessionStorage.getItem('yoga-order')),null);
@@ -110,10 +121,6 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         }
         if(scenario.status !== 'pending') {
           assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
-        }
-        if(scenario.status === 'canceled') {
-          await page.locator('#back').click();
-          assert.equal(await page.locator('#checkout').isVisible(),true);
         }
       }
       assert.deepEqual(errors,[]);

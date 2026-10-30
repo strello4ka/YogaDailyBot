@@ -53,19 +53,23 @@ input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visibl
 small { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
 .field-error, #error { color: var(--error); font-size: 13px; line-height: 1.4; }
 #error { margin: 10px 0; }
-.primary, .secondary { width: 100%; font: inherit; font-weight: 600; padding: 15px; border: 0; border-radius: 30px; cursor: pointer; }
+.primary, .secondary { width: 100%; font: inherit; font-weight: 600; padding: 15px; border: 0; border-radius: 30px; cursor: pointer; transition: opacity .12s ease, transform .12s ease; }
 .primary { color: #25150f; background: var(--accent); }
 .pay-base-price { margin-left: 9px; font: inherit; font-weight: 400; text-decoration: line-through; opacity: .72; }
 .primary:disabled { opacity: .55; cursor: default; }
+.primary:active:not(:disabled), .secondary:active:not(:disabled),
+.primary.is-busy, .secondary.is-busy { opacity: .62; transform: scale(.985); }
+.primary.is-busy, .secondary.is-busy { pointer-events: none; }
 .secondary { background: transparent; color: var(--accent); border: 1.5px solid var(--accent); margin-top: 12px; }
 .paybar { position: fixed; z-index: 2; left: 50%; bottom: 0; transform: translateX(-50%); width: min(100%, 510px); padding: 14px 18px calc(8px + env(safe-area-inset-bottom)); border-radius: 28px 28px 0 0; background: var(--card); box-shadow: 0 -5px 18px rgba(71, 51, 38, .08); }
 body.editing-email .paybar { visibility: hidden; }
 .legal { text-align: center; font-size: 12px; margin: 8px 0 0; }
 .legal a { color: var(--muted); text-underline-offset: 3px; }
-#payment-status { padding-top: 36px; }
+#payment-status { padding-top: 2px; }
+#payment-status .status-action { display: block; margin-top: 12px; text-align: center; text-decoration: none; }
 #close { margin-top: 20px; }
 [hidden] { display: none !important; }
-:root a.secondary { display: block; text-align: center; text-decoration: none; }
+:root a.primary, :root a.secondary { display: block; text-align: center; text-decoration: none; }
 @media (max-width: 350px) {
   main { padding-inline: 14px; }
   .tariff { padding: 10px; }
