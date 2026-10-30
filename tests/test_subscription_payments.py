@@ -253,3 +253,22 @@ class PaymentsTest(unittest.TestCase):
             self.assertEqual(len(calls), 4)
         finally:
             client.close()
+
+    def test_telegram_main_app_return_carries_order_in_startapp(self):
+        calls = []
+        def transport(request):
+            calls.append(request)
+            if request.method == 'GET':
+                return httpx.Response(200, json={'account_id': '123', 'test': True})
+            return httpx.Response(200, json=self.payment)
+        client = YooKassaTestClient('123', 'fake', transport=httpx.MockTransport(transport))
+        try:
+            client.create_payment(
+                self.order, 'https://t.me/TestYogaBot?startapp=payment', NOW)
+            payload = json.loads([request for request in calls if request.method == 'POST'][0].content)
+            returned = urlparse(payload['confirmation']['return_url'])
+            self.assertEqual(parse_qs(returned.query)['startapp'],
+                             ['payment_' + self.order.order_id])
+            self.assertNotIn('checkout_order', parse_qs(returned.query))
+        finally:
+            client.close()

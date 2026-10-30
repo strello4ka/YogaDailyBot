@@ -61,6 +61,13 @@ class SubscriptionScreensTest(unittest.TestCase):
         self.assertIn('<b>1 день</b>', messages.trial_status(1, self.trial.ends_at))
         self.assertIn('<b>2 дня</b>', messages.trial_status(2, self.trial.ends_at))
 
+    def test_paid_trial_status_shows_future_subscription_dates(self):
+        paid = purchased_period('month', self.now, trial_ends_at=self.trial.ends_at)
+        text = menu_text(Subscription(self.trial, paid), self.now)
+        self.assertIn('после окончания пробного периода', text)
+        self.assertIn(f'<b>{paid.starts_at:%d.%m.%Y}</b> по', text)
+        self.assertIn(f'<b>{messages.last_access_date(paid.ends_at):%d.%m.%Y}</b>', text)
+
     def test_gift_status_matches_trial_status_for_unpaid_and_paid_users(self):
         gift = GiftPeriod(self.now, self.now + timedelta(days=30))
         unpaid = menu_text(Subscription(gift=gift), self.now)
@@ -74,7 +81,9 @@ class SubscriptionScreensTest(unittest.TestCase):
         self.assertIn('🎁 У тебя сейчас подарочный период', purchased)
         self.assertIn('Осталось дней 30', purchased)
         self.assertIn('Ты уже оформил подписку', purchased)
+        self.assertIn('после окончания подарочного периода', purchased)
         self.assertIn('<b>12.11.2026</b>', purchased)
+        self.assertIn('<b>11.12.2026</b>', purchased)
         self.assertNotIn('нет активных подписок', purchased)
 
     def test_fast_trial_status_uses_minutes_without_changing_normal_status(self):

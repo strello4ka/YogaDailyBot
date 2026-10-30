@@ -29,8 +29,8 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
       {name:'fresh', checkout:true},
       {name:'returned success without storage', returned:true, status:'succeeded',title:'Оплата принята 🧡'},
       {name:'saved success', saved:true, status:'succeeded',title:'Оплата принята 🧡'},
-      {name:'pending',returned:true,status:'pending',title:'Проверяем оплату'},
-      {name:'canceled',returned:true,status:'canceled',title:'Оплата не завершена'},
+      {name:'pending',returned:true,status:'pending',title:'Оплата пока не завершена'},
+      {name:'canceled',returned:true,status:'canceled',title:'Оплата отменена'},
       {name:'session failure',failed:true},
     ]) {
       const page = await browser.newPage({viewport:{width:390,height:844}});
@@ -83,6 +83,15 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         await page.waitForFunction(title => document.getElementById('status-title').textContent===title,
           scenario.title);
         assert.equal(await page.evaluate(() => window.checkoutShown),false);
+        if(scenario.status === 'pending') {
+          assert.equal(await page.locator('#check').isVisible(),false);
+          assert.equal(await page.locator('#resume').isVisible(),true);
+          assert.equal(await page.locator('#back').isVisible(),true);
+          await page.locator('#back').click();
+          assert.equal(await page.locator('#checkout').isVisible(),true);
+          assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
+          assert.equal(await page.evaluate(() => sessionStorage.getItem('yoga-order')),null);
+        }
         if(scenario.status !== 'pending') {
           assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
         }

@@ -2,18 +2,48 @@
 
 from datetime import datetime
 from html import escape
+from typing import Optional
 from urllib.parse import urlsplit
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from ..messages import TARIFF_BUTTON
-from ..tariff import last_access_date
+from ..tariff import last_access_date, local_time
 
 
 SUBSCRIPTION_DETAILS_BUTTON = "Что входит в подписку?"
 FREE_DETAILS_BUTTON = "Что останется бесплатным?"
 SUBSCRIPTION_DETAILS_CALLBACK = "old_users:subscription_details"
 FREE_DETAILS_CALLBACK = "old_users:free_details"
+
+
+def _days_label(value: int) -> str:
+    if value % 10 == 1 and value % 100 != 11:
+        word = "день"
+    elif value % 10 in (2, 3, 4) and value % 100 not in (12, 13, 14):
+        word = "дня"
+    else:
+        word = "дней"
+    return f"{value} {word}"
+
+
+def gift_status(days_left: int, starts_at: datetime, purchased: bool = False,
+                ends_at: Optional[datetime] = None) -> str:
+    """Render the temporary gift-access state shown in the subscription menu."""
+    if purchased:
+        if ends_at is None:
+            raise ValueError("Paid subscription end is required")
+        return ("<b>🎁 У тебя сейчас подарочный период</b>\n\n"
+                f"Осталось дней {days_left}\n\n"
+                "Ты уже оформил подписку, она начнет действовать после окончания "
+                "подарочного периода с "
+                f"<b>{local_time(starts_at):%d.%m.%Y}</b> по "
+                f"<b>{last_access_date(ends_at):%d.%m.%Y}</b>")
+    return ("<b>🎁 У тебя сейчас подарочный период</b>\n\n"
+            "Полный доступ ко всем возможностям YogaDailyBot действует еще "
+            f"<b>{_days_label(days_left)}</b>\n\n"
+            "Ты можешь оформить подписку в любой момент, она начнет действовать с "
+            f"<b>{local_time(starts_at):%d.%m.%Y}</b>")
 
 
 def first_message(gift_ends: datetime) -> str:

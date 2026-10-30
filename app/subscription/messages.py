@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from html import escape
-from typing import Sequence
+from typing import Optional, Sequence
 
 from .tariff import last_access_date, local_time
 
@@ -37,26 +37,18 @@ def _days_label(value: int) -> str:
     return f"{value} {word}"
 
 
-def trial_status(days_left: int, starts_at: datetime, purchased: bool = False) -> str:
+def trial_status(days_left: int, starts_at: datetime, purchased: bool = False,
+                 ends_at: Optional[datetime] = None) -> str:
     if purchased:
+        if ends_at is None:
+            raise ValueError("Paid subscription end is required")
         return ("<b>⏳ У тебя сейчас пробный период</b>\n\n"
                 f"Осталось дней {days_left}\n\n"
-                "Ты уже оформил подписку, она начнет действовать с "
-                f"<b>{local_time(starts_at):%d.%m.%Y}</b>")
+                "Ты уже оформил подписку, она начнет действовать после окончания "
+                "пробного периода с "
+                f"<b>{local_time(starts_at):%d.%m.%Y}</b> по "
+                f"<b>{last_access_date(ends_at):%d.%m.%Y}</b>")
     return ("<b>⏳ У тебя сейчас пробный период</b>\n\n"
-            "Полный доступ ко всем возможностям YogaDailyBot действует еще "
-            f"<b>{_days_label(days_left)}</b>\n\n"
-            "Ты можешь оформить подписку в любой момент, она начнет действовать с "
-            f"<b>{local_time(starts_at):%d.%m.%Y}</b>")
-
-
-def gift_status(days_left: int, starts_at: datetime, purchased: bool = False) -> str:
-    if purchased:
-        return ("<b>🎁 У тебя сейчас подарочный период</b>\n\n"
-                f"Осталось дней {days_left}\n\n"
-                "Ты уже оформил подписку, она начнет действовать с "
-                f"<b>{local_time(starts_at):%d.%m.%Y}</b>")
-    return ("<b>🎁 У тебя сейчас подарочный период</b>\n\n"
             "Полный доступ ко всем возможностям YogaDailyBot действует еще "
             f"<b>{_days_label(days_left)}</b>\n\n"
             "Ты можешь оформить подписку в любой момент, она начнет действовать с "

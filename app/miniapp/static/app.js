@@ -114,8 +114,7 @@ function rememberConfirmation(value) {
 }
 function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
-  if (tg?.openLink) tg.openLink(confirmationUrl);
-  else window.location.assign(confirmationUrl);
+  window.location.assign(confirmationUrl);
 }
 function paymentErrorText(errorObject) {
   if (errorObject?.status && errorObject.message) return errorObject.message;
@@ -123,33 +122,40 @@ function paymentErrorText(errorObject) {
 }
 async function checkPayment() {
   if (checking || !orderId) return;
-  status('Проверяем оплату', 'Если ты уже оплатил, повторно платить не нужно.');
-  checking = true; $('check').disabled = true; clearTimeout(poll);
+  $('check').hidden = true; $('back').hidden = false;
+  checking = true; clearTimeout(poll);
   try {
     const data = await api(`/api/payments/${encodeURIComponent(orderId)}`);
-    $('resume').hidden = true;
     if (data.status === 'succeeded') {
+      $('resume').hidden = true;
       const date = data.ends_on?.split('-').reverse().join('.') || '';
       status('Оплата принята 🧡', `Подписка действует по ${date} включительно.`);
-      $('check').hidden = true; $('close').hidden = !tg?.initData;
+      $('check').hidden = true; $('back').hidden = true; $('close').hidden = !tg?.initData;
       clearSavedOrder();
     } else if (data.status === 'canceled') {
-      status('Оплата не завершена', 'Попробуй ещё раз или выбери другой способ оплаты.');
+      $('resume').hidden = true;
+      status('Оплата отменена', 'Деньги не списаны. Ты можешь вернуться к тарифам и попробовать снова.');
       $('check').hidden = true; $('back').hidden = false;
       clearSavedOrder();
     } else {
-      status('Проверяем оплату', 'Если ты уже оплатил, повторно платить не нужно.');
-      rememberConfirmation(data.confirmation_url);
+      const canResume = rememberConfirmation(data.confirmation_url);
+      status('Оплата пока не завершена', canResume
+        ? 'Мы пока не получили подтверждение оплаты. Ты можешь продолжить оплату или вернуться к тарифам.'
+        : 'Мы пока не получили подтверждение оплаты. Ты можешь вернуться к тарифам.');
+      $('check').hidden = true; $('back').hidden = false;
       poll = setTimeout(checkPayment, 5000);
     }
   } catch (e) {
+    $('resume').hidden = true;
     if (e.status === 404) {
       clearSavedOrder(); orderId = null;
       $('back').hidden = false; $('check').hidden = true;
+    } else {
+      $('back').hidden = false; $('check').hidden = false;
     }
     status('Пока не удалось проверить оплату',
       'Повторно платить не нужно. ' + paymentErrorText(e));
-  } finally { checking = false; $('check').disabled = false; }
+  } finally { checking = false; }
 }
 $('payment-form').addEventListener('submit', async event => {
   event.preventDefault(); error('');
@@ -178,12 +184,13 @@ $('payment-form').addEventListener('submit', async event => {
 $('check').addEventListener('click', checkPayment);
 $('resume').addEventListener('click', event => {
   if (!confirmationUrl) { event.preventDefault(); return; }
-  if (tg?.openLink) { event.preventDefault(); tg.openLink(confirmationUrl); }
+  event.preventDefault();
+  window.location.assign(confirmationUrl);
 });
 $('reload').addEventListener('click', () => window.location.reload());
 $('close').addEventListener('click', () => tg?.close());
 $('back').addEventListener('click', () => {
-  clearTimeout(poll); orderId = null;
+  clearTimeout(poll); orderId = null; clearSavedOrder();
   $('payment-status').hidden = true; $('checkout').hidden = false;
   $('back').hidden = true; $('check').hidden = false; updatePrice();
 });

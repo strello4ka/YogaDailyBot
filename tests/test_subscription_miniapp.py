@@ -151,6 +151,13 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertLess(page.index('id="period-note"'), page.index('id="email-field"'))
         self.assertLess(page.index('id="email-field"'), page.index('class="promo-field"'))
         self.assertLess(page.index('class="promo-field"'), page.index('class="paybar"'))
+        self.assertNotIn('id="resume" class="secondary" target="_blank"', page)
+        self.assertNotIn('tg.openLink(confirmationUrl)', client)
+        self.assertIn('window.location.assign(confirmationUrl)', client)
+        self.assertIn("$('back').hidden = false;", client)
+        self.assertIn('clearTimeout(poll); orderId = null; clearSavedOrder();', client)
+        self.assertIn("status('Оплата пока не завершена'", client)
+        self.assertIn("status('Оплата отменена'", client)
         self.assertIn('Специальные цены действуют до ${date} включительно\\n'
                       'только на первую покупку', client)
         self.assertIn("basePrice.className = 'tariff-base-price'", client)
@@ -220,6 +227,7 @@ class TestServerSetupTest(unittest.TestCase):
                     BOT_TOKEN='123:fake',
                     SUBSCRIPTION_TEST_USERS='10', SUBSCRIPTION_TEST_DATABASE='yogadaily_test',
                     SUBSCRIPTION_MINIAPP_URL='https://example.org/pay',
+                    SUBSCRIPTION_PAYMENT_RETURN_URL='https://t.me/TestYogaBot?startapp=payment',
                     SUBSCRIPTION_YOOKASSA_TEST_SHOP_ID='123',
                     SUBSCRIPTION_YOOKASSA_TEST_SECRET_KEY='fake')
 
@@ -240,8 +248,18 @@ class TestServerSetupTest(unittest.TestCase):
             repository_class.return_value.verify_test_database.assert_called_once_with('yogadaily_test')
             provider.verify_test_store.assert_called_once()
             self.assertEqual(app.allowed_users, {10})
-            self.assertEqual(app.return_url, 'https://example.org/pay')
+            self.assertEqual(app.return_url, 'https://t.me/TestYogaBot?startapp=payment')
             self.assertFalse(app.preview)
+
+    def test_return_url_must_be_the_app_or_telegram_main_app(self):
+        factory, provider = Mock(), Mock(expected_test=True)
+        provider.verify_test_store.return_value = None
+        for return_url in ('http://t.me/TestYogaBot?startapp=payment',
+                           'https://evil.example/return',
+                           'https://t.me/TestYogaBot'):
+            with self.subTest(return_url=return_url), self.assertRaises(ValueError):
+                create_test_app(dict(self.settings(), SUBSCRIPTION_PAYMENT_RETURN_URL=return_url),
+                                factory, provider=provider)
 
     def test_hosted_runtime_requires_separate_explicit_switch(self):
         with patch.dict('os.environ', {}, clear=True), self.assertRaises(ValueError):

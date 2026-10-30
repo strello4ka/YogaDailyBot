@@ -10,6 +10,7 @@ from app.subscription.access import AccessState, Subscription
 from app.subscription.old_users.messages import (
     first_message,
     first_message_keyboard,
+    gift_status,
     gift_expired,
     gift_last_day,
     gift_subscription_activated,
@@ -136,6 +137,12 @@ class OldUsersRulesTest(unittest.TestCase):
 
         query.answer.assert_awaited_once()
         message.reply_text.assert_awaited_once_with(SUBSCRIPTION_FAQ_TEXT)
+
+    def test_gift_status_copy_is_isolated_with_old_user_messages(self):
+        paid = gift_status(30, at(31), purchased=True,
+                           ends_at=datetime(2026, 11, 30, tzinfo=MOSCOW))
+        self.assertIn("после окончания подарочного периода", paid)
+        self.assertIn("<b>31.10.2026</b> по <b>29.11.2026</b>", paid)
 
     def test_gift_three_days_uses_access_and_offer_last_days(self):
         text = gift_three_days(

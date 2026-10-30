@@ -11,6 +11,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from . import messages
 from .access import AccessState, Feature, Subscription, has_access
 from .demo import is_fast_trial
+from .old_users import messages as old_user_messages
 from .tariff import MOSCOW
 
 
@@ -40,14 +41,19 @@ def menu_text(subscription: Subscription, now: datetime, *, tariffs_available=Tr
         starts_at = (subscription.paid.starts_at if state == AccessState.TRIAL_PAID
                      else subscription.trial.ends_at)
         return messages.trial_status(subscription.trial.days_left(now), starts_at,
-                                     purchased=state == AccessState.TRIAL_PAID)
+                                     purchased=state == AccessState.TRIAL_PAID,
+                                     ends_at=(subscription.paid.ends_at
+                                              if state == AccessState.TRIAL_PAID else None))
     if state in (AccessState.GIFT, AccessState.GIFT_PAID):
         starts_at = (subscription.paid.starts_at if state == AccessState.GIFT_PAID
                      else subscription.gift.ends_at)
         days_left = max(0, (subscription.gift.ends_at.astimezone(MOSCOW).date()
                             - now.astimezone(MOSCOW).date()).days)
-        return messages.gift_status(days_left, starts_at,
-                                    purchased=state == AccessState.GIFT_PAID)
+        return old_user_messages.gift_status(
+            days_left, starts_at,
+            purchased=state == AccessState.GIFT_PAID,
+            ends_at=(subscription.paid.ends_at
+                     if state == AccessState.GIFT_PAID else None))
     if state == AccessState.PAID:
         return messages.paid_status(subscription.paid.ends_at)
     if tariffs_available:
