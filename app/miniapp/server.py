@@ -188,6 +188,15 @@ def create_test_app(environment, connection_factory, *, provider=None):
                    bot_token=environment['BOT_TOKEN'], allowed_users=users, return_url=url)
 
 
+def create_hosted_test_app():
+    """Run the same isolated test checkout on persistent Railway infrastructure."""
+    import os
+    if os.environ.get('SUBSCRIPTION_HOSTED_TEST_ENABLED', '').lower() != 'true':
+        raise ValueError('Hosted test Mini App is disabled')
+    from data.postgres_db import get_connection
+    return create_test_app(os.environ, get_connection)
+
+
 if __name__ == '__main__':
     import argparse
     import os

@@ -10,7 +10,8 @@ from uuid import uuid4
 from urllib.parse import urlencode
 
 from app.miniapp.auth import authenticate
-from app.miniapp.server import MiniApp, create_preview_app, create_test_app
+from app.miniapp.server import (MiniApp, create_hosted_test_app, create_preview_app,
+                                create_test_app)
 from app.miniapp.gateway import TestGateway
 import httpx
 from app.subscription.tariff import MOSCOW
@@ -145,7 +146,11 @@ class MiniAppHTTPTest(unittest.TestCase):
         client = script.decode()
         self.assertLess(page.index('id="early-user-note"'), page.index('id="tariffs"'))
         self.assertIn('Скидки только для самых первых пользователей', page)
+        self.assertLess(page.index('id="tariffs"'), page.index('id="period-note"'))
         self.assertLess(page.index('id="tariffs"'), page.index('id="offer-ends"'))
+        self.assertLess(page.index('id="period-note"'), page.index('id="email-field"'))
+        self.assertLess(page.index('id="email-field"'), page.index('class="promo-field"'))
+        self.assertLess(page.index('class="promo-field"'), page.index('class="paybar"'))
         self.assertIn('Специальные цены действуют до ${date} включительно\\n'
                       'только на первую покупку', client)
         self.assertIn("basePrice.className = 'tariff-base-price'", client)
@@ -237,3 +242,11 @@ class TestServerSetupTest(unittest.TestCase):
             self.assertEqual(app.allowed_users, {10})
             self.assertEqual(app.return_url, 'https://example.org/pay')
             self.assertFalse(app.preview)
+
+    def test_hosted_runtime_requires_separate_explicit_switch(self):
+        with patch.dict('os.environ', {}, clear=True), self.assertRaises(ValueError):
+            create_hosted_test_app()
+        with patch.dict('os.environ', {'SUBSCRIPTION_HOSTED_TEST_ENABLED': 'true'}, clear=True), \
+                patch('app.miniapp.server.create_test_app', return_value='app') as create:
+            self.assertEqual(create_hosted_test_app(), 'app')
+            self.assertEqual(create.call_args.args[0]['SUBSCRIPTION_HOSTED_TEST_ENABLED'], 'true')

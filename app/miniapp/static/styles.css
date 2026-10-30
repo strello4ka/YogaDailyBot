@@ -20,7 +20,7 @@ header { display: flex; align-items: center; justify-content: space-between; mar
 h1 { font-size: clamp(28px, 8vw, 38px); line-height: 1.12; letter-spacing: -1.3px; margin: 4px 0 10px; }
 .intro, legend { font-size: 16px; font-weight: 400; line-height: 1.45; color: var(--muted); }
 .intro { margin: 0 0 16px; }
-.note { padding: 12px 14px; border-radius: 14px; background: #eaddc8; line-height: 1.4; font-size: 14px; }
+.note { margin: 10px 0 0; padding: 12px 14px; border-radius: 14px; background: #eaddc8; line-height: 1.4; font-size: 14px; }
 fieldset { min-width: 0; padding: 0; border: 0; margin: 0 0 14px; }
 legend { padding: 0; margin-bottom: 9px; font-weight: 650; color: var(--ink); }
 .early-user-note { margin: -3px 0 10px; font-size: 14px; line-height: 1.35; color: var(--muted); }
@@ -34,7 +34,7 @@ legend { padding: 0; margin-bottom: 9px; font-weight: 650; color: var(--ink); }
 .tariff-price { font-size: 25px; font-weight: 650; letter-spacing: -.8px; margin-top: auto; padding-top: 10px; }
 .tariff-base-price { margin-left: 9px; color: var(--muted); font-size: 14px; font-weight: 400; letter-spacing: 0; text-decoration: line-through; white-space: nowrap; }
 .tariff-monthly { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.promo-field { margin: 8px 0 19px; }
+.promo-field { margin: 16px 0 8px; }
 .promo-field summary { display: flex; align-items: center; gap: 8px; width: fit-content; color: var(--accent); font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; }
 .promo-field summary::-webkit-details-marker { display: none; }
 .promo-field summary::after { content: ""; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform .15s ease; }
@@ -58,7 +58,7 @@ small { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
 .pay-base-price { margin-left: 9px; font: inherit; font-weight: 400; text-decoration: line-through; opacity: .72; }
 .primary:disabled { opacity: .55; cursor: default; }
 .secondary { background: transparent; color: var(--accent); margin-top: 10px; }
-.paybar { position: fixed; z-index: 2; left: 50%; bottom: 0; transform: translateX(-50%); width: min(100%, 510px); padding: 10px 18px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(202, 112, 76, .16); background: var(--bg); box-shadow: 0 -4px 12px rgba(71, 51, 38, .035); }
+.paybar { position: fixed; z-index: 2; left: 50%; bottom: 0; transform: translateX(-50%); width: min(100%, 510px); padding: 14px 18px calc(8px + env(safe-area-inset-bottom)); border-radius: 28px 28px 0 0; background: var(--card); box-shadow: 0 -5px 18px rgba(71, 51, 38, .08); }
 body.editing-email .paybar { visibility: hidden; }
 .legal { text-align: center; font-size: 12px; margin: 8px 0 0; }
 .legal a { color: var(--muted); text-underline-offset: 3px; }

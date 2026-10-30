@@ -27,25 +27,25 @@
   <section id="checkout" hidden>
     <h1>Покупка подписки</h1>
     <p class="intro">Выбирай практики под настроение, сохраняй любимое и занимайся по своему расписанию.</p>
-    <p id="period-note" class="note" hidden></p>
     <form id="payment-form" novalidate>
       <fieldset><legend>Выбери период подписки</legend>
         <p id="early-user-note" class="early-user-note" hidden>Скидки только для самых первых пользователей</p>
         <div id="tariffs" class="tariffs"></div>
+        <p id="period-note" class="note" hidden></p>
         <p id="offer-ends" class="offer-ends" hidden></p>
       </fieldset>
-      <details class="promo-field"><summary>Есть промокод</summary>
-        <div class="promo-content">
-          <input id="promo" type="text" placeholder="Ввести промокод" aria-describedby="promo-note">
-          <small id="promo-note">Промокоды появятся позже</small>
-        </div>
-      </details>
       <div class="field" id="email-field">
         <div class="field-label-row"><label for="email">Email для чека <span class="required" aria-hidden="true">*</span></label>
           <button id="email-done" class="keyboard-done" type="button" hidden>Готово</button></div>
         <input id="email" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" enterkeyhint="done" required maxlength="254" placeholder="you@example.com" aria-required="true" aria-invalid="false" aria-describedby="email-error">
         <small id="email-error" class="field-error" role="alert" hidden></small>
       </div>
+      <details class="promo-field"><summary>Есть промокод</summary>
+        <div class="promo-content">
+          <input id="promo" type="text" placeholder="Ввести промокод" aria-describedby="promo-note">
+          <small id="promo-note">Промокоды появятся позже</small>
+        </div>
+      </details>
       <p id="error" role="alert" hidden></p>
       <div class="paybar">
         <button class="primary" id="pay" type="submit" disabled>Загрузка тарифов…</button>
