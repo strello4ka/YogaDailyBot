@@ -76,7 +76,6 @@ class SubscriptionRepository:
                            "FROM subscription_accounts LIMIT 0")
             cursor.execute("SELECT base_price,final_price,special_offer_applied,offer_ends_at_order "
                            "FROM subscription_orders LIMIT 0")
-            cursor.execute("SELECT superseded_at FROM subscription_orders LIMIT 0")
             if self.payment_scope is not None:
                 # Fail at startup, not after the buyer returns from checkout.
                 cursor.execute('SELECT payment_scope FROM subscription_orders LIMIT 0')
@@ -113,21 +112,10 @@ class SubscriptionRepository:
         scope, params = self._payment_scope_sql()
         with self._transaction() as cursor:
             cursor.execute("SELECT order_id FROM subscription_orders WHERE user_id=%s "
-                           "AND status IN ('created','pending') AND superseded_at IS NULL" + scope +
+                           "AND status IN ('created','pending')" + scope +
                            " ORDER BY created_at DESC LIMIT 1", (user_id,) + params)
             row = cursor.fetchone()
             return str(row[0]) if row else None
-
-    def supersede_order(self, order_id, user_id, now):
-        """Stop resuming an abandoned checkout without discarding its payment."""
-        scope, params = self._payment_scope_sql()
-        with self._transaction() as cursor:
-            cursor.execute("UPDATE subscription_orders SET superseded_at=%s,updated_at=%s "
-                           "WHERE order_id=%s AND user_id=%s AND status IN ('created','pending') "
-                           "AND superseded_at IS NULL" + scope,
-                           (now, now, order_id, user_id) + params)
-            if cursor.rowcount != 1:
-                raise ValueError('Open order changed before replacement')
 
     def checkout_profile(self, user_id):
         with self._transaction() as cursor:

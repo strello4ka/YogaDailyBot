@@ -28,10 +28,9 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
     for (const scenario of [
       {name:'fresh', checkout:true},
       {name:'returned success without storage', returned:true, status:'succeeded',title:'Оплата принята 🧡'},
+      {name:'Telegram start return succeeds', telegramReturned:true, status:'succeeded',title:'Оплата принята 🧡'},
       {name:'saved success', saved:true, status:'succeeded',title:'Оплата принята 🧡'},
       {name:'pending',returned:true,status:'pending',title:'Оплата пока не завершена'},
-      {name:'pending ignores stale check after back',returned:true,status:'pending',
-        title:'Оплата пока не завершена',stale:true},
       {name:'canceled returns directly to tariffs',returned:true,status:'canceled'},
       {name:'session failure',failed:true},
     ]) {
@@ -48,11 +47,9 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         }).observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden']});
       }, {order,saved:scenario.saved});
       await page.route('https://telegram.org/**', route => route.fulfill({body:''}));
-      let releaseSession, releasePayment, releaseStalePayment;
+      let releaseSession, releasePayment;
       const sessionGate = new Promise(resolve => releaseSession=resolve);
       const paymentGate = new Promise(resolve => releasePayment=resolve);
-      const stalePaymentGate = new Promise(resolve => releaseStalePayment=resolve);
-      let paymentRequests = 0;
       await page.route('**/test-api/session', async route => {
         await sessionGate;
         await route.fulfill({status:scenario.failed ? 503 : 200,contentType:'application/json',
@@ -60,15 +57,15 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
       });
       await page.route('**/test-api/payments/*', async route => {
         assert.equal(new URL(route.request().url()).pathname.split('/').pop(),order);
-        paymentRequests += 1;
-        if (scenario.stale && paymentRequests > 1) await stalePaymentGate;
-        else await paymentGate;
+        await paymentGate;
         await route.fulfill({contentType:'application/json',body:JSON.stringify({
           status:scenario.status,ends_on:'2026-12-31',
           confirmation_url:scenario.status==='pending' ? 'https://yookassa.ru/checkout' : null})});
       });
       await page.goto(`http://127.0.0.1:${server.address().port}/?test=1` +
-        (scenario.returned ? `&checkout_order=${order}` : ''),{waitUntil:'domcontentloaded'});
+        (scenario.returned ? `&checkout_order=${order}` : '') +
+        (scenario.telegramReturned ? `&tgWebAppStartParam=payment_${order}` : ''),
+        {waitUntil:'domcontentloaded'});
       assert.equal(await page.locator('#checkout').isVisible(),false);
       assert.equal(await page.locator('#loading').isVisible(),true);
       releaseSession();
@@ -102,22 +99,9 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         if(scenario.status === 'pending') {
           assert.equal(await page.locator('#check').isVisible(),false);
           assert.equal(await page.locator('#resume').isVisible(),true);
-          assert.equal(await page.locator('#back').isVisible(),true);
-          if (scenario.stale) {
-            await page.waitForTimeout(5100);
-            assert.equal(paymentRequests,2);
-          }
-          await page.locator('#back').click();
-          await page.locator('#checkout').waitFor({state:'visible'});
-          assert.equal(await page.locator('#checkout').isVisible(),true);
-          assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
-          assert.equal(await page.evaluate(() => sessionStorage.getItem('yoga-order')),null);
-          if (scenario.stale) {
-            releaseStalePayment();
-            await page.waitForTimeout(100);
-            assert.equal(await page.locator('#checkout').isVisible(),true);
-            assert.equal(await page.locator('#payment-status').isVisible(),false);
-          }
+          assert.equal(await page.locator('#status-text').textContent(),
+            'Мы пока не получили подтверждение оплаты. Заверши текущую оплату или дождись её отмены — после этого можно будет оформить новую оплату.');
+          assert.equal(await page.locator('#checkout').isVisible(),false);
         }
         if(scenario.status !== 'pending') {
           assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);

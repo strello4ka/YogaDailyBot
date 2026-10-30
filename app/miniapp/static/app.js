@@ -1,13 +1,17 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const tg = window.Telegram?.WebApp;
+const launchParams = new URLSearchParams(window.location.search);
 // This switch selects a route only; the local server authenticates every request.
-const testCheckout = new URLSearchParams(window.location.search).get('test') === '1';
-const returnedOrder = new URLSearchParams(window.location.search).get('checkout_order');
+const testCheckout = launchParams.get('test') === '1';
+const telegramStart = launchParams.get('tgWebAppStartParam') || '';
+const returnedOrder = launchParams.get('checkout_order') ||
+  (telegramStart.startsWith('payment_') ? telegramStart.slice('payment_'.length) : null);
 function clearSavedOrder() {
   sessionStorage.removeItem('yoga-order');
   const url = new URL(window.location.href);
   url.searchParams.delete('checkout_order');
+  url.searchParams.delete('tgWebAppStartParam');
   window.history.replaceState(null, '', url.href);
 }
 const money = value => new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 0}).format(value / 100) + ' ₽';
@@ -18,8 +22,7 @@ function monthlyPrice(tariff) {
   return `${money(tariff.final_price / months)} в месяц`;
 }
 let catalog = [], preview = false, orderId = null, poll = null, checking = false;
-let confirmationUrl = '', replaceOpenOrder = false;
-let checkEpoch = 0;
+let confirmationUrl = '';
 let initData = tg?.initData || sessionStorage.getItem('yoga-init-data') || '';
 if (tg?.initData) sessionStorage.setItem('yoga-init-data', tg.initData);
 tg?.ready();
@@ -130,43 +133,37 @@ function paymentErrorText(errorObject) {
 }
 async function checkPayment() {
   if (checking || !orderId) return;
-  const epoch = checkEpoch;
-  const checkedOrderId = orderId;
-  $('check').hidden = true; $('back').hidden = false;
+  $('check').hidden = true;
   checking = true; clearTimeout(poll);
   try {
     const data = await api(`/api/payments/${encodeURIComponent(orderId)}`);
-    // The user may have returned to the tariffs while this request was running.
-    // A stale response must not replace the tariff screen with the old order.
-    if (epoch !== checkEpoch || checkedOrderId !== orderId) return;
     if (data.status === 'succeeded') {
       $('resume').hidden = true;
       const date = data.ends_on?.split('-').reverse().join('.') || '';
       status('Оплата принята 🧡', `Подписка действует по ${date} включительно.`);
-      $('check').hidden = true; $('back').hidden = true; $('close').hidden = !tg?.initData;
+      $('check').hidden = true; $('close').hidden = !tg?.initData;
       clearSavedOrder();
     } else if (data.status === 'canceled') {
       $('resume').hidden = true;
       clearTimeout(poll); poll = null; clearSavedOrder(); orderId = null;
-      confirmationUrl = ''; replaceOpenOrder = false;
+      confirmationUrl = '';
       $('payment-status').hidden = true; $('checkout').hidden = false;
-      $('back').hidden = true; $('check').hidden = false; updatePrice();
+      $('check').hidden = false; updatePrice();
     } else {
       const canResume = rememberConfirmation(data.confirmation_url);
       status('Оплата пока не завершена', canResume
-        ? 'Мы пока не получили подтверждение оплаты. Ты можешь продолжить оплату или вернуться к тарифам.'
-        : 'Мы пока не получили подтверждение оплаты. Ты можешь вернуться к тарифам.');
-      $('check').hidden = true; $('back').hidden = false;
+        ? 'Мы пока не получили подтверждение оплаты. Заверши текущую оплату или дождись её отмены — после этого можно будет оформить новую оплату.'
+        : 'Мы пока не получили подтверждение оплаты. Дождись её завершения или отмены — после этого можно будет оформить новую оплату.');
+      $('check').hidden = true;
       poll = setTimeout(checkPayment, 5000);
     }
   } catch (e) {
-    if (epoch !== checkEpoch || checkedOrderId !== orderId) return;
     $('resume').hidden = true;
     if (e.status === 404) {
       clearSavedOrder(); orderId = null;
-      $('back').hidden = false; $('check').hidden = true;
+      $('check').hidden = true;
     } else {
-      $('back').hidden = false; $('check').hidden = false;
+      $('check').hidden = false;
     }
     status('Пока не удалось проверить оплату',
       'Повторно платить не нужно. ' + paymentErrorText(e));
@@ -184,9 +181,7 @@ $('payment-form').addEventListener('submit', async event => {
     sessionStorage.setItem('yoga-order', orderId);
     const tariff = catalog.find(t => t.code === selected());
     const data = await api('/api/payments', {order_id:orderId, tariff_code:selected(),
-      final_price:tariff.final_price, email:$('email').value.trim(),
-      replace_open_order:replaceOpenOrder});
-    replaceOpenOrder = false;
+      final_price:tariff.final_price, email:$('email').value.trim()});
     orderId = data.order_id; sessionStorage.setItem('yoga-order', orderId);
     if (data.confirmation_url) {
       openConfirmation(data.confirmation_url);
@@ -205,20 +200,6 @@ $('resume').addEventListener('click', event => {
 });
 $('reload').addEventListener('click', () => window.location.reload());
 $('close').addEventListener('click', () => tg?.close());
-function returnToTariffs(button = null) {
-  checkEpoch += 1;
-  clearTimeout(poll); poll = null; orderId = null; replaceOpenOrder = true; clearSavedOrder();
-  const reveal = () => {
-    button?.blur();
-    button?.classList.remove('is-busy');
-    button?.removeAttribute('aria-disabled');
-    $('payment-status').hidden = true; $('checkout').hidden = false;
-    $('back').hidden = true; $('check').hidden = false; updatePrice();
-  };
-  if (button) pressedTransition(button, reveal);
-  else reveal();
-}
-$('back').addEventListener('click', event => returnToTariffs(event.currentTarget));
 async function load() {
   try {
     const data = await api('/api/session');

@@ -98,16 +98,14 @@ class PaymentService:
                               expected_test=self.provider.expected_test)
 
     def checkout(self, order_id, user_id, tariff_code, email, return_url, now,
-                 expected_final_price=None, replace_open_order=False):
+                 expected_final_price=None):
         """Serialize different browser tabs and return an unfinished order first."""
         if self.allowed_tariffs is not None and tariff_code not in self.allowed_tariffs:
             raise ValueError('Tariff is not enabled for this payment run')
         with self.repository.payment_creation_lock(user_id):
             existing_id = self.repository.open_order_id(user_id)
             if existing_id and existing_id != str(order_id):
-                if not replace_open_order:
-                    return existing_id, None
-                self.repository.supersede_order(existing_id, user_id, now)
+                return existing_id, None
             return str(order_id), self.create(order_id, user_id, tariff_code, email, return_url, now,
                                               expected_final_price=expected_final_price)
 
