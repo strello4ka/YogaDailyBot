@@ -95,6 +95,22 @@ class PaymentsTest(unittest.TestCase):
         provider.create_payment.assert_not_called()
         repo.save_order.assert_not_called()
 
+    def test_explicit_tariff_change_supersedes_old_checkout_and_creates_selected_one(self):
+        repo, provider = Mock(), Mock(expected_test=True)
+        repo.payment_creation_lock.return_value = nullcontext()
+        repo.open_order_id.return_value = self.order.order_id
+        new_id = str(uuid4())
+        service = PaymentService(repo, provider)
+        service.create = Mock(return_value={'id': 'new-payment'})
+        result = service.checkout(new_id, 10, 'quarter', self.order.email,
+                                  'https://example.org', NOW,
+                                  replace_open_order=True)
+        self.assertEqual(result, (new_id, {'id': 'new-payment'}))
+        repo.supersede_order.assert_called_once_with(self.order.order_id, 10, NOW)
+        service.create.assert_called_once_with(new_id, 10, 'quarter', self.order.email,
+                                               'https://example.org', NOW,
+                                               expected_final_price=None)
+
     def test_pending_payment_offers_existing_confirmation_url(self):
         repo, provider = Mock(), Mock(expected_test=True)
         repo.get_order.return_value = self.order

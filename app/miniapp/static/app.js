@@ -18,7 +18,8 @@ function monthlyPrice(tariff) {
   return `${money(tariff.final_price / months)} в месяц`;
 }
 let catalog = [], preview = false, orderId = null, poll = null, checking = false;
-let confirmationUrl = '';
+let confirmationUrl = '', replaceOpenOrder = false;
+let checkEpoch = 0;
 let initData = tg?.initData || sessionStorage.getItem('yoga-init-data') || '';
 if (tg?.initData) sessionStorage.setItem('yoga-init-data', tg.initData);
 tg?.ready();
@@ -122,10 +123,15 @@ function paymentErrorText(errorObject) {
 }
 async function checkPayment() {
   if (checking || !orderId) return;
+  const epoch = checkEpoch;
+  const checkedOrderId = orderId;
   $('check').hidden = true; $('back').hidden = false;
   checking = true; clearTimeout(poll);
   try {
     const data = await api(`/api/payments/${encodeURIComponent(orderId)}`);
+    // The user may have returned to the tariffs while this request was running.
+    // A stale response must not replace the tariff screen with the old order.
+    if (epoch !== checkEpoch || checkedOrderId !== orderId) return;
     if (data.status === 'succeeded') {
       $('resume').hidden = true;
       const date = data.ends_on?.split('-').reverse().join('.') || '';
@@ -146,6 +152,7 @@ async function checkPayment() {
       poll = setTimeout(checkPayment, 5000);
     }
   } catch (e) {
+    if (epoch !== checkEpoch || checkedOrderId !== orderId) return;
     $('resume').hidden = true;
     if (e.status === 404) {
       clearSavedOrder(); orderId = null;
@@ -169,12 +176,12 @@ $('payment-form').addEventListener('submit', async event => {
     sessionStorage.setItem('yoga-order', orderId);
     const tariff = catalog.find(t => t.code === selected());
     const data = await api('/api/payments', {order_id:orderId, tariff_code:selected(),
-      final_price:tariff.final_price, email:$('email').value.trim()});
+      final_price:tariff.final_price, email:$('email').value.trim(),
+      replace_open_order:replaceOpenOrder});
+    replaceOpenOrder = false;
     orderId = data.order_id; sessionStorage.setItem('yoga-order', orderId);
     if (data.confirmation_url) {
-      status('Заверши оплату', 'После оплаты вернись сюда — статус обновится автоматически.');
       openConfirmation(data.confirmation_url);
-      poll = setTimeout(checkPayment, 5000);
     } else { status('Проверяем оплату', 'Это может занять немного времени.'); await checkPayment(); }
   } catch (e) {
     if (e.status === 409) { clearSavedOrder(); window.location.reload(); return; }
@@ -189,8 +196,10 @@ $('resume').addEventListener('click', event => {
 });
 $('reload').addEventListener('click', () => window.location.reload());
 $('close').addEventListener('click', () => tg?.close());
-$('back').addEventListener('click', () => {
-  clearTimeout(poll); orderId = null; clearSavedOrder();
+$('back').addEventListener('click', event => {
+  event.currentTarget.blur();
+  checkEpoch += 1;
+  clearTimeout(poll); poll = null; orderId = null; replaceOpenOrder = true; clearSavedOrder();
   $('payment-status').hidden = true; $('checkout').hidden = false;
   $('back').hidden = true; $('check').hidden = false; updatePrice();
 });
@@ -239,6 +248,7 @@ async function load() {
     }
   } catch (e) {
     $('loading-text').textContent = 'Не удалось загрузить данные. ' + e.message;
+    $('loading-text').hidden = false;
     $('reload').hidden = false;
   }
 }

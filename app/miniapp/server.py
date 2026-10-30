@@ -117,9 +117,13 @@ class MiniApp:
                 code = data['tariff_code']
                 if code not in TARIFFS:
                     raise ValueError('Unknown tariff')
+                replace_open_order = data.get('replace_open_order', False)
+                if not isinstance(replace_open_order, bool):
+                    raise ValueError('Invalid replacement flag')
                 order_id, payment = self.payments.checkout(
                     order_id, user_id, code, data['email'], self.return_url, now,
-                    expected_final_price=data.get('final_price'))
+                    expected_final_price=data.get('final_price'),
+                    replace_open_order=replace_open_order)
                 confirmation = (payment or {}).get('confirmation') or {}
                 return respond('200 OK', {'order_id': order_id,
                                          'confirmation_url': confirmation.get('confirmation_url')})

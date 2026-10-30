@@ -92,3 +92,16 @@ class LiveConfigTest(unittest.TestCase):
         sql, params = cursor.execute.call_args.args
         self.assertIn('payment_scope', sql)
         self.assertEqual(params[-1], 'live:1495040')
+
+    def test_superseded_order_stays_scoped_and_is_not_deleted(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 1
+        repo = SubscriptionRepository(Mock(return_value=connection), payment_scope='live:1495040')
+        order_id = str(uuid4())
+        now = datetime.now(MOSCOW)
+        repo.supersede_order(order_id, 10, now)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn('SET superseded_at=%s', sql)
+        self.assertIn('payment_scope=%s', sql)
+        self.assertEqual(params, (now, now, order_id, 10, 'live:1495040'))

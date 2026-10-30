@@ -30,6 +30,8 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
       {name:'returned success without storage', returned:true, status:'succeeded',title:'Оплата принята 🧡'},
       {name:'saved success', saved:true, status:'succeeded',title:'Оплата принята 🧡'},
       {name:'pending',returned:true,status:'pending',title:'Оплата пока не завершена'},
+      {name:'pending ignores stale check after back',returned:true,status:'pending',
+        title:'Оплата пока не завершена',stale:true},
       {name:'canceled',returned:true,status:'canceled',title:'Оплата отменена'},
       {name:'session failure',failed:true},
     ]) {
@@ -46,9 +48,11 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         }).observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden']});
       }, {order,saved:scenario.saved});
       await page.route('https://telegram.org/**', route => route.fulfill({body:''}));
-      let releaseSession, releasePayment;
+      let releaseSession, releasePayment, releaseStalePayment;
       const sessionGate = new Promise(resolve => releaseSession=resolve);
       const paymentGate = new Promise(resolve => releasePayment=resolve);
+      const stalePaymentGate = new Promise(resolve => releaseStalePayment=resolve);
+      let paymentRequests = 0;
       await page.route('**/test-api/session', async route => {
         await sessionGate;
         await route.fulfill({status:scenario.failed ? 503 : 200,contentType:'application/json',
@@ -56,7 +60,9 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
       });
       await page.route('**/test-api/payments/*', async route => {
         assert.equal(new URL(route.request().url()).pathname.split('/').pop(),order);
-        await paymentGate;
+        paymentRequests += 1;
+        if (scenario.stale && paymentRequests > 1) await stalePaymentGate;
+        else await paymentGate;
         await route.fulfill({contentType:'application/json',body:JSON.stringify({
           status:scenario.status,ends_on:'2026-12-31',
           confirmation_url:scenario.status==='pending' ? 'https://yookassa.ru/checkout' : null})});
@@ -77,9 +83,9 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
           assert.equal(await page.locator('#resume').getAttribute('href'),'https://yookassa.ru/checkout');
         }
       } else {
+        releasePayment();
         await page.locator('#payment-status').waitFor({state:'visible'});
         assert.equal(await page.locator('#checkout').isVisible(),false);
-        releasePayment();
         await page.waitForFunction(title => document.getElementById('status-title').textContent===title,
           scenario.title);
         assert.equal(await page.evaluate(() => window.checkoutShown),false);
@@ -87,10 +93,20 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
           assert.equal(await page.locator('#check').isVisible(),false);
           assert.equal(await page.locator('#resume').isVisible(),true);
           assert.equal(await page.locator('#back').isVisible(),true);
+          if (scenario.stale) {
+            await page.waitForTimeout(5100);
+            assert.equal(paymentRequests,2);
+          }
           await page.locator('#back').click();
           assert.equal(await page.locator('#checkout').isVisible(),true);
           assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
           assert.equal(await page.evaluate(() => sessionStorage.getItem('yoga-order')),null);
+          if (scenario.stale) {
+            releaseStalePayment();
+            await page.waitForTimeout(100);
+            assert.equal(await page.locator('#checkout').isVisible(),true);
+            assert.equal(await page.locator('#payment-status').isVisible(),false);
+          }
         }
         if(scenario.status !== 'pending') {
           assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);

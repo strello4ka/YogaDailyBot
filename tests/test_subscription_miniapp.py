@@ -155,7 +155,8 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertNotIn('tg.openLink(confirmationUrl)', client)
         self.assertIn('window.location.assign(confirmationUrl)', client)
         self.assertIn("$('back').hidden = false;", client)
-        self.assertIn('clearTimeout(poll); orderId = null; clearSavedOrder();', client)
+        self.assertIn('orderId = null; replaceOpenOrder = true; clearSavedOrder();', client)
+        self.assertIn('replace_open_order:replaceOpenOrder', client)
         self.assertIn("status('Оплата пока не завершена'", client)
         self.assertIn("status('Оплата отменена'", client)
         self.assertIn('Специальные цены действуют до ${date} включительно\\n'
@@ -208,11 +209,20 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.payments.checkout.return_value = (order_id, {'confirmation': {'confirmation_url':'https://example.org'}})
         status, _ = self.request('/api/payments', {'init_data': self.auth.signed(), 'order_id':order_id,
             'tariff_code':'month', 'email':'user@example.org', 'amount':1,
-            'final_price':35000, 'user_id':999})
+            'final_price':35000, 'user_id':999, 'replace_open_order':True})
         self.assertEqual(status, '200 OK')
         args = self.payments.checkout.call_args.args
         self.assertEqual(args[1:4], (10, 'month', 'user@example.org'))
         self.assertEqual(self.payments.checkout.call_args.kwargs['expected_final_price'], 35000)
+        self.assertIs(self.payments.checkout.call_args.kwargs['replace_open_order'], True)
+
+    def test_replacement_flag_must_be_boolean(self):
+        order_id = str(uuid4())
+        status, _ = self.request('/api/payments', {'init_data': self.auth.signed(),
+            'order_id':order_id, 'tariff_code':'month', 'email':'user@example.org',
+            'final_price':35000, 'replace_open_order':'true'})
+        self.assertEqual(status, '400 Bad Request')
+        self.payments.checkout.assert_not_called()
 
     def test_provider_error_does_not_leak_details(self):
         self.repo.checkout_profile.side_effect = RuntimeError('SECRET DATABASE DETAIL')
