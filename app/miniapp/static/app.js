@@ -220,7 +220,9 @@ async function load() {
       label.append(input);
       const rows = [['tariff-title', tariff.title], ['tariff-price', money(tariff.final_price)]];
       const monthly = monthlyPrice(tariff);
-      if (monthly) rows.push(['tariff-monthly', monthly]);
+      // Keep every price on the same baseline even when a tariff has no
+      // secondary "per month" caption.
+      rows.push(['tariff-monthly', monthly || '\u00a0']);
       for (const [className, text] of rows) {
         const span = document.createElement('span'); span.className = className; span.textContent = text;
         if (className === 'tariff-price' && tariff.final_price < tariff.base_price) {

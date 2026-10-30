@@ -165,6 +165,7 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertIn('Специальные цены действуют до ${date} включительно\\n'
                       'только на первую покупку', client)
         self.assertIn("basePrice.className = 'tariff-base-price'", client)
+        self.assertIn("rows.push(['tariff-monthly', monthly || '\\u00a0'])", client)
         self.assertIn("basePrice.className = 'pay-base-price'", client)
         self.assertNotIn("promo-field", client)
         self.assertIn("if (months === 1) return '';", client)
