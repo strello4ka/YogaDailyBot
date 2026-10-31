@@ -63,6 +63,23 @@ async def deliver_payment_notice(context, user_id, order_id, now):
         await asyncio.to_thread(repository.mark_notification_sent, user_id, event_key, now)
 
 
+async def deliver_canceled_payment_notice(context, user_id, order_id, now):
+    from .messages import PAYMENT_FAILED
+    from .subscription_menu import optional_tariff_keyboard
+    repository = context.bot_data['subscription_repository']
+    event_key = 'payment_canceled:' + order_id
+    async with _notice_lock(repository, user_id, event_key) as acquired:
+        if not acquired or await asyncio.to_thread(repository.notification_sent, user_id, event_key):
+            return
+        chat_id = await asyncio.to_thread(repository.canceled_payment_notice, order_id, user_id)
+        if chat_id is None:
+            return
+        keyboard = optional_tariff_keyboard(context.bot_data.get('subscription_miniapp_url', ''))
+        await context.bot.send_message(chat_id=chat_id, text=PAYMENT_FAILED,
+                                       parse_mode='HTML', reply_markup=keyboard)
+        await asyncio.to_thread(repository.mark_notification_sent, user_id, event_key, now)
+
+
 async def _deliver_ready_payments(context, user_id):
     """Deliver durable results without making any provider requests."""
     repository = context.bot_data['subscription_repository']
@@ -72,6 +89,13 @@ async def _deliver_ready_payments(context, user_id):
             await deliver_payment_notice(context, user_id, order_id, datetime.now(MOSCOW))
         except Exception:
             logger.warning('Test payment notification failed order=%s', order_id)
+    canceled = await asyncio.to_thread(repository.canceled_payment_work, user_id)
+    for order_id in canceled:
+        try:
+            await deliver_canceled_payment_notice(context, user_id, order_id,
+                                                  datetime.now(MOSCOW))
+        except Exception:
+            logger.warning('Canceled payment notification failed order=%s', order_id)
     from app.onboarding.flow import continue_after_subscription_payment
     await continue_after_subscription_payment(context, user_id)
 

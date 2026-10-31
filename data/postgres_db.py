@@ -903,10 +903,11 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
             ''', (user_id, chat_id, notify_time, user_name, user_nickname, first_send_date))
         else:
             # Изменение времени - НЕ обнуляем счётчик отправленных практик
+            first_send_date = _tomorrow_date_moscow()
             cursor.execute('''
                 INSERT INTO users (user_id, chat_id, notify_time, user_name, user_nickname, total_practices,
-                    bot_mode, daily_schedule_enabled)
-                VALUES (%s, %s, %s, %s, %s, 0, 'daily', TRUE)
+                    bot_mode, daily_schedule_enabled, first_daily_send_date)
+                VALUES (%s, %s, %s, %s, %s, 0, 'daily', TRUE, %s)
                 ON CONFLICT (user_id) 
                 DO UPDATE SET 
                     chat_id = EXCLUDED.chat_id,
@@ -919,8 +920,13 @@ def save_user_time(user_id: int, chat_id: int, notify_time: str, user_name: str 
                         ELSE 'daily'
                     END,
                     daily_schedule_enabled = TRUE,
+                    first_daily_send_date = EXCLUDED.first_daily_send_date,
+                    is_paused = FALSE,
+                    paused_at = NULL,
+                    last_pause_reminder_at = NULL,
+                    pause_reminder_step = 0,
                     updated_at = CURRENT_TIMESTAMP
-            ''', (user_id, chat_id, notify_time, user_name, user_nickname))
+            ''', (user_id, chat_id, notify_time, user_name, user_nickname, first_send_date))
         
         conn.commit()
         conn.close()
@@ -1609,122 +1615,24 @@ def get_users_pending_for_today(current_time: str) -> list:
         return []
 
 
-def resume_disabled_daily_schedule(user_id: int) -> bool:
-    """Explicit consent to resume a disabled schedule, preserving time/progress."""
+def disable_daily_schedule(user_id: int) -> bool:
+    """Remove the daily schedule while preserving the user's progress."""
     conn = get_connection()
     try:
         with conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    "UPDATE users SET daily_schedule_enabled=TRUE, is_paused=FALSE, "
+                    "UPDATE users SET notify_time='00:00', daily_schedule_enabled=FALSE, "
+                    "is_paused=FALSE, "
                     "paused_at=NULL, last_pause_reminder_at=NULL, pause_reminder_step=0, "
-                    "first_daily_send_date=%s, bot_mode='daily', updated_at=CURRENT_TIMESTAMP "
+                    "first_daily_send_date=NULL, updated_at=CURRENT_TIMESTAMP "
                     "WHERE user_id=%s AND bot_mode IS DISTINCT FROM 'challenge' "
-                    "AND daily_schedule_enabled=FALSE "
                     "AND notify_time IS NOT NULL AND notify_time NOT IN ('','00:00')",
-                    (_tomorrow_date_moscow(), user_id),
+                    (user_id,),
                 )
                 return cursor.rowcount == 1
     finally:
         conn.close()
-
-
-def toggle_user_pause(user_id: int):
-    """Переключает паузу рассылки для пользователя.
-
-    Returns:
-        tuple: (success: bool, is_paused_now: bool, had_challenge_before_pause: bool)
-    """
-    conn = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            SELECT COALESCE(is_paused, FALSE), challenge_start_id
-            FROM users
-            WHERE user_id = %s
-            ''',
-            (user_id,),
-        )
-        row = cursor.fetchone()
-        if not row:
-            conn.close()
-            return (False, False, False)
-
-        is_paused_now = bool(row[0])
-        had_challenge = row[1] is not None
-
-        if is_paused_now:
-            cursor.execute(
-                '''
-                UPDATE users
-                SET is_paused = FALSE,
-                    paused_at = NULL,
-                    last_pause_reminder_at = NULL,
-                    pause_reminder_step = 0,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE user_id = %s
-                ''',
-                (user_id,),
-            )
-            conn.commit()
-            conn.close()
-            return (True, False, False)
-
-        cursor.execute(
-            '''
-            UPDATE users
-            SET is_paused = TRUE,
-                paused_at = CURRENT_TIMESTAMP,
-                last_pause_reminder_at = NULL,
-                pause_reminder_step = 0,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = %s
-            ''',
-            (user_id,),
-        )
-        conn.commit()
-        conn.close()
-        return (True, True, had_challenge)
-    except Exception as e:
-        print(f"Ошибка toggle_user_pause {user_id}: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
-        return (False, False, False)
-
-
-def get_users_for_pause_reminder() -> list:
-    """Возвращает пользователей, которым пора отправить еженедельное напоминание в паузе."""
-    conn = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            SELECT user_id, chat_id, COALESCE(pause_reminder_step, 0)
-            FROM users
-            WHERE COALESCE(is_paused, FALSE) = TRUE
-              AND COALESCE(is_blocked, FALSE) = FALSE
-              AND COALESCE(onboarding_required, FALSE) = FALSE
-              AND COALESCE(bot_mode, 'daily') IN ('daily', 'challenge')
-              AND COALESCE(daily_schedule_enabled, TRUE) = TRUE
-              AND paused_at <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
-              AND (
-                    last_pause_reminder_at IS NULL
-                    OR last_pause_reminder_at <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
-                  )
-            '''
-        )
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    except Exception as e:
-        print(f"Ошибка get_users_for_pause_reminder: {e}")
-        if conn:
-            conn.close()
-        return []
 
 
 def touch_by_mood_activity(user_id: int) -> bool:
@@ -1811,33 +1719,6 @@ def mark_by_mood_reminder_sent(user_id: int) -> bool:
         return True
     except Exception as e:
         print(f"Ошибка mark_by_mood_reminder_sent для {user_id}: {e}")
-        if conn:
-            conn.rollback()
-            conn.close()
-        return False
-
-
-def mark_pause_reminder_sent(user_id: int) -> bool:
-    """Отмечает время последнего напоминания о паузе."""
-    conn = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            UPDATE users
-            SET last_pause_reminder_at = CURRENT_TIMESTAMP,
-                pause_reminder_step = COALESCE(pause_reminder_step, 0) + 1,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = %s
-            ''',
-            (user_id,),
-        )
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Ошибка mark_pause_reminder_sent для {user_id}: {e}")
         if conn:
             conn.rollback()
             conn.close()
@@ -2301,9 +2182,9 @@ def set_user_onboarding_required(
 ) -> bool:
     """Создает/помечает пользователя как требующего выбора режима после /start.
 
-    Сбрасывает зависящие от старого состояния поля: challenge_start_id, challenge_day, total_practices, program_position,
-    is_paused (с датами/шагом напоминаний о паузе), избранное, а также обнуляет отметки выполненных практик (completed_at)
-    для полного "старта с нуля".
+    Сбрасывает зависящие от старого состояния поля: challenge_start_id, challenge_day,
+    total_practices, program_position, устаревшие служебные поля паузы, избранное,
+    а также обнуляет отметки выполненных практик (completed_at) для полного "старта с нуля".
 
     traffic_source пишется только при INSERT (первый вход). При повторном /start
     (ON CONFLICT) поле traffic_source не меняется.

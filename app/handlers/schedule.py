@@ -5,14 +5,13 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from app.onboarding.messages import WEEK_DESCRIPTION, quote, TIME_INPUT
+from app.onboarding.messages import quote
 from app.daily.set_time import validate_time_format
 from data.db import (
+    disable_daily_schedule,
     get_user_schedule_settings,
     get_yoga_practice_by_challenge_order,
     save_user_time,
-    toggle_user_pause,
-    resume_disabled_daily_schedule,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,22 +20,39 @@ logger = logging.getLogger(__name__)
 SCHEDULE_MENU_TIME_KEY = "waiting_for_schedule_menu_time"
 
 FIRST_SETUP_TEXT = (
-    "Давай настроим удобное время для практик 🧡\n\n"
-    "<b>В какое время хочешь получать ежедневные видео, начиная с завтрашнего дня?</b>\n\n"
-    + quote(WEEK_DESCRIPTION)
+    "<b>Давай настроим удобное время для практик 🧡</b>\n\n"
+    "В какое время хочешь получать ежедневные видео, начиная с завтрашнего дня?\n\n"
+    + quote(
+        "Каждая неделя содержит практики:\n"
+        "🌀 2-3 бодрые, 5-15 минут\n"
+        "🌀 по вторникам - всегда работа с осанкой, спиной и шеей\n"
+        "🌀 по пятницам - релакс\n"
+        "🌀 по субботам - горячая активная, 20-25 минут\n"
+        "🌀 по воскресеньям - восстановление, 20-25 минут\n"
+        "🌀 плюс бонус - иногда приходит в дополнение к основной практике: "
+        "дыхательная техника, медитация, отстройка асан"
+    )
 )
 
-TIME_INPUT_TEXT = TIME_INPUT
+TIME_INPUT_TEXT = (
+    "<b>Введи время в формате ЧЧ.ММ</b>\n"
+    "(например, 09.30)\n\n"
+    "PS. Время учитывается по МСК"
+)
 
 
-def _is_never_configured(settings) -> bool:
-    return not settings or settings.get("notify_time") in (None, "", "00:00")
+def _is_schedule_installed(settings) -> bool:
+    return bool(
+        settings
+        and settings.get("notify_time") not in (None, "", "00:00")
+        and settings.get("enabled", True)
+        and not settings.get("paused", False)
+    )
 
 
-def _management_keyboard(*, challenge: bool, paused: bool) -> InlineKeyboardMarkup:
-    toggle_label = "Возобновить рассылку" if paused else "Остановить рассылку"
+def _management_keyboard(*, challenge: bool) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(toggle_label, callback_data="schedule_toggle")],
+        [InlineKeyboardButton("Остановить рассылку", callback_data="schedule_toggle")],
         [InlineKeyboardButton("Изменить время", callback_data="schedule_change_time")],
     ]
     if challenge:
@@ -48,12 +64,7 @@ def _management_text(settings) -> tuple[str, bool]:
     is_challenge = settings.get("bot_mode") == "challenge" and settings.get("challenge_start_id") is not None
     if is_challenge:
         return f"Сейчас ты в челлендже 🧡\nТвоё время — {settings['notify_time']}", True
-    status = "приостановлена 🪫" if _schedule_inactive(settings) else "активна ✅"
-    return f"Рассылка {status}\nТвое время сейчас — {settings['notify_time']}", False
-
-
-def _schedule_inactive(settings):
-    return bool(settings.get('paused')) or settings.get('enabled') is False
+    return f"Рассылка активна ✅\nТвое время сейчас — {settings['notify_time']}", False
 
 
 def cancel_schedule_menu_time(context):
@@ -72,19 +83,20 @@ async def cancel_schedule_menu_time_on_command(update: Update, context: ContextT
 
 async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_user_schedule_settings(update.effective_user.id)
-    if not _is_never_configured(settings):
+    if _is_schedule_installed(settings):
         text, is_challenge = _management_text(settings)
         await update.effective_message.reply_text(
             text,
-            reply_markup=_management_keyboard(
-                challenge=is_challenge,
-                paused=_schedule_inactive(settings),
-            ),
+            reply_markup=_management_keyboard(challenge=is_challenge),
         )
         return
 
     cancel_schedule_menu_time(context)
-    await update.effective_message.reply_text(
+    await _send_first_setup(update.effective_message)
+
+
+async def _send_first_setup(message):
+    await message.reply_text(
         FIRST_SETUP_TEXT,
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
@@ -133,50 +145,43 @@ async def schedule_toggle_callback(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
-    resumed_disabled = bool(before and before.get('enabled') is False)
-    if resumed_disabled:
-        if _is_never_configured(before):
-            await send_schedule_time_prompt(update, context)
-            return
-        success = resume_disabled_daily_schedule(user_id)
-        is_paused_now = False
-    else:
-        success, is_paused_now, _had_challenge = toggle_user_pause(user_id)
-    if not success:
-        await query.message.reply_text("Не получилось переключить рассылку. Попробуй еще раз чуть позже.")
+    if not _is_schedule_installed(before):
+        cancel_schedule_menu_time(context)
+        await _send_first_setup(query.message)
         return
 
-    if is_paused_now:
-        text = (
-            "<b>Остановил ежедневную рассылку 🪫</b>\n"
-            "Твой прогресс полностью сохранен и ждет тебя!\n"
-            "Когда захочешь вернуться, просто жми кнопку <b>Возобновить рассылку</b> — "
-            "продолжим с того же места"
-        )
-    else:
-        notify_time = (before or {}).get("notify_time") or "—"
-        text = (
-            "<b>Ураа, я знал, что ты вернешься! Рассылка снова активна 🔋</b>\n"
-            "Продолжаем без потери прогресса, как будто паузы и не было.\n"
-            f"Следующая практика придет по твоему времени: <b>{notify_time}</b>"
-        )
-        if resumed_disabled:
-            text = text.replace("Следующая практика придет", "Практики начнут приходить с завтрашнего дня")
+    success = disable_daily_schedule(user_id)
+    if not success:
+        await query.message.reply_text("Не получилось остановить рассылку. Попробуй еще раз чуть позже.")
+        return
 
-    after = get_user_schedule_settings(user_id)
-    if after:
-        management_text, is_challenge = _management_text(after)
-        try:
-            await query.edit_message_text(
-                text=management_text,
-                reply_markup=_management_keyboard(
-                    challenge=is_challenge,
-                    paused=_schedule_inactive(after),
-                ),
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        logger.exception("Не удалось убрать кнопки активного расписания user=%s", user_id)
+    await query.message.reply_text(
+        "<b>Остановил ежедневную рассылку 🪫</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "Возобновить рассылку",
+                callback_data="schedule_resume_setup",
+                api_kwargs={"style": "primary"},
             )
-        except Exception:
-            logger.exception("Не удалось обновить экран расписания user=%s", user_id)
-    await query.message.reply_text(text, parse_mode="HTML")
+        ]]),
+    )
+
+
+async def schedule_resume_setup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Open the same setup flow used when no schedule is installed."""
+    query = update.callback_query
+    await query.answer()
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        logger.exception("Не удалось убрать кнопку возобновления расписания")
+    cancel_schedule_menu_time(context)
+    await _send_first_setup(query.message)
 
 
 async def schedule_change_time_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

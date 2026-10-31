@@ -16,13 +16,14 @@ function clearSavedOrder() {
 }
 const money = value => new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 0}).format(value / 100) + ' ₽';
 const tariffMonths = {month: 1, quarter: 3, half_year: 6, year: 12};
+const PAYMENT_CREATION_TIMEOUT_MS = 30000;
 function monthlyPrice(tariff) {
   const months = tariffMonths[tariff.code];
   if (months === 1) return '';
   return `${money(tariff.final_price / months)} в месяц`;
 }
 let catalog = [], preview = false, orderId = null, poll = null, checking = false;
-let confirmationUrl = '';
+let confirmationUrl = '', paymentCreationStartedAt = null;
 let initData = tg?.initData || sessionStorage.getItem('yoga-init-data') || '';
 if (tg?.initData) sessionStorage.setItem('yoga-init-data', tg.initData);
 tg?.ready();
@@ -96,11 +97,38 @@ function updatePrice() {
     }
   }
   $('pay').disabled = preview || !tariff;
+  $('pay').removeAttribute('aria-label');
+}
+function showPayLoader() {
+  const pay = $('pay');
+  const loader = document.createElement('span');
+  loader.className = 'button-loader';
+  loader.setAttribute('aria-hidden', 'true');
+  pay.replaceChildren(loader);
+  pay.setAttribute('aria-label', 'Переходим к оплате');
+  pay.disabled = true;
+}
+function creationWaitExpired() {
+  return paymentCreationStartedAt !== null &&
+    Date.now() - paymentCreationStartedAt >= PAYMENT_CREATION_TIMEOUT_MS;
+}
+function stopCreationWait() {
+  clearTimeout(poll); poll = null; paymentCreationStartedAt = null;
+  $('loading').hidden = true;
+  $('payment-status').hidden = true;
+  $('checkout').hidden = false;
+  error('Упс...что-то пошло не так');
+  updatePrice();
 }
 function status(title, text) {
   $('loading').hidden = true;
   $('checkout').hidden = true; $('payment-status').hidden = false;
-  $('status-title').textContent = title; $('status-text').textContent = text;
+  $('status-title').textContent = title;
+  $('status-text').textContent = text || '';
+  $('status-text').hidden = !text;
+  $('resume').hidden = true;
+  $('tariffs-button').hidden = true;
+  $('close').hidden = true;
 }
 function rememberConfirmation(value) {
   confirmationUrl = '';
@@ -127,46 +155,62 @@ function pressedTransition(element, callback) {
   tg?.HapticFeedback?.impactOccurred?.('light');
   window.setTimeout(callback, 110);
 }
-function paymentErrorText(errorObject) {
-  if (errorObject?.status && errorObject.message) return errorObject.message;
-  return 'Не удалось связаться с сервером. Проверь интернет и попробуй ещё раз.';
-}
 async function checkPayment() {
   if (checking || !orderId) return;
-  $('check').hidden = true;
   checking = true; clearTimeout(poll);
   try {
     const data = await api(`/api/payments/${encodeURIComponent(orderId)}`);
     if (data.status === 'succeeded') {
+      paymentCreationStartedAt = null;
       $('resume').hidden = true;
       const date = data.ends_on?.split('-').reverse().join('.') || '';
       status('Оплата принята 🧡', `Подписка действует по ${date} включительно.`);
-      $('check').hidden = true; $('close').hidden = !tg?.initData;
+      $('close').hidden = !tg?.initData;
       clearSavedOrder();
     } else if (data.status === 'canceled') {
-      $('resume').hidden = true;
+      paymentCreationStartedAt = null;
       clearTimeout(poll); poll = null; clearSavedOrder(); orderId = null;
       confirmationUrl = '';
-      $('payment-status').hidden = true; $('checkout').hidden = false;
-      $('check').hidden = false; updatePrice();
+      status('❌ Оплата не прошла', 'Попробуй ещё раз');
+      $('tariffs-button').hidden = false;
+    } else if (data.status === 'created') {
+      if (paymentCreationStartedAt === null) paymentCreationStartedAt = Date.now();
+      if (creationWaitExpired()) { stopCreationWait(); return; }
+      $('loading').hidden = true;
+      $('payment-status').hidden = true;
+      $('checkout').hidden = false;
+      showPayLoader();
+      poll = setTimeout(checkPayment, 2000);
     } else {
+      paymentCreationStartedAt = null;
       const canResume = rememberConfirmation(data.confirmation_url);
-      status('Оплата пока не завершена', canResume
-        ? 'Мы пока не получили подтверждение оплаты. Заверши текущую оплату или дождись её отмены — после этого можно будет оформить новую оплату.'
-        : 'Мы пока не получили подтверждение оплаты. Дождись её завершения или отмены — после этого можно будет оформить новую оплату.');
-      $('check').hidden = true;
+      status('Ожидаем оплату', '');
+      if (canResume) $('resume').hidden = false;
       poll = setTimeout(checkPayment, 5000);
     }
   } catch (e) {
-    $('resume').hidden = true;
     if (e.status === 404) {
       clearSavedOrder(); orderId = null;
-      $('check').hidden = true;
+      confirmationUrl = '';
+      $('payment-status').hidden = true;
+      $('checkout').hidden = false;
+      updatePrice();
     } else {
-      $('check').hidden = false;
+      if (!confirmationUrl && !returnedOrder && $('payment-status').hidden) {
+        if (creationWaitExpired()) {
+          stopCreationWait();
+          return;
+        }
+        $('loading').hidden = true;
+        $('checkout').hidden = false;
+        showPayLoader();
+      } else {
+        const canResume = rememberConfirmation(confirmationUrl);
+        status('Ожидаем оплату', '');
+        if (canResume) $('resume').hidden = false;
+      }
+      poll = setTimeout(checkPayment, 5000);
     }
-    status('Пока не удалось проверить оплату',
-      'Повторно платить не нужно. ' + paymentErrorText(e));
   } finally { checking = false; }
 }
 $('payment-form').addEventListener('submit', async event => {
@@ -174,7 +218,8 @@ $('payment-form').addEventListener('submit', async event => {
   emailTouched = true;
   if (!validateEmail(true)) { emailInput.focus(); return; }
   if (preview) return;
-  $('pay').disabled = true;
+  paymentCreationStartedAt = Date.now();
+  showPayLoader();
   try {
     // Reuse after an unknown network outcome rather than create a new charge.
     orderId = orderId || crypto.randomUUID();
@@ -185,20 +230,30 @@ $('payment-form').addEventListener('submit', async event => {
     orderId = data.order_id; sessionStorage.setItem('yoga-order', orderId);
     if (data.confirmation_url) {
       openConfirmation(data.confirmation_url);
-    } else { status('Проверяем оплату', 'Это может занять немного времени.'); await checkPayment(); }
+    } else {
+      await checkPayment();
+    }
   } catch (e) {
     if (e.status === 409) { clearSavedOrder(); window.location.reload(); return; }
+    paymentCreationStartedAt = null;
     error(e.message); updatePrice();
   }
 });
-$('check').addEventListener('click', checkPayment);
 $('resume').addEventListener('click', event => {
   if (!confirmationUrl) { event.preventDefault(); return; }
   event.preventDefault();
   const target = confirmationUrl;
   pressedTransition(event.currentTarget, () => window.location.assign(target));
 });
-$('reload').addEventListener('click', () => window.location.reload());
+$('tariffs-button').addEventListener('click', () => {
+  $('payment-status').hidden = true;
+  $('checkout').hidden = false;
+  updatePrice();
+});
+$('reload').addEventListener('click', () => {
+  if ($('reload').dataset.action === 'close') tg?.close();
+  else window.location.reload();
+});
 $('close').addEventListener('click', () => tg?.close());
 async function load() {
   try {
@@ -246,7 +301,22 @@ async function load() {
       $('checkout').hidden = false;
     }
   } catch (e) {
-    $('loading-text').textContent = 'Не удалось загрузить данные. ' + e.message;
+    if (e.status === 401) {
+      if (returnedOrder) {
+        $('loading-title').textContent = 'Ожидаем оплату';
+        $('loading-text').textContent = '';
+        $('loading-text').hidden = true;
+        $('reload').textContent = 'Вернуться в бот';
+      } else {
+        $('loading-title').textContent = 'Не удалось открыть тарифы';
+        $('loading-text').textContent =
+          'Открой тарифы заново через Меню → Подписка → Посмотреть тарифы.';
+        $('reload').textContent = 'Закрыть';
+      }
+      $('reload').dataset.action = 'close';
+    } else {
+      $('loading-text').textContent = 'Не удалось загрузить данные. ' + e.message;
+    }
     $('loading-text').hidden = false;
     $('reload').hidden = false;
   }

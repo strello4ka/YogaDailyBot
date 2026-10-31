@@ -26,6 +26,7 @@ from .handlers.schedule import (
     schedule_change_time_callback,
     schedule_challenge_week_callback,
     schedule_pick_time_callback,
+    schedule_resume_setup_callback,
     schedule_toggle_callback,
 )
 from .handlers.suggest_practice import handle_practice_suggestion_input
@@ -42,7 +43,6 @@ from .handlers.done import (
     schedule_done_evening_reminders,
     schedule_strip_done_buttons_midnight,
 )
-from .daily.pause import schedule_pause_reminders
 from .by_mood.reminders import schedule_by_mood_reminders
 from .handlers.progress import (
     handle_progress_reset_callback,
@@ -351,6 +351,7 @@ def main():
     application.add_handler(CallbackQueryHandler(agreement_aux_callback, pattern="^ob3:(return|help)$"))
     application.add_handler(CallbackQueryHandler(post_challenge_callback, pattern="^pc:(no|change|continue)$"))
     application.add_handler(CallbackQueryHandler(schedule_pick_time_callback, pattern="^schedule_pick_time$"))
+    application.add_handler(CallbackQueryHandler(schedule_resume_setup_callback, pattern="^schedule_resume_setup$"))
     application.add_handler(CallbackQueryHandler(schedule_toggle_callback, pattern="^schedule_toggle$"))
     application.add_handler(CallbackQueryHandler(schedule_change_time_callback, pattern="^schedule_change_time$"))
     application.add_handler(CallbackQueryHandler(schedule_challenge_week_callback, pattern="^schedule_challenge_week$"))
@@ -413,7 +414,6 @@ def main():
         "Последний шаг",
         "Изменить время",
         "Советы",
-        "Пауза",
         "Еще практики",
     ]
     reply_buttons.extend(spec.label for spec in get_active_quick_filters())
@@ -457,8 +457,6 @@ def main():
     
     # Планируем ежедневную отправку практик
     schedule_daily_practices(application)
-    # Планируем напоминания пользователям в режиме паузы (логика паузы живет в handlers/pause.py)
-    schedule_pause_reminders(application)
     # Планируем напоминания неактивным пользователям в режиме By mood
     schedule_by_mood_reminders(application)
     schedule_challenge_jobs(application)

@@ -17,6 +17,7 @@ class CheckoutOnboardingTest(unittest.IsolatedAsyncioTestCase):
         self.state = dict(user_id=1, chat_id=10, step='subscription', entered_at=1000)
         self.repo = Mock()
         self.repo.enrolled_user_ids.return_value = [1]
+        self.repo.canceled_payment_work.return_value = []
         self.sent = set()
         self.repo.notification_sent.side_effect = lambda user, key: key in self.sent
         self.repo.mark_notification_sent.side_effect = lambda user, key, now: self.sent.add(key)
@@ -106,20 +107,14 @@ class CheckoutOnboardingTest(unittest.IsolatedAsyncioTestCase):
             await handle_reply(update, self.context)
         self.assertEqual(transition.await_args.args[2], 'schedule_offer')
 
-    async def test_canceled_keeps_retry_and_free_buttons_and_does_not_repeat(self):
+    async def test_canceled_keeps_onboarding_step_and_worker_owns_notification(self):
         self.repo.onboarding_payment_results.return_value = [('order', 'canceled')]
         with patch('app.onboarding.flow.load_state', return_value=self.state), patch(
                 'app.onboarding.flow._send_step', new_callable=AsyncMock) as send:
             await continue_after_subscription_payment(self.context, 1)
             await continue_after_subscription_payment(self.context, 1)
             send.assert_not_awaited()
-        self.assertEqual(self.context.bot.send_message.await_count, 2)
-        call, tariffs = self.context.bot.send_message.await_args_list
-        self.assertIn('Оплата не завершена', call.args[1])
-        self.assertEqual([b.text for row in call.kwargs['reply_markup'].keyboard for b in row],
-                         ['Продолжить бесплатно'])
-        self.assertEqual(tariffs.kwargs['reply_markup'].inline_keyboard[0][0].web_app.url,
-                         'https://example.org/?test=1')
+        self.context.bot.send_message.assert_not_awaited()
         self.assertEqual(self.state['step'], 'subscription')
 
     async def test_pending_or_completed_onboarding_does_not_advance(self):

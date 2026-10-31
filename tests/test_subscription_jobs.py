@@ -123,11 +123,14 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.sent = set()
         self.pending = ['order-1']
         self.granted = []
+        self.canceled = []
         self.repo.payment_work.side_effect = lambda user: (list(self.pending), list(self.granted))
+        self.repo.canceled_payment_work.side_effect = lambda user: list(self.canceled)
         self.repo.notification_lock.side_effect = lambda *args: nullcontext(True)
         self.repo.notification_sent.side_effect = lambda user, key: key in self.sent
         self.repo.mark_notification_sent.side_effect = lambda user, key, now: self.sent.add(key)
         self.repo.payment_notice.return_value = (10, '<Катя>', at(30))
+        self.repo.canceled_payment_notice.return_value = 10
         self.service = Mock()
         def confirm(*args):
             self.pending.clear()
@@ -149,6 +152,20 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('payment_success:order-1', self.sent)
         await reconcile_test_payments(self.context)
         self.context.bot.send_message.assert_awaited_once()
+
+    async def test_canceled_payment_sends_one_retry_message_with_tariff_button(self):
+        self.pending.clear()
+        self.canceled[:] = ['canceled-order']
+        await reconcile_test_payments(self.context, check_pending=False)
+        await reconcile_test_payments(self.context, check_pending=False)
+        self.context.bot.send_message.assert_awaited_once()
+        call = self.context.bot.send_message.await_args
+        self.assertIn('Оплата не прошла', call.kwargs['text'])
+        self.assertIn('Попробуй ещё раз', call.kwargs['text'])
+        button = call.kwargs['reply_markup'].inline_keyboard[0][0]
+        self.assertEqual(button.text, 'Посмотреть тарифы')
+        self.assertEqual(button.web_app.url, 'https://example.org')
+        self.assertIn('payment_canceled:canceled-order', self.sent)
 
     async def test_telegram_failure_retries_notice_without_regrant(self):
         self.context.bot.send_message.side_effect = RuntimeError('Telegram unavailable')

@@ -19,7 +19,7 @@ from app.onboarding.flow import _send_step, _subscription_variant, handle_reply
 class ScheduleRestoreFlowTest(unittest.IsolatedAsyncioTestCase):
     async def test_setup_goes_directly_to_shared_time_screen(self):
         from app.subscription.subscription_menu import restore_schedule_callback
-        from app.handlers.schedule import SCHEDULE_MENU_TIME_KEY
+        from app.handlers.schedule import SCHEDULE_MENU_TIME_KEY, TIME_INPUT_TEXT
         repository = Mock()
         repository.resolve_restore.return_value = 'setup'
         query = SimpleNamespace(data='subscription_restore:yes:123', answer=AsyncMock(),
@@ -30,7 +30,7 @@ class ScheduleRestoreFlowTest(unittest.IsolatedAsyncioTestCase):
             bot_data={'subscription_repository': repository, 'subscription_test_users': None})
         await restore_schedule_callback(update, context)
         context.bot.send_message.assert_awaited_once()
-        self.assertEqual(context.bot.send_message.await_args.kwargs['text'], onboarding_messages.TIME_INPUT)
+        self.assertEqual(context.bot.send_message.await_args.kwargs['text'], TIME_INPUT_TEXT)
         self.assertTrue(context.user_data[SCHEDULE_MENU_TIME_KEY])
         query.answer.assert_awaited_once()
 

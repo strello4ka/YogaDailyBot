@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from app.handlers.schedule import schedule_command, schedule_toggle_callback
-from data.postgres_db import resume_disabled_daily_schedule
+from app.handlers.schedule import FIRST_SETUP_TEXT, schedule_command, schedule_toggle_callback
+from data.postgres_db import disable_daily_schedule
 
 
 class DebugPracticeAccessTest(unittest.IsolatedAsyncioTestCase):
@@ -45,33 +45,33 @@ class DisabledScheduleTest(unittest.IsolatedAsyncioTestCase):
         return SimpleNamespace(effective_user=SimpleNamespace(id=10),
             effective_message=message, effective_chat=SimpleNamespace(id=10), callback_query=query)
 
-    async def test_disabled_schedule_displays_resume_even_when_not_paused(self):
+    async def test_disabled_schedule_uses_the_unconfigured_flow(self):
         update = self.update()
         with patch('app.handlers.schedule.get_user_schedule_settings', return_value=self.settings()):
-            await schedule_command(update, SimpleNamespace())
+            await schedule_command(update, SimpleNamespace(user_data={}))
         call = update.effective_message.reply_text.await_args
-        self.assertIn('приостановлена', call.args[0])
-        self.assertEqual(call.kwargs['reply_markup'].inline_keyboard[0][0].text, 'Возобновить рассылку')
+        self.assertEqual(call.args[0], FIRST_SETUP_TEXT)
+        self.assertEqual(call.kwargs['reply_markup'].inline_keyboard[0][0].text, 'Выбрать время')
 
-    async def test_resume_disabled_enables_schedule_without_pause_toggle(self):
-        before = self.settings()
-        after = dict(before, enabled=True)
+    async def test_stop_removes_schedule_and_offers_setup_again(self):
+        before = self.settings(enabled=True)
         update = self.update()
-        with patch('app.handlers.schedule.get_user_schedule_settings', side_effect=[before,after]), patch(
-                'app.handlers.schedule.resume_disabled_daily_schedule', return_value=True) as resume, patch(
-                'app.handlers.schedule.toggle_user_pause') as toggle:
+        update.callback_query.edit_message_reply_markup = AsyncMock()
+        with patch('app.handlers.schedule.get_user_schedule_settings', return_value=before), patch(
+                'app.handlers.schedule.disable_daily_schedule', return_value=True) as disable:
             await schedule_toggle_callback(update, SimpleNamespace())
-        resume.assert_called_once_with(10)
-        toggle.assert_not_called()
-        self.assertIn('с завтрашнего дня', update.callback_query.message.reply_text.await_args.args[0])
-        call = update.callback_query.edit_message_text.await_args
-        self.assertIn('Рассылка активна', call.kwargs['text'])
-        self.assertEqual(call.kwargs['reply_markup'].inline_keyboard[0][0].text, 'Остановить рассылку')
+        disable.assert_called_once_with(10)
+        update.callback_query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
+        call = update.callback_query.message.reply_text.await_args
+        self.assertIn('Остановил ежедневную рассылку', call.args[0])
+        button = call.kwargs['reply_markup'].inline_keyboard[0][0]
+        self.assertEqual(button.text, 'Возобновить рассылку')
+        self.assertEqual(button.callback_data, 'schedule_resume_setup')
 
-    async def test_failed_resume_does_not_claim_success(self):
+    async def test_failed_stop_does_not_claim_success(self):
         update = self.update()
-        with patch('app.handlers.schedule.get_user_schedule_settings', return_value=self.settings()), patch(
-                'app.handlers.schedule.resume_disabled_daily_schedule', return_value=False):
+        with patch('app.handlers.schedule.get_user_schedule_settings', return_value=self.settings(enabled=True)), patch(
+                'app.handlers.schedule.disable_daily_schedule', return_value=False):
             await schedule_toggle_callback(update, SimpleNamespace())
         self.assertIn('Не получилось', update.callback_query.message.reply_text.await_args.args[0])
 
@@ -79,33 +79,28 @@ class DisabledScheduleTest(unittest.IsolatedAsyncioTestCase):
         update = self.update()
         with patch('app.handlers.schedule.get_user_schedule_settings', return_value=self.settings(
                 bot_mode='challenge', challenge_start_id=1)), patch(
-                'app.handlers.schedule.resume_disabled_daily_schedule') as resume, patch(
-                'app.handlers.schedule.toggle_user_pause') as toggle:
+                'app.handlers.schedule.disable_daily_schedule') as disable:
             await schedule_toggle_callback(update, SimpleNamespace())
-        resume.assert_not_called()
-        toggle.assert_not_called()
+        disable.assert_not_called()
 
-    async def test_missing_time_requests_setup_instead_of_enabling(self):
+    async def test_legacy_paused_schedule_uses_unconfigured_flow(self):
         update = self.update()
         with patch('app.handlers.schedule.get_user_schedule_settings', return_value=self.settings(
-                notify_time='00:00')), patch('app.handlers.schedule.resume_disabled_daily_schedule') as resume, patch(
-                'app.handlers.schedule.send_schedule_time_prompt', new_callable=AsyncMock) as prompt:
-            await schedule_toggle_callback(update, SimpleNamespace())
-        resume.assert_not_called()
-        prompt.assert_awaited_once()
+                enabled=True, paused=True)):
+            await schedule_command(update, SimpleNamespace(user_data={}))
+        self.assertEqual(update.effective_message.reply_text.await_args.args[0], FIRST_SETUP_TEXT)
 
-    def test_resume_sql_preserves_time_progress_and_excludes_challenge(self):
+    def test_disable_sql_clears_schedule_and_preserves_progress(self):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.rowcount = 1
         with patch('data.postgres_db.get_connection', return_value=connection):
-            self.assertTrue(resume_disabled_daily_schedule(10))
+            self.assertTrue(disable_daily_schedule(10))
         sql, params = cursor.execute.call_args.args
-        for fragment in ('daily_schedule_enabled=TRUE', 'is_paused=FALSE',
-                         'first_daily_send_date=%s', "bot_mode IS DISTINCT FROM 'challenge'"):
+        for fragment in ("notify_time='00:00'", 'daily_schedule_enabled=FALSE',
+                         'is_paused=FALSE', "bot_mode IS DISTINCT FROM 'challenge'"):
             self.assertIn(fragment, sql)
         self.assertNotIn('total_practices=', sql)
         self.assertNotIn('program_position=', sql)
-        self.assertNotIn('notify_time=', sql)
-        self.assertEqual(params[-1], 10)
+        self.assertEqual(params, (10,))
         connection.close.assert_called_once()

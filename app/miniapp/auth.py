@@ -29,4 +29,4 @@ def authenticate(init_data, bot_token, now_timestamp, allowed_users, *, max_age=
             raise ValueError('Not a subscription tester')
         return user_id
     except (KeyError, TypeError, UnicodeError, ValueError):
-        raise ValueError('Открой страницу заново через кнопку в тестовом боте') from None
+        raise ValueError('Сессия Telegram недействительна') from None

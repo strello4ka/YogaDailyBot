@@ -244,7 +244,7 @@ TARIFF_PROMPT = "Смотри тарифы ниже👇"
 
 
 # Оплата и восстановление функций после оплаты
-PAYMENT_FAILED = "<b>Оплата не завершена</b>\n\nПопробуй ещё раз или выбери другой способ оплаты."
+PAYMENT_FAILED = "❌ <b>Оплата не прошла</b>\n\nПопробуй ещё раз."
 
 
 def payment_accepted(name: str, ends_at: datetime) -> str:

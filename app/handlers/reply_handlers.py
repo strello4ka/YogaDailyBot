@@ -134,10 +134,6 @@ async def handle_reply_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         from app.handlers.tips import handle_tips_callback
         await handle_tips_callback(update, context)
 
-    elif message_text == "Пауза":
-        from app.daily.pause import pause_toggle_command
-        await pause_toggle_command(update, context)
-
     else:
         # Если текст не соответствует ни одной кнопке Reply-клавиатуры,
         # сбрасываем состояние ожидания предложения практики (на случай если оно было установлено)

@@ -87,7 +87,7 @@ class MiniApp:
             try:
                 user_id = authenticate(data.get('init_data'), self.bot_token, now.timestamp(), self.allowed_users)
             except ValueError:
-                return respond('401 Unauthorized', {'error': 'Открой страницу заново через кнопку в тестовом боте'})
+                return respond('401 Unauthorized', {'error': 'Сессия Telegram недействительна'})
             profile = self.repository.checkout_profile(user_id)
             if profile is None:
                 return respond('403 Forbidden', {'error': 'Сначала пройди онбординг в тестовом боте'})

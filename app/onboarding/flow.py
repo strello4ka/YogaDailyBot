@@ -172,7 +172,6 @@ async def _finish_job(context):
 async def continue_after_subscription_payment(context, user_id):
     """Resume only the current subscription screen from durable terminal orders."""
     from app.subscription.access import repository_for
-    from app.subscription.messages import PAYMENT_FAILED
     repository = repository_for(context, user_id)
     if repository is None:
         return
@@ -198,17 +197,9 @@ async def continue_after_subscription_payment(context, user_id):
             # failed send leaves the subscription screen available for retry.
             await _send_step(context, next_state)
             return
-        for order_id, status in results:
-            if status != 'canceled':
-                continue
-            event_key = 'onboarding_payment_canceled:' + order_id
-            if await asyncio.to_thread(repository.notification_sent, user_id, event_key):
-                continue
-            await context.bot.send_message(state['chat_id'], PAYMENT_FAILED, parse_mode='HTML',
-                                           reply_markup=_used_subscription_keyboard(context))
-            await _send_onboarding_tariffs(context, state['chat_id'])
-            await asyncio.to_thread(repository.mark_notification_sent, user_id, event_key,
-                                    datetime.now().astimezone())
+        # Cancellations keep the onboarding subscription step open. Their single,
+        # idempotent Telegram notice is delivered by the payment worker for every
+        # checkout entry point, not only onboarding.
 
 
 async def _finish(context, state):

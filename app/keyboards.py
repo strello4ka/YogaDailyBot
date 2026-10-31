@@ -209,10 +209,10 @@ def get_favorites_carousel_keyboard(
 
 
 def get_main_reply_keyboard():
-    """Reply-клавиатура режима Daily и Challenge: время, советы, пауза, доп. практики."""
+    """Reply-клавиатура режима Daily и Challenge: время, советы и доп. практики."""
     keyboard = [
         [KeyboardButton("Изменить время"), KeyboardButton("Советы")],
-        [KeyboardButton("Пауза"), KeyboardButton("Еще практики")],
+        [KeyboardButton("Еще практики")],
     ]
     return ReplyKeyboardMarkup(
         keyboard,

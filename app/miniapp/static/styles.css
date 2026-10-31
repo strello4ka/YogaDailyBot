@@ -55,6 +55,8 @@ small { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
 #error { margin: 10px 0; }
 .primary, .secondary { width: 100%; font: inherit; font-weight: 600; padding: 15px; border: 0; border-radius: 30px; cursor: pointer; transition: opacity .12s ease, transform .12s ease; }
 .primary { color: #25150f; background: var(--accent); }
+.button-loader { display: block; width: 20px; height: 20px; margin: 0 auto; border: 2px solid rgba(37, 21, 15, .28); border-top-color: #25150f; border-radius: 50%; animation: button-spin .7s linear infinite; }
+@keyframes button-spin { to { transform: rotate(360deg); } }
 .pay-base-price { margin-left: 9px; font: inherit; font-weight: 400; text-decoration: line-through; opacity: .72; }
 .primary:disabled { opacity: .55; cursor: default; }
 .primary:active:not(:disabled), .secondary:active:not(:disabled),

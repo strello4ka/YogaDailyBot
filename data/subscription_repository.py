@@ -168,6 +168,31 @@ class SubscriptionRepository:
                            "AND o.status='succeeded' AND o.granted_at IS NOT NULL", (order_id, user_id))
             return cursor.fetchone()
 
+    def canceled_payment_work(self, user_id, limit=20):
+        """Canceled orders whose Telegram notice has not been delivered yet."""
+        scope, params = self._payment_scope_sql('o.')
+        with self._transaction() as cursor:
+            cursor.execute("SELECT o.order_id FROM subscription_orders o WHERE o.user_id=%s "
+                           "AND o.status='canceled' AND EXISTS "
+                           "(SELECT 1 FROM subscription_notifications ready "
+                           "WHERE ready.user_id=o.user_id "
+                           "AND ready.event_key='payment_canceled_ready:' || o.order_id::text) "
+                           "AND NOT EXISTS "
+                           "(SELECT 1 FROM subscription_notifications n WHERE n.user_id=o.user_id "
+                           "AND n.event_key='payment_canceled:' || o.order_id::text) "
+                           + scope + " ORDER BY o.updated_at,o.created_at LIMIT %s",
+                           (user_id,) + params + (limit,))
+            return [str(row[0]) for row in cursor.fetchall()]
+
+    def canceled_payment_notice(self, order_id, user_id):
+        with self._transaction() as cursor:
+            cursor.execute("SELECT u.chat_id FROM subscription_orders o "
+                           "JOIN users u ON u.user_id=o.user_id "
+                           "WHERE o.order_id=%s AND o.user_id=%s AND o.status='canceled'",
+                           (order_id, user_id))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
     def onboarding_payment_results(self, user_id, since):
         """Only terminal orders created during this subscription step."""
         scope, params = self._payment_scope_sql()
@@ -272,6 +297,13 @@ class SubscriptionRepository:
                            "WHERE order_id=%s AND user_id=%s AND provider_payment_id=%s "
                            "AND status IN ('created','pending') AND granted_at IS NULL",
                            (now, order.order_id, order.user_id, order.provider_payment_id))
+            if cursor.rowcount:
+                # Durable outbox marker: only cancellations observed after this
+                # feature exists are announced; historical canceled orders are
+                # not replayed when a deployment first starts.
+                cursor.execute("INSERT INTO subscription_notifications (user_id,event_key,sent_at) "
+                               "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                               (order.user_id, 'payment_canceled_ready:' + order.order_id, now))
 
     def synchronize_access(self, user_id, now):
         """Persist expiry and stop ordinary Daily delivery without losing settings."""

@@ -31,9 +31,11 @@ from app.onboarding.state import save_state as save_onboarding_state
 from app.handlers.schedule import (
     FIRST_SETUP_TEXT,
     SCHEDULE_MENU_TIME_KEY,
+    TIME_INPUT_TEXT,
     handle_schedule_menu_time_input,
     schedule_command,
     schedule_pick_time_callback,
+    schedule_resume_setup_callback,
 )
 
 
@@ -140,6 +142,12 @@ class NewScenarioCopyTest(unittest.TestCase):
     def test_onboarding_time_note_follows_example_without_blank_line(self):
         self.assertIn("(например, 9.30)\nPS. Время учитывается по МСК", messages.TIME_INPUT)
         self.assertNotIn("(например, 9.30)\n\nPS. Время учитывается по МСК", messages.TIME_INPUT)
+
+    def test_onboarding_schedule_offer_uses_updated_regular_quote(self):
+        self.assertIn("<blockquote>", messages.SCHEDULE_OFFER)
+        self.assertNotIn("<blockquote expandable>", messages.SCHEDULE_OFFER)
+        self.assertIn("заниматься регулярно и прочувствовать все разнообразие каталога",
+                      messages.SCHEDULE_OFFER)
 
     @patch("data.db.mark_reply_keyboard_version")
     @patch("app.challenge.flow.start_flow._should_send_challenge_practice_immediately", return_value=False)
@@ -286,6 +294,9 @@ class NewScenarioCopyTest(unittest.TestCase):
         self.assertEqual(message.reply_text.await_args.args[0], FIRST_SETUP_TEXT)
         self.assertIn("<blockquote>", FIRST_SETUP_TEXT)
         self.assertNotIn("<blockquote expandable>", FIRST_SETUP_TEXT)
+        self.assertIn("<b>Давай настроим удобное время для практик 🧡</b>",
+                      FIRST_SETUP_TEXT)
+        self.assertIn("Каждая неделя содержит практики:", FIRST_SETUP_TEXT)
         self.assertEqual(kwargs["reply_markup"].inline_keyboard[0][0].text, "Выбрать время")
 
     @patch(
@@ -335,31 +346,28 @@ class NewScenarioCopyTest(unittest.TestCase):
             "challenge_start_id": 7, "challenge_day": 3,
         },
     )
-    @patch("app.handlers.schedule.toggle_user_pause")
-    def test_challenge_stop_button_explains_exit_without_stopping(self, toggle, _settings):
+    @patch("app.handlers.schedule.disable_daily_schedule")
+    def test_challenge_stop_button_explains_exit_without_stopping(self, disable, _settings):
         query = SimpleNamespace(answer=AsyncMock(), message=SimpleNamespace(reply_text=AsyncMock()))
         update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=1))
 
         from app.handlers.schedule import schedule_toggle_callback
         __import__("asyncio").run(schedule_toggle_callback(update, SimpleNamespace()))
 
-        toggle.assert_not_called()
+        disable.assert_not_called()
         explanation = query.message.reply_text.await_args.args[0]
         self.assertIn("Когда челлендж закончится", explanation)
         self.assertIn("/challenge_off", explanation)
 
-    @patch(
-        "app.handlers.schedule.get_user_schedule_settings",
-        side_effect=[
-            {"notify_time": "07:00", "paused": False, "bot_mode": "daily", "challenge_start_id": None},
-            {"notify_time": "07:00", "paused": True, "bot_mode": "daily", "challenge_start_id": None},
-        ],
-    )
-    @patch("app.handlers.schedule.toggle_user_pause", return_value=(True, True, False))
-    def test_pausing_keeps_management_buttons_and_offers_resume(self, _toggle, _settings):
+    @patch("app.handlers.schedule.get_user_schedule_settings", return_value={
+        "notify_time": "07:00", "enabled": True, "paused": False,
+        "bot_mode": "daily", "challenge_start_id": None,
+    })
+    @patch("app.handlers.schedule.disable_daily_schedule", return_value=True)
+    def test_stopping_removes_management_buttons_and_offers_setup(self, _disable, _settings):
         query = SimpleNamespace(
             answer=AsyncMock(),
-            edit_message_text=AsyncMock(),
+            edit_message_reply_markup=AsyncMock(),
             message=SimpleNamespace(reply_text=AsyncMock()),
         )
         update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=1))
@@ -367,33 +375,25 @@ class NewScenarioCopyTest(unittest.TestCase):
         from app.handlers.schedule import schedule_toggle_callback
         __import__("asyncio").run(schedule_toggle_callback(update, SimpleNamespace()))
 
-        markup = query.edit_message_text.await_args.kwargs["reply_markup"]
-        self.assertEqual(markup.inline_keyboard[0][0].text, "Возобновить рассылку")
-        confirmation = query.message.reply_text.await_args.args[0]
-        self.assertIn("Возобновить рассылку", confirmation)
+        query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
+        call = query.message.reply_text.await_args
+        self.assertIn("Остановил ежедневную рассылку", call.args[0])
+        self.assertEqual(call.kwargs["reply_markup"].inline_keyboard[0][0].text,
+                         "Возобновить рассылку")
 
-    @patch(
-        "app.handlers.schedule.get_user_schedule_settings",
-        side_effect=[
-            {"notify_time": "07:00", "paused": True, "bot_mode": "daily", "challenge_start_id": None},
-            {"notify_time": "07:00", "paused": False, "bot_mode": "daily", "challenge_start_id": None},
-        ],
-    )
-    @patch("app.handlers.schedule.toggle_user_pause", return_value=(True, False, False))
-    def test_resume_confirmation_has_no_redundant_menu_paragraph(self, _toggle, _settings):
+    def test_resume_button_opens_unconfigured_schedule_flow(self):
         query = SimpleNamespace(
             answer=AsyncMock(),
-            edit_message_text=AsyncMock(),
+            edit_message_reply_markup=AsyncMock(),
             message=SimpleNamespace(reply_text=AsyncMock()),
         )
         update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=1))
+        context = SimpleNamespace(user_data={})
 
-        from app.handlers.schedule import schedule_toggle_callback
-        __import__("asyncio").run(schedule_toggle_callback(update, SimpleNamespace()))
+        __import__("asyncio").run(schedule_resume_setup_callback(update, context))
 
-        confirmation = query.message.reply_text.await_args.args[0]
-        self.assertIn("Следующая практика придет", confirmation)
-        self.assertNotIn("Изменить время и сбросить прогресс", confirmation)
+        query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
+        self.assertEqual(query.message.reply_text.await_args.args[0], FIRST_SETUP_TEXT)
 
     def test_schedule_pick_time_removes_button_and_starts_waiting(self):
         query = SimpleNamespace(answer=AsyncMock(), edit_message_reply_markup=AsyncMock())
@@ -406,7 +406,9 @@ class NewScenarioCopyTest(unittest.TestCase):
         query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
         self.assertTrue(context.user_data[SCHEDULE_MENU_TIME_KEY])
         self.assertTrue(context.user_data["waiting_for_time"])
-        self.assertEqual(messages.TIME_INPUT, bot.send_message.await_args.kwargs["text"])
+        self.assertEqual(TIME_INPUT_TEXT, bot.send_message.await_args.kwargs["text"])
+        self.assertIn("<b>Введи время в формате ЧЧ.ММ</b>", TIME_INPUT_TEXT)
+        self.assertIn("(например, 09.30)\n\nPS. Время учитывается по МСК", TIME_INPUT_TEXT)
 
     @patch("app.handlers.schedule.save_user_time", return_value=True)
     def test_schedule_time_is_normalized_saved_without_progress_reset(self, save_time):

@@ -200,7 +200,7 @@ def requested_feature(text, callback, *, waiting_for_time=False):
     command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text.strip() else ""
     if command == "/favorite" or callback.startswith("fav_"):
         return Feature.FAVORITES
-    if (command == "/schedule" or text.lower() in ("расписание", "изменить время", "пауза")
+    if (command == "/schedule" or text.lower() in ("расписание", "изменить время")
             or callback.startswith("schedule_") or (waiting_for_time and not command.startswith("/") and not callback)):
         return Feature.SCHEDULE
     if callback.startswith(("self_", "extra_")):
