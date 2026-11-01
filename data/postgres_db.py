@@ -2692,83 +2692,106 @@ def _pick_random_yoga_by_mood(
         return None
 
 
-def _pick_random_mood_by_rule(
-    user_id: int, filter_key: str, extra_where_sql: str, extra_params: tuple = ()
-) -> Optional[tuple]:
-    """Случайная практика из mood_practices по SQL-правилу (префикс mp.)."""
-    mood_where = extra_where_sql.replace("yp.", "mp.")
-    try:
-        def _fetch():
-            c = get_connection()
-            cur = c.cursor()
-            base = """
-                SELECT mood_practice_id, title, video_url, time_practices, channel_name,
-                       description, my_description, difficulty, NULL::INTEGER AS weekday,
-                       created_at, updated_at
-                FROM mood_practices mp
-                WHERE 1=1
-            """
-            tail = """
-                AND NOT EXISTS (
-                  SELECT 1 FROM by_mood_seen b
-                  WHERE b.user_id = %s AND b.filter_key = %s
-                    AND b.practice_id = mp.mood_practice_id
-                    AND b.practice_catalog = %s
-                )
-                ORDER BY RANDOM() LIMIT 1
-            """
-            cur.execute(
-                base + mood_where + tail,
-                extra_params + (user_id, filter_key, PRACTICE_CATALOG_MOOD),
-            )
-            r = cur.fetchone()
-            c.close()
-            return _decode_mood_practice_row(r)
-
-        row = _fetch()
-        if row is None:
-            _by_mood_reset_seen(user_id, filter_key, PRACTICE_CATALOG_MOOD)
-            row = _fetch()
-        return row
-    except Exception as e:
-        print(f"Ошибка _pick_random_mood_by_rule {user_id} {filter_key}: {e}")
-        return None
-
-
 def pick_random_combined_mood_pool(
     user_id: int,
     filter_key: str,
     extra_where_sql: str,
     extra_params: tuple = (),
 ) -> Optional[tuple]:
-    """Объединённый пул: yoga_practices и mood_practices по одному SQL-правилу."""
-    import random
+    """Случайная непоказанная практика из единого yoga/mood-пула.
 
-    candidates: list[tuple[tuple, str, str]] = []
-    yoga_row = _pick_random_yoga_by_mood(user_id, filter_key, extra_where_sql, extra_params)
-    if yoga_row:
-        candidates.append((yoga_row, PRACTICE_CATALOG_YOGA, yoga_row[2]))
+    История сбрасывается сразу для обоих каталогов и только после того, как
+    пользователь увидел все практики, подходящие под текущий фильтр.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        mood_where = extra_where_sql.replace("yp.", "mp.")
+        select_sql = f"""
+            WITH combined_practices AS (
+                SELECT
+                    yp.practices_id AS practice_id,
+                    yp.title,
+                    yp.video_url,
+                    yp.time_practices,
+                    yp.channel_name,
+                    yp.description,
+                    yp.my_description,
+                    yp.difficulty,
+                    yp.weekday,
+                    yp.created_at,
+                    yp.updated_at,
+                    %s::TEXT AS practice_catalog
+                FROM yoga_practices yp
+                WHERE 1=1 {extra_where_sql}
 
-    mood_rule_row = _pick_random_mood_by_rule(user_id, filter_key, extra_where_sql, extra_params)
-    if mood_rule_row:
-        candidates.append((mood_rule_row, PRACTICE_CATALOG_MOOD, mood_rule_row[2]))
+                UNION ALL
 
-    if not candidates:
+                SELECT
+                    mp.mood_practice_id AS practice_id,
+                    mp.title,
+                    mp.video_url,
+                    mp.time_practices,
+                    mp.channel_name,
+                    mp.description,
+                    mp.my_description,
+                    mp.difficulty,
+                    NULL::INTEGER AS weekday,
+                    mp.created_at,
+                    mp.updated_at,
+                    %s::TEXT AS practice_catalog
+                FROM mood_practices mp
+                WHERE 1=1 {mood_where}
+            )
+            SELECT
+                practice_id, title, video_url, time_practices, channel_name,
+                description, my_description, difficulty, weekday,
+                created_at, updated_at, practice_catalog
+            FROM combined_practices practice
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM by_mood_seen seen
+                WHERE seen.user_id = %s
+                  AND seen.filter_key = %s
+                  AND seen.practice_id = practice.practice_id
+                  AND seen.practice_catalog = practice.practice_catalog
+            )
+            ORDER BY RANDOM()
+            LIMIT 1
+        """
+        select_params = (
+            (PRACTICE_CATALOG_YOGA,)
+            + extra_params
+            + (PRACTICE_CATALOG_MOOD,)
+            + extra_params
+            + (user_id, filter_key)
+        )
+
+        def _fetch_unseen() -> Optional[tuple]:
+            cursor.execute(select_sql, select_params)
+            return cursor.fetchone()
+
+        row = _fetch_unseen()
+        if row is None:
+            cursor.execute(
+                """
+                DELETE FROM by_mood_seen
+                WHERE user_id = %s AND filter_key = %s
+                """,
+                (user_id, filter_key),
+            )
+            conn.commit()
+            row = _fetch_unseen()
+
+        conn.close()
+        return _decode_practice_row(row)
+    except Exception as e:
+        print(f"Ошибка pick_random_combined_mood_pool {user_id} {filter_key}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
         return None
-
-    seen_urls = set()
-    unique: list[tuple[tuple, str]] = []
-    for row, catalog, url in candidates:
-        if url in seen_urls:
-            continue
-        seen_urls.add(url)
-        unique.append((row, catalog))
-
-    if not unique:
-        return None
-
-    row, catalog = random.choice(unique)
-    return _practice_row_with_catalog(row, catalog)
 
 
 def add_mood_practice(

@@ -2,7 +2,7 @@ import sys
 import types
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 
 original_data_db = sys.modules.get("data.db")
@@ -36,6 +36,8 @@ if original_send_utils is None:
     sys.modules.pop("app.by_mood.send_utils", None)
 else:
     sys.modules["app.by_mood.send_utils"] = original_send_utils
+
+from data import postgres_db
 
 
 def keyboard_labels(markup) -> list[str]:
@@ -218,6 +220,81 @@ class QuickFiltersTest(unittest.TestCase):
         self.assertIn("yp.time_practices <= 25", relax.where_sql)
         self.assertIn("yp.time_practices > 0", healthy_back.where_sql)
         self.assertIn("yp.time_practices > 0", relax.where_sql)
+
+
+class CombinedMoodPoolTest(unittest.TestCase):
+    def setUp(self):
+        self.cursor = Mock()
+        self.connection = Mock()
+        self.connection.cursor.return_value = self.cursor
+        self.practice_row = (
+            25,
+            "Практика для спины",
+            "https://example.com/practice",
+            18,
+            "Канал",
+            "Описание",
+            "Первая строка/nВторая строка",
+            "средняя",
+            None,
+            None,
+            None,
+            postgres_db.PRACTICE_CATALOG_MOOD,
+        )
+
+    @patch.object(postgres_db, "get_connection")
+    def test_selects_once_from_one_combined_pool(self, get_connection):
+        get_connection.return_value = self.connection
+        self.cursor.fetchone.return_value = self.practice_row
+
+        result = postgres_db.pick_random_combined_mood_pool(
+            123,
+            "healthy_back",
+            " AND %s = ANY(COALESCE(yp.teg, ARRAY[]::TEXT[])) ",
+            ("Здоровая спина",),
+        )
+
+        self.assertEqual(result[6], "Первая строка\nВторая строка")
+        self.assertEqual(result[-1], postgres_db.PRACTICE_CATALOG_MOOD)
+        self.cursor.execute.assert_called_once()
+        select_sql, select_params = self.cursor.execute.call_args.args
+        self.assertIn("UNION ALL", select_sql)
+        self.assertIn("FROM yoga_practices yp", select_sql)
+        self.assertIn("FROM mood_practices mp", select_sql)
+        self.assertIn("seen.practice_catalog = practice.practice_catalog", select_sql)
+        self.assertEqual(
+            select_params,
+            (
+                postgres_db.PRACTICE_CATALOG_YOGA,
+                "Здоровая спина",
+                postgres_db.PRACTICE_CATALOG_MOOD,
+                "Здоровая спина",
+                123,
+                "healthy_back",
+            ),
+        )
+        self.connection.commit.assert_not_called()
+
+    @patch.object(postgres_db, "get_connection")
+    def test_resets_both_catalogs_only_after_combined_pool_is_exhausted(
+        self, get_connection
+    ):
+        get_connection.return_value = self.connection
+        self.cursor.fetchone.side_effect = [None, self.practice_row]
+
+        result = postgres_db.pick_random_combined_mood_pool(
+            123,
+            "healthy_back",
+            "",
+        )
+
+        self.assertEqual(result[-1], postgres_db.PRACTICE_CATALOG_MOOD)
+        self.assertEqual(self.cursor.execute.call_count, 3)
+        reset_sql, reset_params = self.cursor.execute.call_args_list[1].args
+        self.assertIn("DELETE FROM by_mood_seen", reset_sql)
+        self.assertNotIn("practice_catalog", reset_sql)
+        self.assertEqual(reset_params, (123, "healthy_back"))
+        self.connection.commit.assert_called_once_with()
 
 
 if __name__ == "__main__":
