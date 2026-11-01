@@ -304,16 +304,17 @@ class SubscriptionRepository:
                            (now, start, end, now, order.order_id))
             return True
 
-    def cancel_order(self, order, now):
+    def cancel_order(self, order, now, *, notify=True):
         with self._transaction() as cursor:
             cursor.execute("UPDATE subscription_orders SET status='canceled',updated_at=%s "
                            "WHERE order_id=%s AND user_id=%s AND provider_payment_id=%s "
                            "AND status IN ('created','pending') AND granted_at IS NULL",
                            (now, order.order_id, order.user_id, order.provider_payment_id))
-            if cursor.rowcount:
+            if cursor.rowcount and notify:
                 # Durable outbox marker: only cancellations observed after this
                 # feature exists are announced; historical canceled orders are
-                # not replayed when a deployment first starts.
+                # not replayed when a deployment first starts. Ordinary checkout
+                # expiry is persisted as canceled without creating this marker.
                 cursor.execute("INSERT INTO subscription_notifications (user_id,event_key,sent_at) "
                                "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
                                (order.user_id, 'payment_canceled_ready:' + order.order_id, now))

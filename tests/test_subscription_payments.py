@@ -68,6 +68,27 @@ class PaymentsTest(unittest.TestCase):
             self.assertEqual(PaymentService(repo, provider).refresh(self.order.order_id, 10, NOW), status)
             repo.grant_order.assert_not_called()
 
+    def test_expired_confirmation_cancels_silently(self):
+        repo, provider = Mock(), Mock(expected_test=True)
+        repo.get_order.return_value = self.order
+        provider.get_payment.return_value = dict(
+            self.payment, status='canceled', paid=False,
+            cancellation_details={'party':'yoo_kassa','reason':'expired_on_confirmation'})
+        self.assertEqual(PaymentService(repo, provider).refresh(
+            self.order.order_id, 10, NOW), 'canceled')
+        repo.cancel_order.assert_called_once_with(self.order, NOW, notify=False)
+        repo.signal_payment.assert_called_once_with(10)
+
+    def test_payment_failure_cancellation_keeps_notification(self):
+        repo, provider = Mock(), Mock(expected_test=True)
+        repo.get_order.return_value = self.order
+        provider.get_payment.return_value = dict(
+            self.payment, status='canceled', paid=False,
+            cancellation_details={'party':'payment_network','reason':'card_expired'})
+        self.assertEqual(PaymentService(repo, provider).refresh(
+            self.order.order_id, 10, NOW), 'canceled')
+        repo.cancel_order.assert_called_once_with(self.order, NOW, notify=True)
+
     def test_foreign_order_is_not_looked_up_at_provider(self):
         repo, provider = Mock(), Mock(expected_test=True)
         repo.get_order.return_value = None
@@ -168,6 +189,22 @@ class PaymentsTest(unittest.TestCase):
                                       (NOW, 'succeeded', 30, self.order.provider_payment_id, 35000, False)]
         self.assertFalse(SubscriptionRepository(factory).grant_order(self.order, NOW))
         self.assertTrue(all(c.args[0].startswith('SELECT') for c in cursor.execute.call_args_list))
+
+    def test_silent_cancellation_does_not_create_notice_marker(self):
+        factory = MagicMock()
+        cursor = factory.return_value.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 1
+        SubscriptionRepository(factory).cancel_order(self.order, NOW, notify=False)
+        self.assertEqual(len(cursor.execute.call_args_list), 1)
+        self.assertIn("SET status='canceled'", cursor.execute.call_args.args[0])
+
+    def test_failed_payment_cancellation_creates_notice_marker(self):
+        factory = MagicMock()
+        cursor = factory.return_value.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 1
+        SubscriptionRepository(factory).cancel_order(self.order, NOW, notify=True)
+        self.assertEqual(len(cursor.execute.call_args_list), 2)
+        self.assertIn('payment_canceled_ready:', cursor.execute.call_args.args[1][1])
 
     def test_purchase_in_trial_starts_after_trial(self):
         factory = MagicMock()

@@ -159,7 +159,12 @@ class PaymentService:
             # The repository serializes grants and ignores duplicate confirmations.
             self.repository.grant_order(order, now)
         elif status == 'canceled':
-            self.repository.cancel_order(order, now)
+            details = payment.get('cancellation_details')
+            reason = details.get('reason') if isinstance(details, dict) else None
+            # An abandoned checkout expiring is normal user inactivity, not a
+            # failed payment attempt worth a separate Telegram notification.
+            self.repository.cancel_order(
+                order, now, notify=reason != 'expired_on_confirmation')
         if status in ('succeeded', 'canceled'):
             try:
                 # One wakeup per verified terminal result, regardless of source.

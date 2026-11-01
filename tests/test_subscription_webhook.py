@@ -69,9 +69,17 @@ class WebhookTest(unittest.TestCase):
         self.event['event']='payment.canceled'
         self.provider.get_payment.return_value=dict(self.payment,status='canceled',paid=False)
         self.assertEqual(handle_notification(self.event,self.service,NOW),'canceled')
-        self.repo.cancel_order.assert_called_once()
+        self.repo.cancel_order.assert_called_once_with(self.order,NOW,notify=True)
         self.repo.grant_order.assert_not_called()
         self.repo.signal_payment.assert_called_once_with(10)
+
+    def test_expired_confirmation_webhook_does_not_queue_telegram_notice(self):
+        self.event['event']='payment.canceled'
+        self.provider.get_payment.return_value=dict(
+            self.payment,status='canceled',paid=False,
+            cancellation_details={'party':'yoo_kassa','reason':'expired_on_confirmation'})
+        self.assertEqual(handle_notification(self.event,self.service,NOW),'canceled')
+        self.repo.cancel_order.assert_called_once_with(self.order,NOW,notify=False)
 
     def test_unknown_order_and_disallowed_user_are_ignored(self):
         self.assertEqual(handle_notification(self.event,self.service,NOW,{11}),'ignored')
