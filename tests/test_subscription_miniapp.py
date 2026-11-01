@@ -159,6 +159,8 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertIn("status('Ожидаем оплату', '')", client)
         self.assertIn("status('❌ Оплата не прошла', 'Попробуй ещё раз')", client)
         self.assertIn("loader.className = 'button-loader'", client)
+        self.assertIn("showButtonLoader(element, 'Загрузка')", client)
+        self.assertIn("class=\"screen-state-title\">Загружаем…", page)
         self.assertIn('const PAYMENT_CREATION_TIMEOUT_MS = 30000;', client)
         self.assertIn("error('Упс...что-то пошло не так')", client)
         self.assertNotIn("$('check')", client)

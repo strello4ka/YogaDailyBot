@@ -73,6 +73,11 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
         {waitUntil:'domcontentloaded'});
       assert.equal(await page.locator('#checkout').isVisible(),false);
       assert.equal(await page.locator('#loading').isVisible(),true);
+      const loadingStyle = await page.locator('#loading-title').evaluate(element => {
+        const style = getComputedStyle(element);
+        return {fontSize:style.fontSize,fontWeight:style.fontWeight};
+      });
+      assert.deepEqual(loadingStyle,{fontSize:'18px',fontWeight:'400'});
       releaseSession();
       if(scenario.checkout) {
         await page.locator('#checkout').waitFor({state:'visible'});
@@ -123,6 +128,23 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
           assert.equal(await page.locator('#resume').textContent(),'Вернуться к оплате');
           assert.equal(await page.locator('#status-text').textContent(),'');
           assert.equal(await page.locator('#checkout').isVisible(),false);
+          const waitingLayout = await page.evaluate(() => {
+            const title=document.getElementById('status-title');
+            const resume=document.getElementById('resume');
+            const style=getComputedStyle(title);
+            return {fontSize:style.fontSize,fontWeight:style.fontWeight,
+              gap:resume.getBoundingClientRect().top-title.getBoundingClientRect().bottom};
+          });
+          assert.equal(waitingLayout.fontSize,'18px');
+          assert.equal(waitingLayout.fontWeight,'400');
+          assert.ok(waitingLayout.gap >= 47);
+          await page.route('https://yookassa.ru/checkout', async route => {
+            await new Promise(resolve => setTimeout(resolve,400));
+            await route.abort();
+          });
+          await page.locator('#resume').evaluate(element => element.click());
+          await page.locator('#resume .button-loader').waitFor({state:'visible'});
+          assert.equal(await page.locator('#resume').getAttribute('aria-disabled'),'true');
         }
         if(scenario.paymentFailed) {
           assert.equal(await page.locator('#status-text').textContent(),'');

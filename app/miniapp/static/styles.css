@@ -18,6 +18,7 @@ header { display: flex; align-items: center; justify-content: space-between; mar
 .brand-mark { position: relative; display: block; width: 44px; height: 38px; overflow: hidden; flex-shrink: 0; }
 .brand-mark img { position: absolute; width: 88px; height: 88px; max-width: none; left: -22px; top: -24px; filter: url(#logo-without-background); }
 h1 { font-size: clamp(28px, 8vw, 38px); line-height: 1.12; letter-spacing: -1.3px; margin: 4px 0 10px; }
+.screen-state-title, #payment-status.waiting #status-title { font-size: 18px; font-weight: 400; line-height: 1.45; letter-spacing: 0; margin: 4px 0 10px; }
 .intro, legend { font-size: 16px; font-weight: 400; line-height: 1.45; color: var(--muted); }
 .intro { margin: 0 0 16px; }
 .note { margin: 10px 0 0; padding: 12px 14px; border-radius: 14px; background: #eaddc8; line-height: 1.4; font-size: 14px; }
@@ -69,6 +70,7 @@ body.editing-email .paybar { visibility: hidden; }
 .legal a { color: var(--muted); text-underline-offset: 3px; }
 #payment-status { padding-top: 2px; }
 #payment-status .status-action { display: block; margin-top: 12px; text-align: center; text-decoration: none; }
+#payment-status.waiting .status-action { margin-top: 48px; }
 #close { margin-top: 20px; }
 [hidden] { display: none !important; }
 :root a.primary, :root a.secondary { display: block; text-align: center; text-decoration: none; }

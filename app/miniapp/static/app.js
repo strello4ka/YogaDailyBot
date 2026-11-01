@@ -84,6 +84,8 @@ function selected() { return document.querySelector('input[name="tariff"]:checke
 function updatePrice() {
   const tariff = catalog.find(t => t.code === selected());
   const pay = $('pay');
+  pay.classList.remove('is-busy');
+  pay.removeAttribute('aria-disabled');
   pay.replaceChildren();
   if (!tariff) {
     pay.textContent = 'Выбери период';
@@ -99,13 +101,19 @@ function updatePrice() {
   $('pay').disabled = preview || !tariff;
   $('pay').removeAttribute('aria-label');
 }
-function showPayLoader() {
-  const pay = $('pay');
+function showButtonLoader(element, ariaLabel = 'Загрузка') {
   const loader = document.createElement('span');
   loader.className = 'button-loader';
   loader.setAttribute('aria-hidden', 'true');
-  pay.replaceChildren(loader);
-  pay.setAttribute('aria-label', 'Переходим к оплате');
+  element.replaceChildren(loader);
+  element.setAttribute('aria-label', ariaLabel);
+  element.classList.add('is-busy');
+  element.setAttribute('aria-disabled', 'true');
+  if ('disabled' in element) element.disabled = true;
+}
+function showPayLoader() {
+  const pay = $('pay');
+  showButtonLoader(pay, 'Переходим к оплате');
   pay.disabled = true;
 }
 function creationWaitExpired() {
@@ -123,6 +131,7 @@ function stopCreationWait() {
 function status(title, text) {
   $('loading').hidden = true;
   $('checkout').hidden = true; $('payment-status').hidden = false;
+  $('payment-status').classList.toggle('waiting', title === 'Ожидаем оплату');
   $('status-title').textContent = title;
   $('status-text').textContent = text || '';
   $('status-text').hidden = !text;
@@ -150,8 +159,7 @@ function openConfirmation(value) {
 }
 function pressedTransition(element, callback) {
   if (element.classList.contains('is-busy')) return;
-  element.classList.add('is-busy');
-  element.setAttribute('aria-disabled', 'true');
+  showButtonLoader(element, 'Загрузка');
   tg?.HapticFeedback?.impactOccurred?.('light');
   window.setTimeout(callback, 110);
 }
@@ -252,7 +260,7 @@ $('tariffs-button').addEventListener('click', () => {
 });
 $('reload').addEventListener('click', () => {
   if ($('reload').dataset.action === 'close') tg?.close();
-  else window.location.reload();
+  else pressedTransition($('reload'), () => window.location.reload());
 });
 $('close').addEventListener('click', () => tg?.close());
 async function load() {
@@ -304,11 +312,13 @@ async function load() {
     if (e.status === 401) {
       if (returnedOrder) {
         $('loading-title').textContent = 'Ожидаем оплату';
+        $('loading-title').classList.add('screen-state-title');
         $('loading-text').textContent = '';
         $('loading-text').hidden = true;
         $('reload').textContent = 'Вернуться в бот';
       } else {
         $('loading-title').textContent = 'Не удалось открыть тарифы';
+        $('loading-title').classList.remove('screen-state-title');
         $('loading-text').textContent =
           'Открой тарифы заново через Меню → Подписка → Посмотреть тарифы.';
         $('reload').textContent = 'Закрыть';
