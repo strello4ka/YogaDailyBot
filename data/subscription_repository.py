@@ -137,6 +137,19 @@ class SubscriptionRepository:
                      if price.special_offer_applied else None)
         return price, offer_end
 
+    def old_user_reminder_context(self, user_id):
+        """Reload the frozen offer and pending checkout before marketing sends."""
+        scope, params = self._payment_scope_sql('o.')
+        with self._transaction() as cursor:
+            cursor.execute(
+                "SELECT a.gift_starts,a.gift_ends,a.offer_ends,a.special_offer_used_at,"
+                "EXISTS(SELECT 1 FROM subscription_orders o WHERE o.user_id=a.user_id "
+                "AND o.status IN ('created','pending')" + scope + ") "
+                "FROM subscription_accounts a WHERE a.user_id=%s AND a.is_old_user IS TRUE",
+                params + (user_id,))
+            row = cursor.fetchone()
+            return (offer_from_values(*row[:4]), row[4]) if row else (None, False)
+
     def signal_payment(self, user_id):
         """Best-effort wakeup only; durable work remains in payment tables."""
         with self._transaction() as cursor:

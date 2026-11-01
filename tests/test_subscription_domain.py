@@ -119,6 +119,26 @@ class SubscriptionStorageBoundaryTest(unittest.TestCase):
     def test_constructing_repository_does_not_open_a_connection(self):
         self.factory.assert_not_called()
 
+    def test_old_user_reminders_read_frozen_offer_and_pending_checkout(self):
+        from app.subscription.old_users.rules import launch_offer
+        offer = launch_offer(at(1))
+        self.repository.payment_scope = 'live:1495040'
+        self.cursor.fetchone.return_value = (offer.gift.starts_at, offer.gift.ends_at,
+                                              offer.offer_ends, None, True)
+        actual, pending = self.repository.old_user_reminder_context(10)
+        self.assertEqual(actual, offer)
+        self.assertTrue(pending)
+        sql, params = self.cursor.execute.call_args.args
+        self.assertIn('a.is_old_user IS TRUE', sql)
+        self.assertIn("o.status IN ('created','pending')", sql)
+        self.assertIn('o.payment_scope=%s', sql)
+        self.assertEqual(params, ('live:1495040', 10))
+        self.connection.close.assert_called_once()
+
+    def test_non_cohort_user_has_no_old_user_reminders(self):
+        self.cursor.fetchone.return_value = None
+        self.assertEqual(self.repository.old_user_reminder_context(10), (None, False))
+
     def test_missing_user_is_not_implicitly_free_or_enrolled(self):
         self.cursor.fetchone.return_value = None
         self.assertIsNone(self.repository.get(10))

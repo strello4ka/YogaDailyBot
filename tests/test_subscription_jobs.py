@@ -8,6 +8,8 @@ from unittest.mock import patch
 from app.subscription.access import Subscription
 from app.subscription.demo import Trial, start_trial
 from app.subscription.old_users.rules import GiftPeriod
+from app.subscription.old_users.rules import launch_offer
+from dataclasses import replace
 from app.subscription.jobs import due_reminders, reconcile_test_payments, deliver_payment_notice
 from app.subscription.jobs import deliver_test_reminders, Reminder, _send_reminder
 from app.subscription.tariff import MOSCOW, purchased_period
@@ -18,6 +20,46 @@ def at(day, hour=0):
 
 
 class SubscriptionRemindersTest(unittest.TestCase):
+    def test_all_old_user_reminders_are_due_only_on_their_scheduled_day(self):
+        from app.subscription.old_users.notifications import notification_schedule
+        offer = launch_offer(at(1))
+        state = Subscription(gift=offer.gift)
+        for notification in notification_schedule(offer):
+            with self.subTest(kind=notification.kind):
+                moment = notification.scheduled_at
+                before = due_reminders(state, moment - timedelta(seconds=1), old_user_offer=offer)
+                self.assertNotIn(notification.kind, [item.kind for item in before])
+                events = due_reminders(state, moment, old_user_offer=offer)
+                self.assertEqual([item.kind for item in events], [notification.kind])
+                self.assertEqual(events[0].offer_ends_at, offer.offer_ends)
+                tomorrow = due_reminders(state, moment + timedelta(days=1), old_user_offer=offer)
+                self.assertNotIn(notification.kind, [item.kind for item in tomorrow])
+
+    def test_pending_checkout_suppresses_old_user_sales_but_not_access_expiry(self):
+        from app.subscription.old_users.notifications import notification_schedule
+        offer = launch_offer(at(1))
+        for event in notification_schedule(offer):
+            actual = due_reminders(Subscription(gift=offer.gift), event.scheduled_at,
+                                   old_user_offer=offer, payment_pending=True)
+            self.assertEqual([item.kind for item in actual],
+                             ['gift_expired'] if event.kind == 'gift_expired' else [])
+
+    def test_old_user_purchase_suppresses_sales_and_preserves_paid_activation(self):
+        from app.subscription.old_users.notifications import notification_schedule
+        offer = launch_offer(at(1))
+        paid = purchased_period('month', at(2), trial_ends_at=offer.gift.ends_at)
+        state = Subscription(gift=offer.gift, paid=paid)
+        for event in notification_schedule(offer):
+            actual = due_reminders(state, event.scheduled_at, old_user_offer=offer)
+            self.assertNotIn(event.kind, [item.kind for item in actual])
+        self.assertEqual([item.kind for item in due_reminders(
+            state, offer.gift.ends_at + timedelta(hours=8), old_user_offer=offer)],
+            ['gift_subscription_activated'])
+        used = replace(offer, used_at=at(2))
+        for event in notification_schedule(offer)[3:]:
+            self.assertEqual(due_reminders(Subscription(gift=offer.gift), event.scheduled_at,
+                                          old_user_offer=used), [])
+
     def setUp(self):
         self.trial = start_trial(at(1))
         self.state = Subscription(self.trial)
@@ -295,9 +337,58 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.repo.reminder_profile.return_value = dict(chat_id=10, name='Катя', challenge=False,
             completions=4, has_favorites=False, received_schedule=False, filter_keys=['five', 'relax'])
         self.repo.restore_offer.return_value = None
+        self.repo.old_user_reminder_context.return_value = (None, False)
         self.context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()), bot_data={
             'subscription_repository': self.repo, 'subscription_test_users': {10},
             'subscription_miniapp_url': 'https://example.org'})
+
+    async def test_old_user_reminders_reach_worker_and_are_not_sent_twice(self):
+        from app.subscription.old_users.notifications import notification_schedule
+        offer = launch_offer(at(1))
+        self.repo.old_user_reminder_context.return_value = (offer, False)
+        self.repo.get.return_value = self.repo.synchronize_access.return_value = Subscription(gift=offer.gift)
+        for event in notification_schedule(offer):
+            with self.subTest(kind=event.kind):
+                self.context.bot.send_message.reset_mock()
+                with patch('app.subscription.jobs.datetime') as clock:
+                    clock.now.return_value = event.scheduled_at
+                    clock.combine.side_effect = datetime.combine
+                    await deliver_test_reminders(self.context)
+                    await deliver_test_reminders(self.context)
+                calls = self.context.bot.send_message.await_args_list
+                self.assertEqual(len(calls), 2 if event.kind == 'gift_expired' else 1)
+                self.assertIn(event.kind, ' '.join(self.sent))
+                if event.kind == 'gift_expired':
+                    self.assertEqual(calls[0].kwargs['reply_markup'].keyboard[0][0].text,
+                                     'Практика дня')
+                else:
+                    self.assertTrue(calls[0].kwargs['reply_markup'].inline_keyboard)
+
+    async def test_pending_checkout_before_send_suppresses_old_user_sales(self):
+        offer = launch_offer(at(1))
+        state = Subscription(gift=offer.gift)
+        moment = offer.gift.ends_at - timedelta(days=3) + timedelta(hours=13)
+        event = due_reminders(state, moment, old_user_offer=offer)[0]
+        self.repo.get.return_value = state
+        self.repo.old_user_reminder_context.return_value = (offer, True)
+        with patch('app.subscription.jobs.datetime') as clock:
+            clock.now.return_value = moment
+            clock.combine.side_effect = datetime.combine
+            await _send_reminder(self.context, 10, event, self.repo.reminder_profile.return_value, moment)
+        self.context.bot.send_message.assert_not_awaited()
+
+    async def test_purchase_before_send_suppresses_old_user_sales(self):
+        offer = launch_offer(at(1))
+        moment = offer.gift.ends_at - timedelta(days=3) + timedelta(hours=13)
+        event = due_reminders(Subscription(gift=offer.gift), moment, old_user_offer=offer)[0]
+        paid = purchased_period('month', at(2), trial_ends_at=offer.gift.ends_at)
+        self.repo.get.return_value = Subscription(gift=offer.gift, paid=paid)
+        self.repo.old_user_reminder_context.return_value = (replace(offer, used_at=at(2)), False)
+        with patch('app.subscription.jobs.datetime') as clock:
+            clock.now.return_value = moment
+            clock.combine.side_effect = datetime.combine
+            await _send_reminder(self.context, 10, event, self.repo.reminder_profile.return_value, moment)
+        self.context.bot.send_message.assert_not_awaited()
 
     async def test_three_day_reminder_is_sent_once_at_13_moscow(self):
         moment = at(12, 13)

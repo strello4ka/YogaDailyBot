@@ -17,9 +17,19 @@ class ReceiptWorker:
     def run_once(self, now=None):
         now = now or datetime.now(timezone.utc)
         checkpoint = self.store.get_value('yookassa_checkpoint')
-        start = parse_time(checkpoint) if checkpoint else self.settings.sync_from
+        saved_floor = self.store.get_value('yookassa_sync_from')
+        floor = parse_time(saved_floor) if saved_floor else self.settings.sync_from
+        if saved_floor is None:
+            # Keep the initial cutoff stable across restarts. For an existing
+            # installation, preserve its checkpoint even after a long outage.
+            if checkpoint:
+                floor = min(floor, parse_time(checkpoint) - timedelta(minutes=10))
+            self.store.set_value('yookassa_sync_from', floor.isoformat())
         # Re-read a small overlap; payment_id uniqueness makes this safe.
-        start = max(self.settings.sync_from, start - timedelta(minutes=10))
+        # A saved checkpoint also survives outages longer than the default
+        # rolling sync_from (24 hours at process startup).
+        start = (max(floor, parse_time(checkpoint) - timedelta(minutes=10))
+                 if checkpoint else floor)
         discovered = 0
         for payment in self.yookassa.successful_payments(start, now):
             self.store.add_payment(payment)
@@ -54,6 +64,12 @@ class ReceiptWorker:
             self.store.transition(job['payment_id'], 'creating', 'ready', last_error=str(error))
         except PermanentFailure as error:
             self.store.transition(job['payment_id'], 'creating', 'manual_review', last_error=str(error))
+        except Exception as error:
+            # Once a write was attempted, an unexpected adapter failure is
+            # ambiguous too. Reconcile instead of leaving a stranded job or
+            # risking another POST. Do not persist arbitrary response bodies.
+            self.store.transition(job['payment_id'], 'creating', 'unknown',
+                                  last_error='Unexpected write failure: ' + type(error).__name__)
         else:
             self.store.transition(job['payment_id'], 'creating', 'registered',
                                   receipt_uuid=uuid, last_error=None)

@@ -159,6 +159,20 @@ def special_prices_last_day() -> str:
     )
 
 
+def reminder_text(kind, name, gift_ends, offer_ends):
+    """Keep temporary notification copy out of the permanent reminder worker."""
+    if kind == 'gift_three_days':
+        return gift_three_days(name, gift_ends, offer_ends)
+    if kind == 'gift_expired':
+        return gift_expired(offer_ends)
+    if kind == 'special_prices_seven_days':
+        return special_prices_seven_days(offer_ends)
+    renderers = {'gift_last_day': gift_last_day,
+                 'special_prices_three_days': special_prices_three_days,
+                 'special_prices_last_day': special_prices_last_day}
+    return renderers[kind]()
+
+
 def tariff_button_keyboard(miniapp_url: str) -> InlineKeyboardMarkup:
     """Build the single tariff button used by old-user reminders."""
     url = urlsplit(miniapp_url)

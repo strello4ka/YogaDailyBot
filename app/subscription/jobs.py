@@ -6,7 +6,7 @@ the returned key, so retries and restarts do not intentionally resend an event.
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from typing import List
+from typing import List, Optional
 import logging
 import asyncio
 from contextlib import asynccontextmanager
@@ -19,10 +19,15 @@ from .tariff import MOSCOW, local_time
 logger = logging.getLogger(__name__)
 
 
-def _user_reminders(context, user_id, subscription, now):
+async def _user_reminders(context, user_id, subscription, now):
     test = context.bot_data.get('subscription_test_paid_expiry')
     end = test[1] if test and test[0] == user_id else None
-    return due_reminders(subscription, now, paid_test_end=end)
+    offer, pending = None, False
+    if subscription.gift is not None:
+        repository = context.bot_data['subscription_repository']
+        offer, pending = await asyncio.to_thread(repository.old_user_reminder_context, user_id)
+    return due_reminders(subscription, now, paid_test_end=end,
+                         old_user_offer=offer, payment_pending=pending)
 
 
 async def _test_user_ids(context, repository):
@@ -142,7 +147,12 @@ _FILTER_LABELS = {
 
 def reminder_text(event, profile):
     from . import messages
+    from .old_users.notifications import NOTIFICATION_KINDS
     kind = event.kind
+    if kind in NOTIFICATION_KINDS:
+        from .old_users.messages import reminder_text as old_user_reminder_text
+        return old_user_reminder_text(kind, profile['name'], event.period_ends_at,
+                                      event.offer_ends_at)
     if kind == 'trial_three_days':
         renderer = (messages.challenge_access_three_days if profile['challenge']
                     else messages.trial_three_days)
@@ -193,14 +203,20 @@ async def _send_reminder(context, user_id, event, profile, now):
         # invalidates the old end and therefore the old reminder key.
         current = await asyncio.to_thread(repository.get, user_id)
         moment = datetime.now(MOSCOW)
-        if current is None or event.key not in {item.key for item in _user_reminders(context, user_id, current, moment)}:
+        eligible = (await _user_reminders(context, user_id, current, moment)
+                    if current is not None else [])
+        if event.key not in {item.key for item in eligible}:
             return
         if event.kind.endswith('expired'):
             keyboard = reply_keyboard()
         elif event.kind.endswith('subscription_activated'):
             keyboard = None
         else:
-            keyboard = optional_tariff_keyboard(context.bot_data['subscription_miniapp_url'])
+            from .old_users.notifications import NOTIFICATION_KINDS
+            from .old_users.messages import tariff_button_keyboard
+            url = context.bot_data['subscription_miniapp_url']
+            keyboard = (tariff_button_keyboard(url) if url and event.kind in NOTIFICATION_KINDS
+                        else optional_tariff_keyboard(url))
         if event.kind.endswith('expired') and current.state(moment) != AccessState.FREE:
             return
         if not already_sent:
@@ -215,7 +231,9 @@ async def _send_reminder(context, user_id, event, profile, now):
         async with _notice_lock(repository, user_id, tariff_key) as acquired:
             if acquired and not await asyncio.to_thread(repository.notification_sent, user_id, tariff_key):
                 current = await asyncio.to_thread(repository.get, user_id)
-                if current is None or event.key not in {item.key for item in _user_reminders(context, user_id, current, datetime.now(MOSCOW))}:
+                eligible = (await _user_reminders(context, user_id, current, datetime.now(MOSCOW))
+                            if current is not None else [])
+                if event.key not in {item.key for item in eligible}:
                     return
                 await context.bot.send_message(chat_id=profile['chat_id'],
                                                text=TARIFF_PROMPT,
@@ -260,7 +278,7 @@ async def deliver_test_reminders(context):
             subscription = await asyncio.to_thread(repository.synchronize_access, user_id, now)
             if subscription is None:
                 continue
-            events = _user_reminders(context, user_id, subscription, now)
+            events = await _user_reminders(context, user_id, subscription, now)
             profile = await asyncio.to_thread(repository.reminder_profile, user_id,
                                                subscription.trial if any(
                                                    e.kind in ('trial_last_day', 'trial_followup') for e in events)
@@ -289,6 +307,7 @@ class Reminder:
     kind: str
     period_ends_at: datetime
     scheduled_at: datetime
+    offer_ends_at: Optional[datetime] = None
 
     @property
     def key(self) -> str:
@@ -299,7 +318,8 @@ def _at(day: date, hour: int) -> datetime:
     return datetime.combine(day, time(hour), tzinfo=MOSCOW)
 
 
-def due_reminders(subscription: Subscription, now: datetime, *, paid_test_end=None) -> List[Reminder]:
+def due_reminders(subscription: Subscription, now: datetime, *, paid_test_end=None,
+                  old_user_offer=None, payment_pending=False) -> List[Reminder]:
     """Return today's eligible events, not a backlog of obsolete sales messages.
 
     The three-day event uses the exclusive expiry date minus three days:
@@ -314,6 +334,19 @@ def due_reminders(subscription: Subscription, now: datetime, *, paid_test_end=No
             result.append(Reminder(kind, end, scheduled))
 
     state = subscription.state(now)
+    if old_user_offer is not None:
+        from .old_users.notifications import due_notifications
+        for event in due_notifications(old_user_offer, now,
+                gift_active=state == AccessState.GIFT, free=state == AccessState.FREE,
+                has_paid=subscription.paid is not None, payment_pending=payment_pending):
+            end = (old_user_offer.gift.ends_at if event.kind.startswith('gift_')
+                   else old_user_offer.offer_ends)
+            result.append(Reminder(event.kind, end, event.scheduled_at,
+                                   old_user_offer.offer_ends))
+        # The old-user transition replaces expired-trial marketing, not paid
+        # subscription reminders or the activation of a prepaid gift period.
+        if subscription.paid is None:
+            return result
     # Explicit per-user test deadline, never inferred from a real purchase.
     # Renewing changes the stored deadline and immediately disables this override.
     if (paid_test_end is not None and subscription.paid

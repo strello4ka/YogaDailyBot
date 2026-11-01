@@ -22,9 +22,12 @@ class YooKassaReader:
                                    auth=(shop_id, secret_key), timeout=30,
                                    transport=transport)
 
-    def successful_payments(self, created_from, created_to):
-        params = {'created_at.gte': created_from.isoformat().replace('+00:00', 'Z'),
-                  'created_at.lte': created_to.isoformat().replace('+00:00', 'Z'), 'limit': 100}
+    def successful_payments(self, captured_from, captured_to):
+        # A payment can remain pending long after creation. Discover it when
+        # money is captured, not when the buyer first opens checkout.
+        params = {'captured_at.gte': captured_from.isoformat().replace('+00:00', 'Z'),
+                  'captured_at.lte': captured_to.isoformat().replace('+00:00', 'Z'),
+                  'status': 'succeeded', 'limit': 100}
         while True:
             response = self.client.get('payments', params=params)
             response.raise_for_status()
@@ -116,7 +119,13 @@ class MyNalogClient:
             suffix = f' ({detail})' if detail else ''
             raise PermanentFailure(
                 f'My Nalog rejected receipt: HTTP {response.status_code}{suffix}')
-        receipt_uuid = response.json().get('approvedReceiptUuid')
+        try:
+            data = response.json()
+        except ValueError as error:
+            raise UnknownWriteResult('My Nalog write response is not JSON') from error
+        if not isinstance(data, dict):
+            raise UnknownWriteResult('My Nalog write response is not an object')
+        receipt_uuid = data.get('approvedReceiptUuid')
         if not receipt_uuid:
             raise UnknownWriteResult('My Nalog response has no receipt UUID')
         return receipt_uuid
