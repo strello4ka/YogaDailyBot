@@ -139,13 +139,20 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertEqual(status, '200 OK')
         self.assertIn('Email для чека'.encode(), body)
 
+    def test_checkout_section_labels_share_one_typographic_level(self):
+        _, stylesheet = self.request('/styles.css', method='GET')
+        css = stylesheet.decode()
+        self.assertIn('.field label { font-weight: 650; font-size: 16px;', css)
+        self.assertIn('.promo-field summary { display: flex;', css)
+        self.assertIn('color: var(--accent); font-size: 16px; font-weight: 650;', css)
+
     def test_special_offer_ui_places_terms_below_tariffs(self):
         _, html = self.request('/', method='GET')
         _, script = self.request('/app.js', method='GET')
         page = html.decode()
         client = script.decode()
-        self.assertLess(page.index('id="early-user-note"'), page.index('id="tariffs"'))
-        self.assertIn('Скидки только для самых первых пользователей', page)
+        self.assertNotIn('id="early-user-note"', page)
+        self.assertNotIn('Скидки только для самых первых пользователей', page)
         self.assertLess(page.index('id="tariffs"'), page.index('id="period-note"'))
         self.assertLess(page.index('id="tariffs"'), page.index('id="offer-ends"'))
         self.assertLess(page.index('id="period-note"'), page.index('id="email-field"'))
@@ -169,7 +176,7 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertNotIn("status('Оплата отменена'", client)
         self.assertIn("data.status === 'canceled'", client)
         self.assertIn("$('tariffs-button').hidden = false", client)
-        self.assertIn('Специальные цены действуют до ${date} включительно\\n'
+        self.assertIn('Скидки для своих действуют до ${date} включительно\\n'
                       'только на первую покупку', client)
         self.assertIn("basePrice.className = 'tariff-base-price'", client)
         self.assertIn("rows.push(['tariff-monthly', monthly || '\\u00a0'])", client)

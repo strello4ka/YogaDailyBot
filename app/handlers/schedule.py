@@ -166,7 +166,6 @@ async def schedule_toggle_callback(update: Update, context: ContextTypes.DEFAULT
             InlineKeyboardButton(
                 "Возобновить рассылку",
                 callback_data="schedule_resume_setup",
-                api_kwargs={"style": "primary"},
             )
         ]]),
     )

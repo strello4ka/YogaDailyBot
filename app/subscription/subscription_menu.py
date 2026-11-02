@@ -139,6 +139,8 @@ def install_test_subscriptions(application, environment, connection_factory):
     application.add_handler(CommandHandler("subscription_test", subscription_test_command))
     application.add_handler(CallbackQueryHandler(subscription_test_start_callback,
                                                 pattern=r"^subscription_test_start$"))
+    application.add_handler(CallbackQueryHandler(subscription_test_gift_start_callback,
+                                                pattern=r"^subscription_test_gift_start$"))
     from .jobs import synchronize_test_access, reconcile_test_payments, deliver_test_reminders
     from .payment_wakeup import install as install_payment_wakeup
     install_payment_wakeup(application, connection_factory)
@@ -153,7 +155,7 @@ def install_test_subscriptions(application, environment, connection_factory):
 
 
 async def subscription_test_command(update, context):
-    """Offer a replayable short trial only through the isolated test-bot menu."""
+    """Offer replayable accelerated scenarios only in the isolated test bot."""
     from .access import repository_for
     repository = repository_for(context, update.effective_user.id)
     if repository is None:
@@ -163,13 +165,13 @@ async def subscription_test_command(update, context):
         await send_menu(context.bot, update.effective_chat.id, current, datetime.now(MOSCOW),
                         context.bot_data['subscription_miniapp_url'])
     await update.effective_message.reply_text(
-        "🧪 Ускоренный тест: проба 15 минут. Через 10 минут придёт первое напоминание, "
-        "через 14 — второе, через 15 — сообщение о бесплатном режиме. "
-        "Ещё через 2 минуты придёт напоминание после пробы. "
-        "Повторный запуск начнёт тест заново только для твоего аккаунта в тестовом боте.",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("Запустить тест", callback_data="subscription_test_start")
-        ]]))
+        "🧪 Выбери ускоренный сценарий. Каждый запускается заново только для твоего "
+        "аккаунта в тестовом боте.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Пробный период", callback_data="subscription_test_start")],
+            [InlineKeyboardButton("Подарочный период",
+                                  callback_data="subscription_test_gift_start")],
+        ]))
 
 
 async def subscription_test_start_callback(update, context):
@@ -194,6 +196,43 @@ async def subscription_test_start_callback(update, context):
         reply_markup=get_common_reply_keyboard())
     await send_menu(context.bot, update.effective_chat.id, subscription, now,
                     context.bot_data['subscription_miniapp_url'])
+
+
+async def subscription_test_gift_start_callback(update, context):
+    """Run the complete accelerated old-user journey, including its first message."""
+    from .access import repository_for
+    from .old_users.messages import first_message, first_message_keyboard
+    from app.keyboards import get_common_reply_keyboard
+
+    query = update.callback_query
+    repository = repository_for(context, update.effective_user.id)
+    if repository is None:
+        await query.answer()
+        return
+    now = datetime.now(MOSCOW)
+    try:
+        subscription = await asyncio.to_thread(
+            repository.begin_fast_gift, update.effective_user.id, now, replay=True)
+    except ValueError:
+        await query.answer(
+            "У аккаунта уже есть оплаченный период или платёжный заказ.",
+            show_alert=True,
+        )
+        return
+    await query.answer()
+    await query.edit_message_reply_markup(reply_markup=None)
+    await context.bot.send_message(
+        update.effective_chat.id,
+        "Ускоренный подарочный период начался 🧡 "
+        "Подарочный доступ — 15 минут, специальные цены — ещё 15 минут.",
+        reply_markup=get_common_reply_keyboard(),
+    )
+    await context.bot.send_message(
+        update.effective_chat.id,
+        first_message(subscription.gift.ends_at),
+        parse_mode="HTML",
+        reply_markup=first_message_keyboard(context.bot_data['subscription_miniapp_url']),
+    )
 
 
 def requested_feature(text, callback, *, waiting_for_time=False):

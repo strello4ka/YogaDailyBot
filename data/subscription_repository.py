@@ -15,6 +15,7 @@ from app.subscription.old_users.prices import checkout_price as old_user_checkou
 from app.subscription.old_users.repository import (CheckoutProfile, enroll as enroll_old_users,
                                                    offer_from_values)
 from app.subscription.old_users.rules import GiftPeriod
+from app.subscription.old_users.test_scenario import start_fast_offer
 from app.subscription.tariff import PaidPeriod, local_time, midnight
 
 
@@ -422,6 +423,40 @@ class SubscriptionRepository:
             )
         return Subscription(trial=trial)
 
+    def begin_fast_gift(self, user_id: int, now: datetime, *, replay=False) -> Subscription:
+        """Start the accelerated old-user scenario in the isolated test database."""
+        offer = start_fast_offer(now)
+        start = local_time(now)
+        with self._transaction() as cursor:
+            cursor.execute(
+                "INSERT INTO subscription_accounts (user_id) VALUES (%s) "
+                "ON CONFLICT (user_id) DO NOTHING", (user_id,),
+            )
+            cursor.execute(
+                "SELECT trial_started_at,trial_ends_at,subscription_starts,subscription_ends,"
+                "gift_starts,gift_ends FROM subscription_accounts WHERE user_id=%s FOR UPDATE",
+                (user_id,),
+            )
+            current = _snapshot(cursor.fetchone())
+            if not replay and (current.gift is not None or current.paid is not None):
+                return current
+            if current.paid is not None:
+                raise ValueError("A paid test account cannot replay the gift scenario")
+            cursor.execute(
+                "SELECT EXISTS(SELECT 1 FROM subscription_orders WHERE user_id=%s "
+                "AND status IN ('created','pending','succeeded'))", (user_id,),
+            )
+            if cursor.fetchone()[0]:
+                raise ValueError("A test account with payment orders cannot replay the gift scenario")
+            cursor.execute(
+                "UPDATE subscription_accounts SET trial_started_at=NULL,trial_ends_at=NULL,"
+                "is_old_user=TRUE,gift_starts=%s,gift_ends=%s,offer_ends=%s,"
+                "special_offer_used_at=NULL,subscription_state='gift',updated_at=%s "
+                "WHERE user_id=%s",
+                (offer.gift.starts_at, offer.gift.ends_at, offer.offer_ends, start, user_id),
+            )
+        return Subscription(gift=offer.gift)
+
     def enroll_old_users(self, launch_at: datetime) -> int:
         """Explicit one-off activation; never called by application startup."""
         with self._transaction() as cursor:
@@ -442,7 +477,7 @@ class SubscriptionRepository:
             if not user:
                 return None
             result = dict(chat_id=user[0], name=user[1], challenge=user[2] == 'challenge',
-                          completions=0, has_favorites=False, received_schedule=False, filter_keys=[])
+                          completions=0, has_favorites=False, filter_keys=[])
             if trial is None:
                 return result
             # Existing activity tables use naive UTC timestamps.
@@ -454,9 +489,6 @@ class SubscriptionRepository:
             cursor.execute("SELECT EXISTS(SELECT 1 FROM user_favorites WHERE user_id=%s "
                            "AND added_at >= %s AND added_at < %s)", (user_id, start, end))
             result['has_favorites'] = cursor.fetchone()[0]
-            cursor.execute("SELECT EXISTS(SELECT 1 FROM practice_logs WHERE user_id=%s "
-                           "AND day_number >= 1 AND sent_at >= %s AND sent_at < %s)", (user_id, start, end))
-            result['received_schedule'] = cursor.fetchone()[0]
             cursor.execute("SELECT filter_key FROM quick_filter_events WHERE user_id=%s "
                            "AND clicked_at >= %s AND clicked_at < %s AND result_found IS TRUE "
                            "AND filter_key <> 'day' GROUP BY filter_key ORDER BY COUNT(*) DESC,filter_key LIMIT 2",

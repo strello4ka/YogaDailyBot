@@ -17,6 +17,13 @@ SUBSCRIPTION_DETAILS_CALLBACK = "old_users:subscription_details"
 FREE_DETAILS_CALLBACK = "old_users:free_details"
 
 
+def _offer_last_date(value: datetime):
+    """Inclusive date for both midnight production and minute-based test deadlines."""
+    local = local_time(value)
+    has_clock_time = any((local.hour, local.minute, local.second, local.microsecond))
+    return local.date() if has_clock_time else last_access_date(local)
+
+
 def _days_label(value: int) -> str:
     if value % 10 == 1 and value % 100 != 11:
         word = "день"
@@ -48,7 +55,7 @@ def gift_status(days_left: int, starts_at: datetime, purchased: bool = False,
 
 def first_message(gift_ends: datetime) -> str:
     """Render the approved launch message for users from the frozen cohort."""
-    access_until = last_access_date(gift_ends)
+    access_until = _offer_last_date(gift_ends)
     return (
         "<b>Если ты читаешь это,\n"
         "поздравляю, ты — легенда\n"
@@ -69,8 +76,8 @@ def first_message(gift_ends: datetime) -> str:
 
 def gift_three_days(name: str, gift_ends: datetime, offer_ends: datetime) -> str:
     """Render the approved three-day reminder for the gift period."""
-    access_until = last_access_date(gift_ends)
-    special_prices_until = last_access_date(offer_ends)
+    access_until = _offer_last_date(gift_ends)
+    special_prices_until = _offer_last_date(offer_ends)
     greeting = f"<b>{escape(name)}</b>, " if name else ""
     return (
         "⏳ <b>Подарочный период заканчивается через 3 дня</b>\n\n"
@@ -98,17 +105,20 @@ def gift_last_day() -> str:
 
 def gift_expired(offer_ends: datetime) -> str:
     """Render the approved transition from gift access to free mode."""
-    special_prices_until = last_access_date(offer_ends)
     return (
         "<b>Подарочный месяц завершился 🧡</b>\n\n"
-        "Теперь ты в бесплатной версии YogaDailyBot:\n"
-        "🌀 Практика дня\n"
-        "🌀 Прогресс\n\n"
-        "Твои настройки и избранные практики сохранены — они снова станут доступны после "
-        "оформления подписки.\n\n"
-        "Только для своих действуют специальные цены на все тарифы до "
-        f"<b>{special_prices_until:%d.%m.%Y}</b>.\n"
-        "Управлять подпиской можно в любой момент в <b>Меню</b> ↙️"
+        "Теперь ты в бесплатной версии YogaDailyBot.\n"
+        "Твои избранные практики сохранены, они снова станут доступны после "
+        "оформления подписки."
+    )
+
+
+def gift_expired_tariff_prompt(offer_ends: datetime) -> str:
+    """Render the separate tariff prompt sent after gift access expires."""
+    special_prices_until = _offer_last_date(offer_ends)
+    return (
+        "<b>Только для своих</b> действуют специальные цены на все тарифы до "
+        f"<b>{special_prices_until:%d.%m.%Y}</b>."
     )
 
 
@@ -128,7 +138,7 @@ def gift_subscription_activated(name: str, ends_at: datetime) -> str:
 
 def special_prices_seven_days(offer_ends: datetime) -> str:
     """Render the calm midpoint reminder for an unused special offer."""
-    special_prices_until = last_access_date(offer_ends)
+    special_prices_until = _offer_last_date(offer_ends)
     return (
         "Для тебя всё ещё действуют <b>специальные цены</b> для самых первых "
         "пользователей 🧡\n\n"
@@ -141,10 +151,10 @@ def special_prices_three_days() -> str:
     return (
         "⏳ <b>Специальные цены исчезнут через 3 дня</b>\n\n"
         "Только для олдов:\n"
-        "<b>1 месяц:</b> 350 ₽ → <b>250 ₽</b>\n"
-        "<b>3 месяца:</b> 800 ₽ → <b>600 ₽</b>\n"
-        "<b>6 месяцев:</b> 1 400 ₽ → <b>1 000 ₽</b>\n"
-        "<b>1 год:</b> 2 500 ₽ → <b>1 800 ₽</b>\n\n"
+        "1 месяц: 350 ₽ → 250 ₽\n"
+        "3 месяца: 800 ₽ → 600 ₽\n"
+        "6 месяцев: 1 400 ₽ → 1 000 ₽\n"
+        "1 год: 2 500 ₽ → 1 800 ₽\n\n"
         "Выбирай любой тариф 👇"
     )
 
@@ -154,8 +164,7 @@ def special_prices_last_day() -> str:
     return (
         "⏳ <b>Сегодня последний день специальных цен</b>\n\n"
         "Уже завтра для тебя будут такие же цены, как для всех.\n"
-        "Если ты любишь запрыгивать в последний вагон, то момент настал!\n\n"
-        "Предложение действует до конца сегодняшнего дня 👇"
+        "Если ты любишь запрыгивать в последний вагон, то момент настал!"
     )
 
 
@@ -179,7 +188,7 @@ def tariff_button_keyboard(miniapp_url: str) -> InlineKeyboardMarkup:
     if url.scheme != "https" or not url.hostname or url.username or url.password:
         raise ValueError("Mini App requires a public HTTPS URL without credentials")
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("⭐ " + TARIFF_BUTTON,
+        InlineKeyboardButton(TARIFF_BUTTON,
                              web_app=WebAppInfo(url=miniapp_url),
                              api_kwargs={"style": "primary"})
     ]])

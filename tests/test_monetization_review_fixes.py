@@ -67,6 +67,7 @@ class DisabledScheduleTest(unittest.IsolatedAsyncioTestCase):
         button = call.kwargs['reply_markup'].inline_keyboard[0][0]
         self.assertEqual(button.text, 'Возобновить рассылку')
         self.assertEqual(button.callback_data, 'schedule_resume_setup')
+        self.assertEqual(button.api_kwargs, {})
 
     async def test_failed_stop_does_not_claim_success(self):
         update = self.update()

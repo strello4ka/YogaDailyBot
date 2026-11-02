@@ -12,7 +12,7 @@ from app.handlers.donations import (
 
 
 class DonationsPreviewTests(unittest.IsolatedAsyncioTestCase):
-    async def test_donations_keep_stars_and_open_preview_without_card_button(self):
+    async def test_donations_open_preview_without_starred_buttons_or_card_button(self):
         bot = SimpleNamespace(send_message=AsyncMock())
         context = SimpleNamespace(bot=bot,
                                   bot_data={"subscription_miniapp_url": "https://payments.example.test/"},
@@ -25,6 +25,7 @@ class DonationsPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Пока YogaDailyBot бесплатный", sent["text"])
         buttons = [row[0] for row in sent["reply_markup"].inline_keyboard]
         self.assertEqual(buttons[0].callback_data, "donate_stars")
+        self.assertNotIn("⭐", buttons[0].text)
         self.assertEqual(buttons[1].text, "Посмотреть тарифы")
         self.assertEqual(buttons[1].web_app.url, MINIAPP_PREVIEW_URL)
         self.assertNotIn("donate_card", [button.callback_data for button in buttons])

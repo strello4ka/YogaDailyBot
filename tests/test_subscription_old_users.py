@@ -12,6 +12,7 @@ from app.subscription.old_users.messages import (
     first_message_keyboard,
     gift_status,
     gift_expired,
+    gift_expired_tariff_prompt,
     gift_last_day,
     gift_subscription_activated,
     special_prices_last_day,
@@ -25,6 +26,7 @@ from app.subscription.old_users.notifications import notification_schedule
 from app.subscription.old_users.prices import SPECIAL_PRICES, checkout_price
 from app.subscription.old_users.repository import enroll
 from app.subscription.old_users.rules import launch_offer
+from app.subscription.old_users.test_scenario import start_fast_offer
 from app.subscription.tariff import MOSCOW
 
 
@@ -98,6 +100,24 @@ class OldUsersRulesTest(unittest.TestCase):
         self.assertEqual(schedule[5].scheduled_at,
                          offer.offer_ends - timedelta(days=1) + timedelta(hours=19))
 
+    def test_fast_scenario_runs_gift_and_special_prices_in_thirty_minutes(self):
+        start = at(1, 12)
+        offer = start_fast_offer(start)
+        self.assertEqual(offer.gift.ends_at, start + timedelta(minutes=15))
+        self.assertEqual(offer.offer_ends, start + timedelta(minutes=30))
+        schedule = notification_schedule(offer)
+        self.assertEqual([(item.kind, item.scheduled_at - start) for item in schedule], [
+            ('gift_three_days', timedelta(minutes=10)),
+            ('gift_last_day', timedelta(minutes=14)),
+            ('gift_expired', timedelta(minutes=15)),
+            ('special_prices_seven_days', timedelta(minutes=20)),
+            ('special_prices_three_days', timedelta(minutes=25)),
+            ('special_prices_last_day', timedelta(minutes=29)),
+        ])
+        self.assertIn("До <b>01.10.2026</b>", first_message(offer.gift.ends_at))
+        self.assertIn("до <b>01.10.2026</b>",
+                      gift_expired_tariff_prompt(offer.offer_ends))
+
     def test_first_message_uses_regular_quote_and_approved_buttons(self):
         text = first_message(at(31))
         self.assertIn("ты — легенда", text)
@@ -157,7 +177,7 @@ class OldUsersRulesTest(unittest.TestCase):
 
         keyboard = tariff_button_keyboard("https://example.org/subscription")
         button = keyboard.inline_keyboard[0][0]
-        self.assertEqual(button.text, "⭐ Посмотреть тарифы")
+        self.assertEqual(button.text, "Посмотреть тарифы")
         self.assertEqual(button.web_app.url, "https://example.org/subscription")
 
     def test_gift_last_day_lists_lost_and_free_features(self):
@@ -171,8 +191,10 @@ class OldUsersRulesTest(unittest.TestCase):
         text = gift_expired(offer_end)
         self.assertIn("Подарочный месяц завершился", text)
         self.assertIn("Теперь ты в бесплатной версии YogaDailyBot", text)
-        self.assertIn("🌀 Практика дня\n🌀 Прогресс", text)
-        self.assertIn("до <b>13.11.2026</b>", text)
+        self.assertNotIn("Только для своих", text)
+        prompt = gift_expired_tariff_prompt(offer_end)
+        self.assertIn("<b>Только для своих</b>", prompt)
+        self.assertIn("до <b>13.11.2026</b>", prompt)
 
         offer = launch_offer(at(1))
         self.assertEqual(Subscription(gift=offer.gift).state(offer.gift.ends_at),
@@ -193,8 +215,8 @@ class OldUsersRulesTest(unittest.TestCase):
         text = special_prices_three_days()
         self.assertIn('Специальные цены исчезнут через 3 дня', text)
         self.assertIn('Только для олдов:', text)
-        self.assertIn('<b>1 месяц:</b> 350 ₽ → <b>250 ₽</b>', text)
-        self.assertIn('<b>1 год:</b> 2 500 ₽ → <b>1 800 ₽</b>', text)
+        self.assertIn('1 месяц: 350 ₽ → 250 ₽', text)
+        self.assertIn('1 год: 2 500 ₽ → 1 800 ₽', text)
         self.assertIn('Выбирай любой тариф 👇', text)
 
     def test_special_prices_last_day_copy_is_short_and_friendly(self):
@@ -202,7 +224,7 @@ class OldUsersRulesTest(unittest.TestCase):
         self.assertIn('Сегодня последний день специальных цен', text)
         self.assertIn('такие же цены, как для всех', text)
         self.assertIn('запрыгивать в последний вагон', text)
-        self.assertIn('до конца сегодняшнего дня 👇', text)
+        self.assertIn('то момент настал!', text)
 
 
 if __name__ == '__main__':

@@ -271,8 +271,7 @@ async function load() {
     $('period-note').textContent = data.note; $('period-note').hidden = !data.note;
     if (data.offer_ends_on) {
       const date = data.offer_ends_on.split('-').reverse().join('.');
-      $('early-user-note').hidden = false;
-      $('offer-ends').textContent = `Специальные цены действуют до ${date} включительно\nтолько на первую покупку`;
+      $('offer-ends').textContent = `Скидки для своих действуют до ${date} включительно\nтолько на первую покупку`;
       $('offer-ends').hidden = false;
     }
     $('offer').href = data.offer_url;

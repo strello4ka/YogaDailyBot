@@ -24,7 +24,6 @@ h1 { font-size: clamp(28px, 8vw, 38px); line-height: 1.12; letter-spacing: -1.3p
 .note { margin: 10px 0 0; padding: 12px 14px; border-radius: 14px; background: #eaddc8; line-height: 1.4; font-size: 14px; }
 fieldset { min-width: 0; padding: 0; border: 0; margin: 0 0 14px; }
 legend { padding: 0; margin-bottom: 9px; font-weight: 650; color: var(--ink); }
-.early-user-note { margin: -3px 0 10px; font-size: 14px; line-height: 1.35; color: var(--muted); }
 .offer-ends { margin: 10px 0 0; font-size: 14px; line-height: 1.35; color: var(--muted); white-space: pre-line; }
 .tariffs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .tariff { position: relative; cursor: pointer; display: flex; min-height: 118px; flex-direction: column; padding: 12px; border: 1px solid var(--line); background: var(--card); border-radius: 16px; }
@@ -36,14 +35,14 @@ legend { padding: 0; margin-bottom: 9px; font-weight: 650; color: var(--ink); }
 .tariff-base-price { margin-left: 9px; color: var(--muted); font-size: 14px; font-weight: 400; letter-spacing: 0; text-decoration: line-through; white-space: nowrap; }
 .tariff-monthly { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .promo-field { margin: 16px 0 8px; }
-.promo-field summary { display: flex; align-items: center; gap: 8px; width: fit-content; color: var(--accent); font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; }
+.promo-field summary { display: flex; align-items: center; gap: 8px; width: fit-content; color: var(--accent); font-size: 16px; font-weight: 650; line-height: 1.45; cursor: pointer; list-style: none; }
 .promo-field summary::-webkit-details-marker { display: none; }
 .promo-field summary::after { content: ""; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform .15s ease; }
 .promo-field[open] summary::after { transform: translateY(2px) rotate(225deg); }
 .promo-content { padding-top: 10px; }
 .field { margin: 0; }
 .field-label-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-height: 25px; }
-.field label { font-weight: 600; font-size: 14px; }
+.field label { font-weight: 650; font-size: 16px; line-height: 1.45; }
 .required { color: var(--error); }
 .keyboard-done { border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; padding: 0 2px; cursor: pointer; }
 input[type=text], input[type=email] { font: inherit; font-size: 16px; width: 100%; min-height: 47px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }

@@ -168,6 +168,21 @@ class SubscriptionStorageBoundaryTest(unittest.TestCase):
                          timedelta(minutes=15))
         self.assertTrue(any(c.args[0].startswith('UPDATE') for c in self.cursor.execute.call_args_list))
 
+    def test_fast_gift_replay_replaces_trial_with_isolated_thirty_minute_offer(self):
+        trial = start_trial(at(1))
+        row = (trial.started_at, trial.ends_at, None, None, None, None)
+        self.cursor.fetchone.side_effect = [row, (False,)]
+
+        result = self.repository.begin_fast_gift(10, at(2), replay=True)
+
+        self.assertEqual(result.gift.ends_at - result.gift.starts_at,
+                         timedelta(minutes=15))
+        update = [call for call in self.cursor.execute.call_args_list
+                  if call.args[0].startswith('UPDATE')][0]
+        self.assertIn('trial_started_at=NULL', update.args[0])
+        self.assertIn("subscription_state='gift'", update.args[0])
+        self.assertEqual(update.args[1][2] - update.args[1][1], timedelta(minutes=15))
+
     def test_database_error_closes_connection_and_propagates(self):
         self.cursor.execute.side_effect = RuntimeError('database unavailable')
         with self.assertRaisesRegex(RuntimeError, 'database unavailable'):

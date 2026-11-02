@@ -36,7 +36,7 @@ async def handle_donations_callback(update: Update, context: ContextTypes.DEFAUL
     )
     
     keyboard = [
-        [InlineKeyboardButton("⭐️ Поддержать через Telegram Stars", callback_data="donate_stars")],
+        [InlineKeyboardButton("Поддержать через Telegram Stars", callback_data="donate_stars")],
         [InlineKeyboardButton("Посмотреть тарифы", web_app=WebAppInfo(url=MINIAPP_PREVIEW_URL))],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -81,12 +81,12 @@ async def handle_donate_stars_callback(update: Update, context: ContextTypes.DEF
     
     # Создаем клавиатуру с вариантами количества звезд
     keyboard = [
-        [InlineKeyboardButton("1 ⭐️", callback_data="stars_1")],
-        [InlineKeyboardButton("5 ⭐️", callback_data="stars_5")],
-        [InlineKeyboardButton("10 ⭐️", callback_data="stars_10")],
-        [InlineKeyboardButton("50 ⭐️", callback_data="stars_50")],
-        [InlineKeyboardButton("100 ⭐️", callback_data="stars_100")],
-        [InlineKeyboardButton("500 ⭐️", callback_data="stars_500")]
+        [InlineKeyboardButton("1 Telegram Star", callback_data="stars_1")],
+        [InlineKeyboardButton("5 Telegram Stars", callback_data="stars_5")],
+        [InlineKeyboardButton("10 Telegram Stars", callback_data="stars_10")],
+        [InlineKeyboardButton("50 Telegram Stars", callback_data="stars_50")],
+        [InlineKeyboardButton("100 Telegram Stars", callback_data="stars_100")],
+        [InlineKeyboardButton("500 Telegram Stars", callback_data="stars_500")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -127,7 +127,7 @@ async def handle_stars_amount_callback(update: Update, context: ContextTypes.DEF
     # Согласно документации, для цифровых товаров используем валюту "XTR" (Telegram Stars)
     try:
         invoice_keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton(f"Внести ⭐️{stars_amount}", pay=True)]]
+            [[InlineKeyboardButton(f"Внести {stars_amount} Telegram Stars", pay=True)]]
         )
         await context.bot.send_invoice(
             chat_id=chat_id,

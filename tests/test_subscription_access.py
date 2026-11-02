@@ -10,7 +10,8 @@ from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.free import locked_text, reply_keyboard, send_locked
 from app.subscription.subscription_menu import (menu_text, send_menu, tariff_keyboard,
     test_settings, install_test_subscriptions, guard_update,
-    subscription_test_command, subscription_test_start_callback)
+    subscription_test_command, subscription_test_gift_start_callback,
+    subscription_test_start_callback)
 from app.subscription.tariff import MOSCOW, purchased_period
 from app.onboarding import messages as onboarding_messages
 from app.onboarding.flow import _send_step, _subscription_variant, handle_reply
@@ -139,15 +140,12 @@ class SubscriptionScreensTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             tariff_keyboard('http://example.org')
 
-    def test_followup_priority(self):
-        text = messages.trial_followup(has_favorites=True, received_schedule=True, used_filters=True)
+    def test_followup_has_two_variants(self):
+        text = messages.trial_followup(has_favorites=True)
         self.assertIn('избранные', text)
-        text = messages.trial_followup(has_favorites=False, received_schedule=True, used_filters=True)
-        self.assertIn('расписанию', text)
-        text = messages.trial_followup(has_favorites=False, received_schedule=False, used_filters=True)
-        self.assertNotIn('Мини', text)
-        text = messages.trial_followup(has_favorites=False, received_schedule=False, used_filters=False)
+        text = messages.trial_followup(has_favorites=False)
         self.assertIn('Какую практику хочется', text)
+        self.assertIn('получать их в удобное время', text)
 
 
 class TestRolloutSafetyTest(unittest.TestCase):
@@ -246,14 +244,41 @@ class TestGuardTest(unittest.IsolatedAsyncioTestCase):
             effective_message=SimpleNamespace(reply_text=AsyncMock()), callback_query=query)
         await subscription_test_command(update, context)
         repository.begin_fast_trial.assert_not_called()
-        self.assertEqual(update.effective_message.reply_text.call_args.kwargs[
-            'reply_markup'].inline_keyboard[0][0].text, 'Запустить тест')
+        buttons = update.effective_message.reply_text.call_args.kwargs[
+            'reply_markup'].inline_keyboard
+        self.assertEqual([row[0].text for row in buttons],
+                         ['Пробный период', 'Подарочный период'])
         await subscription_test_start_callback(update, context)
         repository.begin_fast_trial.assert_called_once()
         self.assertEqual(bot.send_message.await_count, 2)
         self.assertIn('15 минут', bot.send_message.await_args_list[0].args[1])
         self.assertEqual(bot.send_message.await_args_list[0].kwargs['reply_markup']
                          .keyboard[-1][0].text, 'расписание')
+
+    async def test_existing_test_user_can_run_complete_fast_gift_scenario(self):
+        repository = Mock()
+        repository.get.return_value = None
+        now = datetime(2026, 10, 13, 12, tzinfo=MOSCOW)
+        repository.begin_fast_gift.return_value = Subscription(
+            gift=GiftPeriod(now, now + timedelta(minutes=15)))
+        bot = SimpleNamespace(send_message=AsyncMock())
+        context = SimpleNamespace(bot=bot, bot_data=dict(
+            subscription_repository=repository, subscription_test_users=None,
+            subscription_miniapp_url='https://example.org'))
+        query = SimpleNamespace(answer=AsyncMock(), edit_message_reply_markup=AsyncMock())
+        update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
+            effective_chat=SimpleNamespace(id=1), callback_query=query)
+
+        with patch('app.subscription.subscription_menu.datetime') as clock:
+            clock.now.return_value = now
+            await subscription_test_gift_start_callback(update, context)
+
+        repository.begin_fast_gift.assert_called_once_with(1, now, replay=True)
+        self.assertEqual(bot.send_message.await_count, 2)
+        self.assertIn('Подарочный доступ — 15 минут', bot.send_message.await_args_list[0].args[1])
+        self.assertIn('ты — легенда', bot.send_message.await_args_list[1].args[1])
+        self.assertEqual(bot.send_message.await_args_list[1].kwargs['reply_markup']
+                         .inline_keyboard[0][0].text, 'Посмотреть тарифы')
 
     async def test_status_and_locked_screen_without_checkout(self):
         bot = SimpleNamespace(send_message=AsyncMock())

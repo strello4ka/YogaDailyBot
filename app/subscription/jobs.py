@@ -182,10 +182,7 @@ def reminder_text(event, profile):
         from .old_users.messages import gift_subscription_activated
         return gift_subscription_activated(profile['name'], event.period_ends_at)
     if kind == 'trial_followup':
-        categories = [_FILTER_LABELS.get(key, key) for key in profile['filter_keys']]
-        return messages.trial_followup(has_favorites=profile['has_favorites'],
-            received_schedule=profile['received_schedule'],
-            used_filters=bool(profile['filter_keys']), categories=categories)
+        return messages.trial_followup(has_favorites=profile['has_favorites'])
     raise ValueError('Unknown reminder')
 
 
@@ -227,6 +224,10 @@ async def _send_reminder(context, user_id, event, profile, now):
     # Telegram messages can have one keyboard type. Change the reply keyboard
     # on the expiry message; offer tariff navigation in a separate short message.
     if event.kind.endswith('expired') and context.bot_data['subscription_miniapp_url']:
+        tariff_prompt = TARIFF_PROMPT
+        if event.kind == 'gift_expired':
+            from .old_users.messages import gift_expired_tariff_prompt
+            tariff_prompt = gift_expired_tariff_prompt(event.offer_ends_at)
         tariff_key = event.key + ':tariffs'
         async with _notice_lock(repository, user_id, tariff_key) as acquired:
             if acquired and not await asyncio.to_thread(repository.notification_sent, user_id, tariff_key):
@@ -236,7 +237,8 @@ async def _send_reminder(context, user_id, event, profile, now):
                 if event.key not in {item.key for item in eligible}:
                     return
                 await context.bot.send_message(chat_id=profile['chat_id'],
-                                               text=TARIFF_PROMPT,
+                                               text=tariff_prompt,
+                                               parse_mode='HTML',
                                                reply_markup=optional_tariff_keyboard(
                                                    context.bot_data['subscription_miniapp_url']))
                 await asyncio.to_thread(repository.mark_notification_sent, user_id, tariff_key,

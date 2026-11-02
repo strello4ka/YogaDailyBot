@@ -35,6 +35,22 @@ class SubscriptionRemindersTest(unittest.TestCase):
                 tomorrow = due_reminders(state, moment + timedelta(days=1), old_user_offer=offer)
                 self.assertNotIn(notification.kind, [item.kind for item in tomorrow])
 
+    def test_fast_old_user_reminders_follow_the_accelerated_relative_timeline(self):
+        from app.subscription.old_users.notifications import notification_schedule
+        from app.subscription.old_users.test_scenario import start_fast_offer
+        offer = start_fast_offer(at(1, 12))
+        state = Subscription(gift=offer.gift)
+        for notification in notification_schedule(offer):
+            with self.subTest(kind=notification.kind):
+                before = due_reminders(
+                    state, notification.scheduled_at - timedelta(seconds=1),
+                    old_user_offer=offer,
+                )
+                self.assertNotIn(notification.kind, [item.kind for item in before])
+                due = due_reminders(state, notification.scheduled_at,
+                                    old_user_offer=offer)
+                self.assertIn(notification.kind, [item.kind for item in due])
+
     def test_pending_checkout_suppresses_old_user_sales_but_not_access_expiry(self):
         from app.subscription.old_users.notifications import notification_schedule
         offer = launch_offer(at(1))
@@ -335,7 +351,7 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.repo.synchronize_access.return_value = self.state
         self.repo.get.return_value = self.state
         self.repo.reminder_profile.return_value = dict(chat_id=10, name='Катя', challenge=False,
-            completions=4, has_favorites=False, received_schedule=False, filter_keys=['five', 'relax'])
+            completions=4, has_favorites=False, filter_keys=['five', 'relax'])
         self.repo.restore_offer.return_value = None
         self.repo.old_user_reminder_context.return_value = (None, False)
         self.context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()), bot_data={
@@ -361,6 +377,9 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
                 if event.kind == 'gift_expired':
                     self.assertEqual(calls[0].kwargs['reply_markup'].keyboard[0][0].text,
                                      'Практика дня')
+                    self.assertNotIn('Только для своих', calls[0].kwargs['text'])
+                    self.assertIn('<b>Только для своих</b>', calls[1].kwargs['text'])
+                    self.assertEqual(calls[1].kwargs['parse_mode'], 'HTML')
                 else:
                     self.assertTrue(calls[0].kwargs['reply_markup'].inline_keyboard)
 
