@@ -425,7 +425,7 @@ class SubscriptionRepository:
                 )
             cursor.execute(
                 "UPDATE subscription_accounts SET trial_started_at=%s,trial_ends_at=%s,"
-                "gift_starts=NULL,gift_ends=NULL,offer_ends=NULL,"
+                "is_old_user=FALSE,gift_starts=NULL,gift_ends=NULL,offer_ends=NULL,"
                 "subscription_starts=NULL,subscription_ends=NULL,special_offer_used_at=NULL,"
                 "schedule_restore_required=FALSE,subscription_state='trial',updated_at=%s "
                 "WHERE user_id=%s",

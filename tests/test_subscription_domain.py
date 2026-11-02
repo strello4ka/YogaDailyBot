@@ -171,6 +171,7 @@ class SubscriptionStorageBoundaryTest(unittest.TestCase):
                           if c.args[0].startswith('UPDATE subscription_accounts')][0]
         self.assertIn('subscription_starts=NULL', account_update.args[0])
         self.assertIn('gift_starts=NULL', account_update.args[0])
+        self.assertIn('is_old_user=FALSE', account_update.args[0])
 
     def test_fast_gift_replay_replaces_trial_with_isolated_thirty_minute_offer(self):
         trial = start_trial(at(1))
