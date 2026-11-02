@@ -60,10 +60,10 @@ def first_message(gift_ends: datetime) -> str:
         "<b>Если ты читаешь это,\n"
         "поздравляю, ты — легенда\n"
         "YogaDailyBot 🧡</b>\n\n"
-        "Мы познакомились, когда я только учился подбирать практики, "
+        "Когда мы познакомились, я только учился подбирать практики, "
         "иногда путался в кнопках и мечтал стать большим ботом для здорового тела.\n\n"
-        "Благодаря тебе я вырос и готов к новому этапу: в YogaDailyBot "
-        "<b>появляется подписка.</b>\n\n"
+        "Благодаря тебе я вырос и готов к новому этапу:\n"
+        "<b>в YogaDailyBot появляется подписка.</b>\n\n"
         "Конечно, я подготовил <b>подарки для своих:</b>\n"
         "<blockquote>"
         f"• До <b>{access_until:%d.%m.%Y}</b> для тебя ничего не изменится, потому что у тебя "
@@ -203,8 +203,8 @@ def first_message_keyboard(miniapp_url: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(TARIFF_BUTTON,
                               web_app=WebAppInfo(url=miniapp_url),
                               api_kwargs={"style": "primary"})],
-        [InlineKeyboardButton(SUBSCRIPTION_DETAILS_BUTTON,
-                              callback_data=SUBSCRIPTION_DETAILS_CALLBACK)],
         [InlineKeyboardButton(FREE_DETAILS_BUTTON,
                               callback_data=FREE_DETAILS_CALLBACK)],
+        [InlineKeyboardButton(SUBSCRIPTION_DETAILS_BUTTON,
+                              callback_data=SUBSCRIPTION_DETAILS_CALLBACK)],
     ])

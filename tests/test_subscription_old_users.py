@@ -133,8 +133,8 @@ class OldUsersRulesTest(unittest.TestCase):
         rows = keyboard.inline_keyboard
         self.assertEqual([row[0].text for row in rows], [
             "Посмотреть тарифы",
-            "Что входит в подписку?",
             "Что останется бесплатным?",
+            "Что входит в подписку?",
         ])
         self.assertEqual(rows[0][0].api_kwargs, {"style": "primary"})
         self.assertEqual(rows[1][0].api_kwargs, {})
