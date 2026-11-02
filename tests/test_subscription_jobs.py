@@ -6,7 +6,7 @@ from unittest.mock import Mock, AsyncMock
 from unittest.mock import patch
 
 from app.subscription.access import Subscription
-from app.subscription.demo import Trial, start_trial
+from app.subscription.demo import start_trial
 from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.old_users.rules import launch_offer
 from dataclasses import replace
@@ -34,22 +34,6 @@ class SubscriptionRemindersTest(unittest.TestCase):
                 self.assertEqual(events[0].offer_ends_at, offer.offer_ends)
                 tomorrow = due_reminders(state, moment + timedelta(days=1), old_user_offer=offer)
                 self.assertNotIn(notification.kind, [item.kind for item in tomorrow])
-
-    def test_fast_old_user_reminders_follow_the_accelerated_relative_timeline(self):
-        from app.subscription.old_users.notifications import notification_schedule
-        from app.subscription.old_users.test_scenario import start_fast_offer
-        offer = start_fast_offer(at(1, 12))
-        state = Subscription(gift=offer.gift)
-        for notification in notification_schedule(offer):
-            with self.subTest(kind=notification.kind):
-                before = due_reminders(
-                    state, notification.scheduled_at - timedelta(seconds=1),
-                    old_user_offer=offer,
-                )
-                self.assertNotIn(notification.kind, [item.kind for item in before])
-                due = due_reminders(state, notification.scheduled_at,
-                                    old_user_offer=offer)
-                self.assertIn(notification.kind, [item.kind for item in due])
 
     def test_pending_checkout_suppresses_old_user_sales_but_not_access_expiry(self):
         from app.subscription.old_users.notifications import notification_schedule
@@ -123,53 +107,6 @@ class SubscriptionRemindersTest(unittest.TestCase):
     def test_no_backlog_or_repeated_weekly_followup(self):
         self.assertEqual(due_reminders(self.state, at(16, 12)), [])
         self.assertEqual(due_reminders(self.state, at(29, 10)), [])
-
-    def test_fast_trial_timeline_is_relative_only_for_fifteen_minute_trial(self):
-        start = at(1, 12)
-        end = start + timedelta(minutes=15)
-        fast = Subscription(Trial(start, end))
-        milestones = ((10, 'trial_three_days'), (14, 'trial_last_day'),
-                      (15, 'trial_expired'), (17, 'trial_followup'))
-        for minute, kind in milestones:
-            with self.subTest(kind=kind):
-                self.assertNotIn(kind, [event.kind for event in
-                    due_reminders(fast, start + timedelta(minutes=minute, seconds=-1))])
-                self.assertIn(kind, [event.kind for event in
-                    due_reminders(fast, start + timedelta(minutes=minute))])
-        self.assertEqual(due_reminders(fast, start + timedelta(minutes=19)), [])
-        self.assertEqual(due_reminders(Subscription(start_trial(start)),
-                                       start + timedelta(minutes=10)), [])
-
-    def test_fast_trial_purchase_suppresses_sales_and_reports_activation(self):
-        start = at(1, 12)
-        trial = Trial(start, start + timedelta(minutes=15))
-        paid = purchased_period('month', start, trial_ends_at=trial.ends_at)
-        fast_paid = Subscription(trial, paid)
-        for minute in (10, 14):
-            self.assertEqual(due_reminders(fast_paid, start + timedelta(minutes=minute)), [])
-        for minute in (15, 17):
-            self.assertEqual(
-                [event.kind for event in due_reminders(
-                    fast_paid, start + timedelta(minutes=minute))],
-                ['trial_subscription_activated'],
-            )
-
-    def test_explicit_paid_test_deadline_and_renewal(self):
-        from app.subscription.tariff import PaidPeriod
-        start = at(15, 12)
-        end = start + timedelta(minutes=15)
-        state = Subscription(paid=PaidPeriod(start, end))
-        for minute, expected in [(4, []), (5, ['paid_three_days']),
-                                 (9, ['paid_three_days']), (10, ['paid_last_day']),
-                                 (14, ['paid_last_day']), (15, []),
-                                 (16, ['paid_expired']), (25, [])]:
-            with self.subTest(minute=minute):
-                self.assertEqual([e.kind for e in due_reminders(
-                    state, start + timedelta(minutes=minute), paid_test_end=end)], expected)
-        renewed = Subscription(paid=PaidPeriod(start, end + timedelta(days=30)))
-        self.assertEqual(due_reminders(renewed, start + timedelta(minutes=10),
-                                       paid_test_end=end), [])
-        self.assertEqual(due_reminders(state, start + timedelta(minutes=5)), [])
 
 
 class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):

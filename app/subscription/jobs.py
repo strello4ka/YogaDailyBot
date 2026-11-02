@@ -12,22 +12,18 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from .access import AccessState, Subscription
-from .demo import (FAST_FOLLOWUP_AFTER, FAST_LAST_DAY_NOTICE_AFTER,
-                   FAST_THREE_DAY_NOTICE_AFTER, is_fast_trial)
 from .tariff import MOSCOW, local_time
 
 logger = logging.getLogger(__name__)
 
 
 async def _user_reminders(context, user_id, subscription, now):
-    test = context.bot_data.get('subscription_test_paid_expiry')
-    end = test[1] if test and test[0] == user_id else None
     offer, pending = None, False
     if subscription.gift is not None:
         repository = context.bot_data['subscription_repository']
         offer, pending = await asyncio.to_thread(repository.old_user_reminder_context, user_id)
-    return due_reminders(subscription, now, paid_test_end=end,
-                         old_user_offer=offer, payment_pending=pending)
+    return due_reminders(subscription, now, old_user_offer=offer,
+                         payment_pending=pending)
 
 
 async def _test_user_ids(context, repository):
@@ -320,8 +316,8 @@ def _at(day: date, hour: int) -> datetime:
     return datetime.combine(day, time(hour), tzinfo=MOSCOW)
 
 
-def due_reminders(subscription: Subscription, now: datetime, *, paid_test_end=None,
-                  old_user_offer=None, payment_pending=False) -> List[Reminder]:
+def due_reminders(subscription: Subscription, now: datetime, *, old_user_offer=None,
+                  payment_pending=False) -> List[Reminder]:
     """Return today's eligible events, not a backlog of obsolete sales messages.
 
     The three-day event uses the exclusive expiry date minus three days:
@@ -349,36 +345,6 @@ def due_reminders(subscription: Subscription, now: datetime, *, paid_test_end=No
         # subscription reminders or the activation of a prepaid gift period.
         if subscription.paid is None:
             return result
-    # Explicit per-user test deadline, never inferred from a real purchase.
-    # Renewing changes the stored deadline and immediately disables this override.
-    if (paid_test_end is not None and subscription.paid
-            and local_time(subscription.paid.ends_at) == local_time(paid_test_end)):
-        end = local_time(paid_test_end)
-        if state == AccessState.PAID:
-            if end - timedelta(minutes=10) <= now < end - timedelta(minutes=5):
-                result.append(Reminder('paid_three_days', end, end - timedelta(minutes=10)))
-            elif end - timedelta(minutes=5) <= now < end:
-                result.append(Reminder('paid_last_day', end, end - timedelta(minutes=5)))
-        elif state == AccessState.FREE and end + timedelta(minutes=1) <= now < end + timedelta(minutes=10):
-            result.append(Reminder('paid_expired', end, end + timedelta(minutes=1)))
-        return result
-    trial = subscription.trial
-    if trial and is_fast_trial(trial) and subscription.paid is None:
-        start, end = local_time(trial.started_at), local_time(trial.ends_at)
-        if state == AccessState.TRIAL:
-            if start + FAST_THREE_DAY_NOTICE_AFTER <= now < start + FAST_LAST_DAY_NOTICE_AFTER:
-                result.append(Reminder("trial_three_days", end,
-                                       start + FAST_THREE_DAY_NOTICE_AFTER))
-            elif start + FAST_LAST_DAY_NOTICE_AFTER <= now < end:
-                result.append(Reminder("trial_last_day", end,
-                                       start + FAST_LAST_DAY_NOTICE_AFTER))
-        elif state == AccessState.FREE:
-            if end <= now < start + FAST_FOLLOWUP_AFTER + timedelta(minutes=2):
-                result.append(Reminder("trial_expired", end, end))
-            if start + FAST_FOLLOWUP_AFTER <= now < start + FAST_FOLLOWUP_AFTER + timedelta(minutes=2):
-                result.append(Reminder("trial_followup", end,
-                                       start + FAST_FOLLOWUP_AFTER))
-        return result
     if state == AccessState.TRIAL:
         end = local_time(subscription.trial.ends_at)
         add("trial_three_days", end, end.date() - timedelta(days=3), 13)
@@ -393,8 +359,6 @@ def due_reminders(subscription: Subscription, now: datetime, *, paid_test_end=No
         elif (subscription.trial
               and local_time(subscription.trial.ends_at) == paid_start):
             activation_kind = "trial_subscription_activated"
-            if is_fast_trial(subscription.trial):
-                activation_time = paid_start
         if (activation_kind and activation_time.date() == now.date()
                 and activation_time <= now):
             result.append(Reminder(activation_kind, subscription.paid.ends_at,

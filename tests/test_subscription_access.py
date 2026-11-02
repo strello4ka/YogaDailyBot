@@ -5,13 +5,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from app.subscription import messages
 from app.subscription.access import Feature, Subscription, repository_for, runtime_has_access
-from app.subscription.demo import Trial, start_trial
+from app.subscription.demo import start_trial
 from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.free import locked_text, reply_keyboard, send_locked
 from app.subscription.subscription_menu import (menu_text, send_menu, tariff_keyboard,
-    test_settings, install_test_subscriptions, guard_update,
-    subscription_test_command, subscription_test_gift_start_callback,
-    subscription_test_start_callback)
+    test_settings, install_test_subscriptions, guard_update)
 from app.subscription.tariff import MOSCOW, purchased_period
 from app.onboarding import messages as onboarding_messages
 from app.onboarding.flow import _send_step, _subscription_variant, handle_reply
@@ -86,14 +84,6 @@ class SubscriptionScreensTest(unittest.TestCase):
         self.assertIn('<b>12.11.2026</b>', purchased)
         self.assertIn('<b>11.12.2026</b>', purchased)
         self.assertNotIn('нет активных подписок', purchased)
-
-    def test_fast_trial_status_uses_minutes_without_changing_normal_status(self):
-        fast = Trial(self.now, self.now + timedelta(minutes=15))
-        text = menu_text(Subscription(fast), self.now + timedelta(minutes=10))
-        self.assertIn('5 мин', text)
-        self.assertIn('тестового бота', text)
-        self.assertIn('Полный доступ ко всем возможностям',
-                      menu_text(Subscription(self.trial), self.now))
 
     def test_html_from_user_data_is_escaped(self):
         text = messages.payment_accepted('<b>A&B</b>', self.trial.ends_at)
@@ -186,6 +176,8 @@ class TestRolloutSafetyTest(unittest.TestCase):
         self.assertEqual(tariff_keyboard(application.bot_data['subscription_miniapp_url'])
                          .inline_keyboard[0][0].text, 'Посмотреть тарифы')
         self.assertNotIn('subscription_payment_service', application.bot_data)
+        handlers = [call.args[0] for call in application.add_handler.call_args_list]
+        self.assertNotIn('CommandHandler', [type(handler).__name__ for handler in handlers])
 
     def test_unlisted_users_do_not_touch_subscription_storage(self):
         repository = Mock()
@@ -227,58 +219,6 @@ class TestGuardTest(unittest.IsolatedAsyncioTestCase):
                 bot.send_message.assert_not_called()
                 if update.callback_query:
                     update.callback_query.answer.assert_not_called()
-
-    async def test_existing_test_user_can_start_trial_without_onboarding_reset(self):
-        repository = Mock()
-        repository.get.return_value = None
-        now = datetime(2026, 10, 13, 12, tzinfo=MOSCOW)
-        repository.begin_fast_trial.return_value = Subscription(
-            Trial(now, now + timedelta(minutes=15)))
-        bot = SimpleNamespace(send_message=AsyncMock())
-        context = SimpleNamespace(bot=bot, bot_data=dict(
-            subscription_repository=repository, subscription_test_users=None,
-            subscription_miniapp_url=''))
-        query = SimpleNamespace(answer=AsyncMock(), edit_message_reply_markup=AsyncMock())
-        update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
-            effective_chat=SimpleNamespace(id=1),
-            effective_message=SimpleNamespace(reply_text=AsyncMock()), callback_query=query)
-        await subscription_test_command(update, context)
-        repository.begin_fast_trial.assert_not_called()
-        buttons = update.effective_message.reply_text.call_args.kwargs[
-            'reply_markup'].inline_keyboard
-        self.assertEqual([row[0].text for row in buttons],
-                         ['Пробный период', 'Подарочный период'])
-        await subscription_test_start_callback(update, context)
-        repository.begin_fast_trial.assert_called_once()
-        self.assertEqual(bot.send_message.await_count, 2)
-        self.assertIn('15 минут', bot.send_message.await_args_list[0].args[1])
-        self.assertEqual(bot.send_message.await_args_list[0].kwargs['reply_markup']
-                         .keyboard[-1][0].text, 'расписание')
-
-    async def test_existing_test_user_can_run_complete_fast_gift_scenario(self):
-        repository = Mock()
-        repository.get.return_value = None
-        now = datetime(2026, 10, 13, 12, tzinfo=MOSCOW)
-        repository.begin_fast_gift.return_value = Subscription(
-            gift=GiftPeriod(now, now + timedelta(minutes=15)))
-        bot = SimpleNamespace(send_message=AsyncMock())
-        context = SimpleNamespace(bot=bot, bot_data=dict(
-            subscription_repository=repository, subscription_test_users=None,
-            subscription_miniapp_url='https://example.org'))
-        query = SimpleNamespace(answer=AsyncMock(), edit_message_reply_markup=AsyncMock())
-        update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
-            effective_chat=SimpleNamespace(id=1), callback_query=query)
-
-        with patch('app.subscription.subscription_menu.datetime') as clock:
-            clock.now.return_value = now
-            await subscription_test_gift_start_callback(update, context)
-
-        repository.begin_fast_gift.assert_called_once_with(1, now, replay=True)
-        self.assertEqual(bot.send_message.await_count, 2)
-        self.assertIn('Подарочный доступ — 15 минут', bot.send_message.await_args_list[0].args[1])
-        self.assertIn('ты — легенда', bot.send_message.await_args_list[1].args[1])
-        self.assertEqual(bot.send_message.await_args_list[1].kwargs['reply_markup']
-                         .inline_keyboard[0][0].text, 'Посмотреть тарифы')
 
     async def test_status_and_locked_screen_without_checkout(self):
         bot = SimpleNamespace(send_message=AsyncMock())
@@ -332,7 +272,7 @@ class ReturningOnboardingSubscriptionTest(unittest.IsolatedAsyncioTestCase):
         button = tariffs.kwargs['reply_markup'].inline_keyboard[0][0]
         self.assertEqual(button.web_app.url, "https://example.org")
         self.assertEqual(button.to_dict()["style"], "primary")
-        repository.begin_fast_trial.assert_not_called()
+        repository.begin_trial.assert_not_called()
 
     async def test_free_continue_skips_paid_schedule_offer(self):
         repository = Mock()

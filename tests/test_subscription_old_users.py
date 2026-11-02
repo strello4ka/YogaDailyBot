@@ -26,7 +26,6 @@ from app.subscription.old_users.notifications import notification_schedule
 from app.subscription.old_users.prices import SPECIAL_PRICES, checkout_price
 from app.subscription.old_users.repository import enroll
 from app.subscription.old_users.rules import launch_offer
-from app.subscription.old_users.test_scenario import start_fast_offer
 from app.subscription.tariff import MOSCOW
 
 
@@ -99,24 +98,6 @@ class OldUsersRulesTest(unittest.TestCase):
                          offer.offer_ends - timedelta(days=3) + timedelta(hours=19))
         self.assertEqual(schedule[5].scheduled_at,
                          offer.offer_ends - timedelta(days=1) + timedelta(hours=19))
-
-    def test_fast_scenario_runs_gift_and_special_prices_in_thirty_minutes(self):
-        start = at(1, 12)
-        offer = start_fast_offer(start)
-        self.assertEqual(offer.gift.ends_at, start + timedelta(minutes=15))
-        self.assertEqual(offer.offer_ends, start + timedelta(minutes=30))
-        schedule = notification_schedule(offer)
-        self.assertEqual([(item.kind, item.scheduled_at - start) for item in schedule], [
-            ('gift_three_days', timedelta(minutes=10)),
-            ('gift_last_day', timedelta(minutes=14)),
-            ('gift_expired', timedelta(minutes=15)),
-            ('special_prices_seven_days', timedelta(minutes=20)),
-            ('special_prices_three_days', timedelta(minutes=25)),
-            ('special_prices_last_day', timedelta(minutes=29)),
-        ])
-        self.assertIn("До <b>01.10.2026</b>", first_message(offer.gift.ends_at))
-        self.assertIn("до <b>01.10.2026</b>",
-                      gift_expired_tariff_prompt(offer.offer_ends))
 
     def test_first_message_uses_regular_quote_and_approved_buttons(self):
         text = first_message(at(31))

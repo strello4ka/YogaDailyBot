@@ -19,10 +19,6 @@ class OldUserNotification:
 
 
 def notification_schedule(offer: OldUserOffer):
-    from .test_scenario import is_fast_offer, notification_times
-    if is_fast_offer(offer):
-        return tuple(OldUserNotification(kind, scheduled_at)
-                     for kind, scheduled_at in notification_times(offer))
     gift_end = local_time(offer.gift.ends_at)
     offer_end = local_time(offer.offer_ends)
     return (

@@ -425,7 +425,7 @@ async def handle_reply(update, context):
                     await reconcile_test_payments(context, user_ids={state['user_id']}, check_pending=False)
                     return True
             await asyncio.to_thread(
-                repository.begin_fast_trial, state["user_id"], datetime.now().astimezone())
+                repository.begin_trial, state["user_id"], datetime.now().astimezone())
         await _transition(context, state, "schedule_offer")
         return True
     if step == "subscription" and text == "Продолжить бесплатно":

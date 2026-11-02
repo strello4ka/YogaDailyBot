@@ -2,7 +2,6 @@
 
 import asyncio
 from datetime import datetime
-from math import ceil
 from urllib.parse import urlsplit
 from pathlib import Path
 
@@ -10,7 +9,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from . import messages
 from .access import AccessState, Feature, Subscription, has_access
-from .demo import is_fast_trial
 from .old_users import messages as old_user_messages
 from .tariff import MOSCOW
 
@@ -34,10 +32,6 @@ def optional_tariff_keyboard(miniapp_url: str):
 def menu_text(subscription: Subscription, now: datetime, *, tariffs_available=True) -> str:
     state = subscription.state(now)
     if state in (AccessState.TRIAL, AccessState.TRIAL_PAID):
-        if is_fast_trial(subscription.trial):
-            remaining = max(0, ceil((subscription.trial.ends_at - now).total_seconds() / 60))
-            return ("🧪 Ускоренный пробный период для тестового бота\n\n"
-                    f"Осталось около {remaining} мин. После окончания включится бесплатный режим.")
         starts_at = (subscription.paid.starts_at if state == AccessState.TRIAL_PAID
                      else subscription.trial.ends_at)
         return messages.trial_status(subscription.trial.days_left(now), starts_at,
@@ -102,7 +96,7 @@ def install_test_subscriptions(application, environment, connection_factory):
     if settings is None:
         return
     from data.subscription_repository import SubscriptionRepository
-    from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler, filters
+    from telegram.ext import CallbackQueryHandler, MessageHandler, filters
     users, configured_url, database_name = settings
     from app.payments.config import payment_settings
     payment_config = payment_settings(environment)
@@ -114,14 +108,6 @@ def install_test_subscriptions(application, environment, connection_factory):
     repository.verify_test_database(database_name)
     application.bot_data.update(subscription_repository=repository,
                                 subscription_test_users=users, subscription_miniapp_url=url)
-    expiry_user = environment.get('SUBSCRIPTION_TEST_PAID_EXPIRY_USER', '')
-    expiry_end = environment.get('SUBSCRIPTION_TEST_PAID_EXPIRY_END', '')
-    if expiry_user or expiry_end:
-        user_id = int(expiry_user)
-        end = datetime.fromisoformat(expiry_end)
-        if user_id <= 0 or end.utcoffset() is None or (users is not None and user_id not in users):
-            raise ValueError('An allowed test user and timezone-aware expiry are required')
-        application.bot_data['subscription_test_paid_expiry'] = (user_id, end)
     if payment_config.shop_id and configured_url:
         from app.payments.service import PaymentService
         provider = payment_config.client()
@@ -136,11 +122,6 @@ def install_test_subscriptions(application, environment, connection_factory):
     application.add_handler(CallbackQueryHandler(guard_update), group=-6)
     application.add_handler(CallbackQueryHandler(restore_schedule_callback,
                                                 pattern=r"^subscription_restore:(yes|no):[0-9]+$"))
-    application.add_handler(CommandHandler("subscription_test", subscription_test_command))
-    application.add_handler(CallbackQueryHandler(subscription_test_start_callback,
-                                                pattern=r"^subscription_test_start$"))
-    application.add_handler(CallbackQueryHandler(subscription_test_gift_start_callback,
-                                                pattern=r"^subscription_test_gift_start$"))
     from .jobs import synchronize_test_access, reconcile_test_payments, deliver_test_reminders
     from .payment_wakeup import install as install_payment_wakeup
     install_payment_wakeup(application, connection_factory)
@@ -149,90 +130,9 @@ def install_test_subscriptions(application, environment, connection_factory):
     application.job_queue.run_repeating(reconcile_test_payments, interval=60, first=5,
                                         name='subscription_test_payments',
                                         job_kwargs={'max_instances': 1, 'coalesce': True})
-    application.job_queue.run_repeating(deliver_test_reminders, interval=10, first=1,
+    application.job_queue.run_repeating(deliver_test_reminders, interval=60, first=1,
                                         name='subscription_test_reminders',
                                         job_kwargs={'max_instances': 1, 'coalesce': True})
-
-
-async def subscription_test_command(update, context):
-    """Offer replayable accelerated scenarios only in the isolated test bot."""
-    from .access import repository_for
-    repository = repository_for(context, update.effective_user.id)
-    if repository is None:
-        return
-    current = await asyncio.to_thread(repository.get, update.effective_user.id)
-    if current is not None:
-        await send_menu(context.bot, update.effective_chat.id, current, datetime.now(MOSCOW),
-                        context.bot_data['subscription_miniapp_url'])
-    await update.effective_message.reply_text(
-        "🧪 Выбери ускоренный сценарий. Каждый запускается заново только для твоего "
-        "аккаунта в тестовом боте.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Пробный период", callback_data="subscription_test_start")],
-            [InlineKeyboardButton("Подарочный период",
-                                  callback_data="subscription_test_gift_start")],
-        ]))
-
-
-async def subscription_test_start_callback(update, context):
-    from .access import repository_for
-    query = update.callback_query
-    repository = repository_for(context, update.effective_user.id)
-    if repository is None:
-        await query.answer()
-        return
-    from app.keyboards import get_common_reply_keyboard
-    now = datetime.now(MOSCOW)
-    try:
-        subscription = await asyncio.to_thread(
-            repository.begin_fast_trial, update.effective_user.id, now, replay=True)
-    except ValueError:
-        await query.answer("У аккаунта уже есть оплаченный период или платёжный заказ.", show_alert=True)
-        return
-    await query.answer()
-    await query.edit_message_reply_markup(reply_markup=None)
-    await context.bot.send_message(update.effective_chat.id,
-        "Ускоренный пробный период начался 🧡 Полный доступ — 15 минут.",
-        reply_markup=get_common_reply_keyboard())
-    await send_menu(context.bot, update.effective_chat.id, subscription, now,
-                    context.bot_data['subscription_miniapp_url'])
-
-
-async def subscription_test_gift_start_callback(update, context):
-    """Run the complete accelerated old-user journey, including its first message."""
-    from .access import repository_for
-    from .old_users.messages import first_message, first_message_keyboard
-    from app.keyboards import get_common_reply_keyboard
-
-    query = update.callback_query
-    repository = repository_for(context, update.effective_user.id)
-    if repository is None:
-        await query.answer()
-        return
-    now = datetime.now(MOSCOW)
-    try:
-        subscription = await asyncio.to_thread(
-            repository.begin_fast_gift, update.effective_user.id, now, replay=True)
-    except ValueError:
-        await query.answer(
-            "У аккаунта уже есть оплаченный период или платёжный заказ.",
-            show_alert=True,
-        )
-        return
-    await query.answer()
-    await query.edit_message_reply_markup(reply_markup=None)
-    await context.bot.send_message(
-        update.effective_chat.id,
-        "Ускоренный подарочный период начался 🧡 "
-        "Подарочный доступ — 15 минут, специальные цены — ещё 15 минут.",
-        reply_markup=get_common_reply_keyboard(),
-    )
-    await context.bot.send_message(
-        update.effective_chat.id,
-        first_message(subscription.gift.ends_at),
-        parse_mode="HTML",
-        reply_markup=first_message_keyboard(context.bot_data['subscription_miniapp_url']),
-    )
 
 
 def requested_feature(text, callback, *, waiting_for_time=False):

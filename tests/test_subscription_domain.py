@@ -153,42 +153,6 @@ class SubscriptionStorageBoundaryTest(unittest.TestCase):
         self.assertEqual(result.trial, trial)
         self.assertFalse(any(c.args[0].startswith('UPDATE') for c in self.cursor.execute.call_args_list))
 
-    def test_test_onboarding_keeps_existing_trial_but_explicit_replay_restarts_it(self):
-        original = start_trial(at(1))
-        row = (original.started_at, original.ends_at, None, None, None, None)
-        self.cursor.fetchone.return_value = row
-        unchanged = self.repository.begin_fast_trial(10, at(2))
-        self.assertEqual(unchanged.trial, original)
-        self.assertFalse(any(c.args[0].startswith('UPDATE') for c in self.cursor.execute.call_args_list))
-
-        self.cursor.reset_mock()
-        self.cursor.fetchone.return_value = row
-        replayed = self.repository.begin_fast_trial(10, at(2), replay=True)
-        self.assertEqual(replayed.trial.ends_at - replayed.trial.started_at,
-                         timedelta(minutes=15))
-        self.assertTrue(any(c.args[0].startswith('UPDATE') for c in self.cursor.execute.call_args_list))
-        account_update = [c for c in self.cursor.execute.call_args_list
-                          if c.args[0].startswith('UPDATE subscription_accounts')][0]
-        self.assertIn('subscription_starts=NULL', account_update.args[0])
-        self.assertIn('gift_starts=NULL', account_update.args[0])
-        self.assertIn('is_old_user=FALSE', account_update.args[0])
-
-    def test_fast_gift_replay_replaces_trial_with_isolated_thirty_minute_offer(self):
-        trial = start_trial(at(1))
-        row = (trial.started_at, trial.ends_at, None, None, None, None)
-        self.cursor.fetchone.return_value = row
-
-        result = self.repository.begin_fast_gift(10, at(2), replay=True)
-
-        self.assertEqual(result.gift.ends_at - result.gift.starts_at,
-                         timedelta(minutes=15))
-        update = [call for call in self.cursor.execute.call_args_list
-                  if call.args[0].startswith('UPDATE subscription_accounts')][0]
-        self.assertIn('trial_started_at=NULL', update.args[0])
-        self.assertIn('subscription_starts=NULL', update.args[0])
-        self.assertIn("subscription_state='gift'", update.args[0])
-        self.assertEqual(update.args[1][2] - update.args[1][1], timedelta(minutes=15))
-
     def test_database_error_closes_connection_and_propagates(self):
         self.cursor.execute.side_effect = RuntimeError('database unavailable')
         with self.assertRaisesRegex(RuntimeError, 'database unavailable'):

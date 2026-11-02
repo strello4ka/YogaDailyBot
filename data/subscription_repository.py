@@ -10,12 +10,11 @@ from typing import Callable, Optional
 
 from app.subscription.access import Subscription
 from app.subscription.access import AccessState
-from app.subscription.demo import FAST_TRIAL_DURATION, Trial, start_trial
+from app.subscription.demo import Trial, start_trial
 from app.subscription.old_users.prices import checkout_price as old_user_checkout_price
 from app.subscription.old_users.repository import (CheckoutProfile, enroll as enroll_old_users,
                                                    offer_from_values)
 from app.subscription.old_users.rules import GiftPeriod
-from app.subscription.old_users.test_scenario import start_fast_offer
 from app.subscription.tariff import PaidPeriod, local_time, midnight
 
 
@@ -390,88 +389,6 @@ class SubscriptionRepository:
                 )
                 state = Subscription(trial=trial, gift=state.gift)
         return state
-
-    def begin_fast_trial(self, user_id: int, now: datetime, *, replay=False) -> Subscription:
-        """Start an idempotent test trial; explicit replay is for the test command."""
-        start = local_time(now)
-        trial = Trial(start, start + FAST_TRIAL_DURATION)
-        with self._transaction() as cursor:
-            cursor.execute(
-                "INSERT INTO subscription_accounts (user_id) VALUES (%s) "
-                "ON CONFLICT (user_id) DO NOTHING", (user_id,),
-            )
-            cursor.execute(
-                "SELECT trial_started_at,trial_ends_at,subscription_starts,subscription_ends,"
-                "gift_starts,gift_ends "
-                "FROM subscription_accounts WHERE user_id = %s FOR UPDATE", (user_id,),
-            )
-            current = _snapshot(cursor.fetchone())
-            if not replay and (current.trial is not None or current.paid is not None):
-                return current
-            if not replay:
-                if current.gift is not None:
-                    raise ValueError("A gift test account cannot start the trial")
-                cursor.execute(
-                    "SELECT EXISTS(SELECT 1 FROM subscription_orders WHERE user_id=%s "
-                    "AND status IN ('created','pending','succeeded'))", (user_id,),
-                )
-                if cursor.fetchone()[0]:
-                    raise ValueError("A test account with payment orders cannot start the trial")
-            else:
-                cursor.execute(
-                    "UPDATE subscription_orders SET status='canceled',updated_at=%s "
-                    "WHERE user_id=%s AND status IN ('created','pending')",
-                    (start, user_id),
-                )
-            cursor.execute(
-                "UPDATE subscription_accounts SET trial_started_at=%s,trial_ends_at=%s,"
-                "is_old_user=FALSE,gift_starts=NULL,gift_ends=NULL,offer_ends=NULL,"
-                "subscription_starts=NULL,subscription_ends=NULL,special_offer_used_at=NULL,"
-                "schedule_restore_required=FALSE,subscription_state='trial',updated_at=%s "
-                "WHERE user_id=%s",
-                (trial.started_at, trial.ends_at, start, user_id),
-            )
-        return Subscription(trial=trial)
-
-    def begin_fast_gift(self, user_id: int, now: datetime, *, replay=False) -> Subscription:
-        """Start the accelerated old-user scenario in the isolated test database."""
-        offer = start_fast_offer(now)
-        start = local_time(now)
-        with self._transaction() as cursor:
-            cursor.execute(
-                "INSERT INTO subscription_accounts (user_id) VALUES (%s) "
-                "ON CONFLICT (user_id) DO NOTHING", (user_id,),
-            )
-            cursor.execute(
-                "SELECT trial_started_at,trial_ends_at,subscription_starts,subscription_ends,"
-                "gift_starts,gift_ends FROM subscription_accounts WHERE user_id=%s FOR UPDATE",
-                (user_id,),
-            )
-            current = _snapshot(cursor.fetchone())
-            if not replay and (current.gift is not None or current.paid is not None):
-                return current
-            if not replay:
-                cursor.execute(
-                    "SELECT EXISTS(SELECT 1 FROM subscription_orders WHERE user_id=%s "
-                    "AND status IN ('created','pending','succeeded'))", (user_id,),
-                )
-                if cursor.fetchone()[0]:
-                    raise ValueError("A test account with payment orders cannot start the gift scenario")
-            else:
-                cursor.execute(
-                    "UPDATE subscription_orders SET status='canceled',updated_at=%s "
-                    "WHERE user_id=%s AND status IN ('created','pending')",
-                    (start, user_id),
-                )
-            cursor.execute(
-                "UPDATE subscription_accounts SET trial_started_at=NULL,trial_ends_at=NULL,"
-                "is_old_user=TRUE,gift_starts=%s,gift_ends=%s,offer_ends=%s,"
-                "subscription_starts=NULL,subscription_ends=NULL,special_offer_used_at=NULL,"
-                "schedule_restore_required=FALSE,subscription_state='gift',updated_at=%s "
-                "WHERE user_id=%s",
-                (offer.gift.starts_at, offer.gift.ends_at, offer.offer_ends, start, user_id),
-            )
-        return Subscription(gift=offer.gift)
 
     def enroll_old_users(self, launch_at: datetime) -> int:
         """Explicit one-off activation; never called by application startup."""

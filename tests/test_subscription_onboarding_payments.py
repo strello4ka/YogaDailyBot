@@ -96,7 +96,7 @@ class CheckoutOnboardingTest(unittest.IsolatedAsyncioTestCase):
             await handle_reply(update, self.context)
         retry.assert_awaited_once_with(self.context, user_ids={1}, check_pending=False)
         transition.assert_not_awaited()
-        self.repo.begin_fast_trial.assert_not_called()
+        self.repo.begin_trial.assert_not_called()
 
     async def test_active_unpaid_trial_can_continue_normally(self):
         self.repo.get.return_value = Subscription(trial=start_trial(datetime.now(MOSCOW)))
@@ -105,6 +105,7 @@ class CheckoutOnboardingTest(unittest.IsolatedAsyncioTestCase):
         with patch('app.onboarding.flow.load_state', return_value=self.state), patch(
                 'app.onboarding.flow._transition', new_callable=AsyncMock) as transition:
             await handle_reply(update, self.context)
+        self.repo.begin_trial.assert_called_once()
         self.assertEqual(transition.await_args.args[2], 'schedule_offer')
 
     async def test_canceled_keeps_onboarding_step_and_worker_owns_notification(self):
