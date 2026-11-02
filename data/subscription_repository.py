@@ -408,17 +408,27 @@ class SubscriptionRepository:
             current = _snapshot(cursor.fetchone())
             if not replay and (current.trial is not None or current.paid is not None):
                 return current
-            if current.paid is not None or current.gift is not None:
-                raise ValueError("A paid test account cannot replay the trial")
+            if not replay:
+                if current.gift is not None:
+                    raise ValueError("A gift test account cannot start the trial")
+                cursor.execute(
+                    "SELECT EXISTS(SELECT 1 FROM subscription_orders WHERE user_id=%s "
+                    "AND status IN ('created','pending','succeeded'))", (user_id,),
+                )
+                if cursor.fetchone()[0]:
+                    raise ValueError("A test account with payment orders cannot start the trial")
+            else:
+                cursor.execute(
+                    "UPDATE subscription_orders SET status='canceled',updated_at=%s "
+                    "WHERE user_id=%s AND status IN ('created','pending')",
+                    (start, user_id),
+                )
             cursor.execute(
-                "SELECT EXISTS(SELECT 1 FROM subscription_orders WHERE user_id=%s "
-                "AND status IN ('created','pending','succeeded'))", (user_id,),
-            )
-            if cursor.fetchone()[0]:
-                raise ValueError("A test account with payment orders cannot replay the trial")
-            cursor.execute(
-                "UPDATE subscription_accounts SET trial_started_at=%s, trial_ends_at=%s, "
-                "subscription_state='trial', updated_at=%s WHERE user_id=%s",
+                "UPDATE subscription_accounts SET trial_started_at=%s,trial_ends_at=%s,"
+                "gift_starts=NULL,gift_ends=NULL,offer_ends=NULL,"
+                "subscription_starts=NULL,subscription_ends=NULL,special_offer_used_at=NULL,"
+                "schedule_restore_required=FALSE,subscription_state='trial',updated_at=%s "
+                "WHERE user_id=%s",
                 (trial.started_at, trial.ends_at, start, user_id),
             )
         return Subscription(trial=trial)
@@ -440,18 +450,24 @@ class SubscriptionRepository:
             current = _snapshot(cursor.fetchone())
             if not replay and (current.gift is not None or current.paid is not None):
                 return current
-            if current.paid is not None:
-                raise ValueError("A paid test account cannot replay the gift scenario")
-            cursor.execute(
-                "SELECT EXISTS(SELECT 1 FROM subscription_orders WHERE user_id=%s "
-                "AND status IN ('created','pending','succeeded'))", (user_id,),
-            )
-            if cursor.fetchone()[0]:
-                raise ValueError("A test account with payment orders cannot replay the gift scenario")
+            if not replay:
+                cursor.execute(
+                    "SELECT EXISTS(SELECT 1 FROM subscription_orders WHERE user_id=%s "
+                    "AND status IN ('created','pending','succeeded'))", (user_id,),
+                )
+                if cursor.fetchone()[0]:
+                    raise ValueError("A test account with payment orders cannot start the gift scenario")
+            else:
+                cursor.execute(
+                    "UPDATE subscription_orders SET status='canceled',updated_at=%s "
+                    "WHERE user_id=%s AND status IN ('created','pending')",
+                    (start, user_id),
+                )
             cursor.execute(
                 "UPDATE subscription_accounts SET trial_started_at=NULL,trial_ends_at=NULL,"
                 "is_old_user=TRUE,gift_starts=%s,gift_ends=%s,offer_ends=%s,"
-                "special_offer_used_at=NULL,subscription_state='gift',updated_at=%s "
+                "subscription_starts=NULL,subscription_ends=NULL,special_offer_used_at=NULL,"
+                "schedule_restore_required=FALSE,subscription_state='gift',updated_at=%s "
                 "WHERE user_id=%s",
                 (offer.gift.starts_at, offer.gift.ends_at, offer.offer_ends, start, user_id),
             )
