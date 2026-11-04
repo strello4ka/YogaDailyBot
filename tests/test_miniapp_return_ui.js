@@ -16,7 +16,7 @@ const server = http.createServer((req, res) => {
   res.end(fs.readFileSync(path.join(staticDir, file[0])));
 });
 const order = '11111111-1111-4111-8111-111111111111';
-const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:35000,
+const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:35000,
   base_price:35000,final_price:35000}],
   email:'u@example.org',note:'',offer_url:'https://example.org',preview:false,order_id:null};
 
@@ -161,8 +161,7 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
 
     const loaderPage = await browser.newPage({viewport:{width:390,height:844}});
     await loaderPage.addInitScript(() => {
-      window.Telegram={WebApp:{initData:'mock',ready(){},expand(){},close(){},
-        openLink(url){window.openedPaymentLink=url;}}};
+      window.Telegram={WebApp:{initData:'mock',ready(){},expand(){},close(){}}};
     });
     await loaderPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
     await loaderPage.route('**/test-api/session', route => route.fulfill({status:200,
@@ -182,11 +181,8 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
     assert.equal(await loaderPage.locator('#pay').isDisabled(),true);
     assert.equal(await loaderPage.locator('#payment-status').isVisible(),false);
     releaseCreate();
-    await loaderPage.waitForFunction(() => window.openedPaymentLink==='https://yookassa.ru/checkout');
-    await loaderPage.locator('#payment-status').waitFor({state:'visible'});
-    assert.equal(await loaderPage.locator('#resume').isVisible(),true);
-    assert.equal(await loaderPage.locator('#resume').textContent(),'Вернуться к оплате');
-    console.log('PASS Telegram opens YooKassa and keeps a recovery button');
+    await loaderPage.waitForURL('https://yookassa.ru/checkout');
+    console.log('PASS YooKassa opens inside the Mini App WebView');
     await loaderPage.close();
 
     const timeoutPage = await browser.newPage({viewport:{width:390,height:844}});

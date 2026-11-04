@@ -156,19 +156,13 @@ function rememberConfirmation(value) {
 function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
   const target = confirmationUrl;
-  // Keep a usable recovery screen in the Mini App. On iOS Telegram may ignore
-  // an ordinary top-level navigation to an external checkout, while openLink
-  // is the supported way to leave a Mini App for an HTTPS page.
+  // Render a recovery action before navigating. If Telegram's WebView does not
+  // complete the internal transition, the user is not left with a frozen loader.
   status('Ожидаем оплату', '');
   rememberConfirmation(target);
   clearTimeout(poll);
   if (orderId) poll = setTimeout(checkPayment, 5000);
-  try {
-    if (tg?.openLink) tg.openLink(target);
-    else window.location.assign(target);
-  } catch (_) {
-    window.location.assign(target);
-  }
+  window.location.assign(target);
 }
 function pressedTransition(element, callback) {
   if (element.classList.contains('is-busy')) return;
