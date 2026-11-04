@@ -161,7 +161,8 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
 
     const loaderPage = await browser.newPage({viewport:{width:390,height:844}});
     await loaderPage.addInitScript(() => {
-      window.Telegram={WebApp:{initData:'mock',ready(){},expand(){},close(){}}};
+      window.Telegram={WebApp:{initData:'mock',ready(){},expand(){},close(){},
+        openLink(url){window.openedPaymentLink=url;}}};
     });
     await loaderPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
     await loaderPage.route('**/test-api/session', route => route.fulfill({status:200,
@@ -181,8 +182,11 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
     assert.equal(await loaderPage.locator('#pay').isDisabled(),true);
     assert.equal(await loaderPage.locator('#payment-status').isVisible(),false);
     releaseCreate();
-    await loaderPage.waitForURL('https://yookassa.ru/checkout');
-    console.log('PASS pay button loader before YooKassa');
+    await loaderPage.waitForFunction(() => window.openedPaymentLink==='https://yookassa.ru/checkout');
+    await loaderPage.locator('#payment-status').waitFor({state:'visible'});
+    assert.equal(await loaderPage.locator('#resume').isVisible(),true);
+    assert.equal(await loaderPage.locator('#resume').textContent(),'Вернуться к оплате');
+    console.log('PASS Telegram opens YooKassa and keeps a recovery button');
     await loaderPage.close();
 
     const timeoutPage = await browser.newPage({viewport:{width:390,height:844}});
@@ -222,6 +226,31 @@ const session = {tariffs: [{code:'month',title:'1 месяц',days:30,amount:350
     assert.equal(await timeoutPage.evaluate(() => sessionStorage.getItem('yoga-order')),order);
     console.log('PASS payment creation timeout safely restores pay button');
     await timeoutPage.close();
+
+    const pendingWithoutUrlPage = await browser.newPage({viewport:{width:390,height:844}});
+    await pendingWithoutUrlPage.addInitScript(({order}) => {
+      window.Telegram={WebApp:{initData:'mock',ready(){},expand(){},close(){}}};
+      const realNow=Date.now.bind(Date); let offset=0;
+      Date.now=()=>realNow()+offset;
+      window.advanceTestClock=value=>{ offset+=value; };
+      sessionStorage.setItem('yoga-order',order);
+    }, {order});
+    await pendingWithoutUrlPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
+    await pendingWithoutUrlPage.route('**/test-api/session', route => route.fulfill({status:200,
+      contentType:'application/json',body:JSON.stringify({...session,order_id:order})}));
+    await pendingWithoutUrlPage.route('**/test-api/payments/*', route => route.fulfill({status:200,
+      contentType:'application/json',body:JSON.stringify({status:'pending',confirmation_url:null})}));
+    await pendingWithoutUrlPage.goto(`http://127.0.0.1:${server.address().port}/?test=1`);
+    await pendingWithoutUrlPage.locator('#payment-status').waitFor({state:'visible'});
+    await pendingWithoutUrlPage.waitForFunction(() => checking===false);
+    await pendingWithoutUrlPage.evaluate(() => window.advanceTestClock(31000));
+    await pendingWithoutUrlPage.evaluate(() => checkPayment());
+    await pendingWithoutUrlPage.waitForFunction(() => !document.getElementById('error').hidden);
+    assert.equal(await pendingWithoutUrlPage.locator('#checkout').isVisible(),true);
+    assert.equal(await pendingWithoutUrlPage.locator('#pay').isEnabled(),true);
+    assert.equal(await pendingWithoutUrlPage.locator('#pay').textContent(),'Оплатить · 350 ₽');
+    console.log('PASS pending payment without YooKassa URL restores pay button');
+    await pendingWithoutUrlPage.close();
   } finally {
     if(browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

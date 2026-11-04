@@ -37,9 +37,9 @@ class Tariff:
 
 
 TARIFFS = MappingProxyType({
-    "month": Tariff("month", "1 месяц", 30, 35000),
-    "quarter": Tariff("quarter", "3 месяца", 90, 80000),
-    "half_year": Tariff("half_year", "6 месяцев", 180, 140000),
+    "month": Tariff("month", "30 дней", 30, 35000),
+    "quarter": Tariff("quarter", "90 дней", 90, 80000),
+    "half_year": Tariff("half_year", "180 дней", 180, 140000),
     "year": Tariff("year", "1 год", 365, 250000),
 })
 

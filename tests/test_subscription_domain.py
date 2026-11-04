@@ -18,6 +18,8 @@ class SubscriptionDomainTest(unittest.TestCase):
     def test_tariffs_are_fixed_days_and_integer_money(self):
         self.assertEqual([(t.days, t.amount) for t in TARIFFS.values()],
                          [(30, "350.00"), (90, "800.00"), (180, "1400.00"), (365, "2500.00")])
+        self.assertEqual([t.title for t in TARIFFS.values()],
+                         ["30 дней", "90 дней", "180 дней", "1 год"])
 
     def test_trial_late_start_counts_first_calendar_day(self):
         trial = start_trial(at(1, 23))

@@ -155,7 +155,20 @@ function rememberConfirmation(value) {
 }
 function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
-  window.location.assign(confirmationUrl);
+  const target = confirmationUrl;
+  // Keep a usable recovery screen in the Mini App. On iOS Telegram may ignore
+  // an ordinary top-level navigation to an external checkout, while openLink
+  // is the supported way to leave a Mini App for an HTTPS page.
+  status('Ожидаем оплату', '');
+  rememberConfirmation(target);
+  clearTimeout(poll);
+  if (orderId) poll = setTimeout(checkPayment, 5000);
+  try {
+    if (tg?.openLink) tg.openLink(target);
+    else window.location.assign(target);
+  } catch (_) {
+    window.location.assign(target);
+  }
 }
 function pressedTransition(element, callback) {
   if (element.classList.contains('is-busy')) return;
@@ -190,8 +203,12 @@ async function checkPayment() {
       showPayLoader();
       poll = setTimeout(checkPayment, 2000);
     } else {
-      paymentCreationStartedAt = null;
       const canResume = rememberConfirmation(data.confirmation_url);
+      if (canResume) paymentCreationStartedAt = null;
+      else {
+        if (paymentCreationStartedAt === null) paymentCreationStartedAt = Date.now();
+        if (creationWaitExpired()) { stopCreationWait(); return; }
+      }
       status('Ожидаем оплату', '');
       if (canResume) $('resume').hidden = false;
       poll = setTimeout(checkPayment, 5000);
@@ -213,6 +230,13 @@ async function checkPayment() {
         $('checkout').hidden = false;
         showPayLoader();
       } else {
+        if (!confirmationUrl && paymentCreationStartedAt === null) {
+          paymentCreationStartedAt = Date.now();
+        }
+        if (!confirmationUrl && creationWaitExpired()) {
+          stopCreationWait();
+          return;
+        }
         const canResume = rememberConfirmation(confirmationUrl);
         status('Ожидаем оплату', '');
         if (canResume) $('resume').hidden = false;
