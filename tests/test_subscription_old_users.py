@@ -4,10 +4,12 @@ import unittest
 import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from app.subscription.access import AccessState, Subscription
 from app.subscription.old_users.messages import (
+    feedback_keyboard,
+    feedback_message,
     first_message,
     first_message_keyboard,
     gift_status,
@@ -21,7 +23,14 @@ from app.subscription.old_users.messages import (
     gift_three_days,
     tariff_button_keyboard,
 )
-from app.subscription.old_users.handlers import access_details_callback
+from app.subscription.old_users.handlers import (
+    FEEDBACK_WAIT_SECONDS,
+    WAITING_FOR_FEEDBACK,
+    access_details_callback,
+    cancel_feedback_wait,
+    feedback_callback,
+    handle_feedback_input,
+)
 from app.subscription.old_users.notifications import notification_schedule
 from app.subscription.old_users.prices import SPECIAL_PRICES, checkout_price
 from app.subscription.old_users.repository import enroll
@@ -83,20 +92,24 @@ class OldUsersRulesTest(unittest.TestCase):
         offer = launch_offer(at(1))
         schedule = notification_schedule(offer)
         self.assertEqual([item.kind for item in schedule], [
+            'launch', 'launch_feedback',
             'gift_three_days', 'gift_last_day', 'gift_expired',
             'special_prices_seven_days', 'special_prices_three_days',
             'special_prices_last_day'])
-        self.assertEqual(schedule[0].scheduled_at,
-                         offer.gift.ends_at - timedelta(days=3) + timedelta(hours=13))
+        self.assertEqual(schedule[0].scheduled_at, offer.gift.starts_at)
         self.assertEqual(schedule[1].scheduled_at,
-                         offer.gift.ends_at - timedelta(days=1) + timedelta(hours=19))
+                         offer.gift.starts_at + timedelta(hours=2))
         self.assertEqual(schedule[2].scheduled_at,
-                         offer.gift.ends_at + timedelta(hours=8))
+                         offer.gift.ends_at - timedelta(days=3) + timedelta(hours=13))
         self.assertEqual(schedule[3].scheduled_at,
-                         offer.offer_ends - timedelta(days=7) + timedelta(hours=19))
+                         offer.gift.ends_at - timedelta(days=1) + timedelta(hours=19))
         self.assertEqual(schedule[4].scheduled_at,
-                         offer.offer_ends - timedelta(days=3) + timedelta(hours=19))
+                         offer.gift.ends_at + timedelta(hours=8))
         self.assertEqual(schedule[5].scheduled_at,
+                         offer.offer_ends - timedelta(days=7) + timedelta(hours=19))
+        self.assertEqual(schedule[6].scheduled_at,
+                         offer.offer_ends - timedelta(days=3) + timedelta(hours=19))
+        self.assertEqual(schedule[7].scheduled_at,
                          offer.offer_ends - timedelta(days=1) + timedelta(hours=19))
 
     def test_first_message_uses_regular_quote_and_approved_buttons(self):
@@ -122,6 +135,71 @@ class OldUsersRulesTest(unittest.TestCase):
         self.assertEqual(rows[2][0].api_kwargs, {})
         self.assertEqual(rows[0][0].web_app.url, "https://example.org/subscription")
 
+        self.assertIn("особенно важно узнать твоё мнение", feedback_message())
+        feedback_button = feedback_keyboard().inline_keyboard[0][0]
+        self.assertEqual(feedback_button.text, "Поделиться мнением")
+        self.assertEqual(feedback_button.callback_data, "old_users:feedback")
+        self.assertEqual(feedback_button.api_kwargs, {"style": "primary"})
+
+    def test_feedback_button_collects_one_text_message_in_the_bot(self):
+        message = SimpleNamespace(reply_text=AsyncMock())
+        query = SimpleNamespace(message=message, answer=AsyncMock())
+        context = SimpleNamespace(user_data={"waiting_for_time": True})
+        callback_update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(id=42),
+        )
+        with patch("app.subscription.old_users.handlers._begin_feedback_wait") as begin:
+            asyncio.run(feedback_callback(callback_update, context))
+        begin.assert_called_once_with(42)
+        self.assertTrue(context.user_data[WAITING_FOR_FEEDBACK])
+        self.assertNotIn("waiting_for_time", context.user_data)
+        message.reply_text.assert_awaited_once_with("Напиши мне любой текст.")
+
+        reply = SimpleNamespace(text="Мне всё нравится, но не хватает поиска.",
+                                reply_text=AsyncMock())
+        update = SimpleNamespace(
+            effective_chat=SimpleNamespace(type="private"),
+            effective_message=reply,
+            effective_user=SimpleNamespace(id=42, username="katya"),
+        )
+        with (patch("app.subscription.old_users.handlers._load_feedback_wait",
+                    return_value={"entered_at": 1_000}),
+              patch("app.subscription.old_users.handlers._clear_feedback_wait") as clear,
+              patch("app.subscription.old_users.handlers.time.time", return_value=1_001),
+              patch("app.subscription.old_users.handlers._save_feedback") as save):
+            asyncio.run(handle_feedback_input(update, context))
+        save.assert_called_once_with(42, "katya", "Мне всё нравится, но не хватает поиска.")
+        clear.assert_called_once_with(42)
+        self.assertNotIn(WAITING_FOR_FEEDBACK, context.user_data)
+        self.assertIn("Спасибо за твою обратную связь", reply.reply_text.call_args.args[0])
+
+    def test_feedback_wait_expires_after_24_hours_and_can_be_canceled(self):
+        context = SimpleNamespace(user_data={WAITING_FOR_FEEDBACK: True})
+        update = SimpleNamespace(
+            effective_chat=SimpleNamespace(type="private"),
+            effective_message=SimpleNamespace(text="Обычное сообщение", reply_text=AsyncMock()),
+            effective_user=SimpleNamespace(id=42, username="katya"),
+        )
+        with (patch("app.subscription.old_users.handlers._load_feedback_wait",
+                    return_value={"entered_at": 1_000}),
+              patch("app.subscription.old_users.handlers._clear_feedback_wait") as clear,
+              patch("app.subscription.old_users.handlers.time.time",
+                    return_value=1_000 + FEEDBACK_WAIT_SECONDS)):
+            handled = asyncio.run(handle_feedback_input(update, context))
+        self.assertFalse(handled)
+        clear.assert_called_once_with(42)
+        self.assertNotIn(WAITING_FOR_FEEDBACK, context.user_data)
+
+        callback = SimpleNamespace(data="help_faq")
+        cancel_update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=42), callback_query=callback)
+        context.user_data[WAITING_FOR_FEEDBACK] = True
+        with patch("app.subscription.old_users.handlers._clear_feedback_wait") as clear:
+            asyncio.run(cancel_feedback_wait(cancel_update, context))
+        clear.assert_called_once_with(42)
+        self.assertNotIn(WAITING_FOR_FEEDBACK, context.user_data)
+
     def test_first_message_detail_button_reuses_faq_copy(self):
         from app.handlers.help import SUBSCRIPTION_FAQ_TEXT
 
@@ -142,6 +220,7 @@ class OldUsersRulesTest(unittest.TestCase):
     def test_gift_status_copy_is_isolated_with_old_user_messages(self):
         paid = gift_status(30, at(31), purchased=True,
                            ends_at=datetime(2026, 11, 30, tzinfo=MOSCOW))
+        self.assertIn("Осталось <b>30</b> дней", paid)
         self.assertIn("после окончания подарочного периода", paid)
         self.assertIn("<b>31.10.2026</b> по <b>29.11.2026</b>", paid)
 

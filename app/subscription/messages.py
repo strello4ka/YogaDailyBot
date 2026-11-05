@@ -27,14 +27,16 @@ LOST_FEATURES = (
 
 # Пробный период
 
-def _days_label(value: int) -> str:
+def _days_word(value: int) -> str:
     if value % 10 == 1 and value % 100 != 11:
-        word = "день"
+        return "день"
     elif value % 10 in (2, 3, 4) and value % 100 not in (12, 13, 14):
-        word = "дня"
-    else:
-        word = "дней"
-    return f"{value} {word}"
+        return "дня"
+    return "дней"
+
+
+def _days_label(value: int) -> str:
+    return f"{value} {_days_word(value)}"
 
 
 def trial_status(days_left: int, starts_at: datetime, purchased: bool = False,
@@ -43,7 +45,7 @@ def trial_status(days_left: int, starts_at: datetime, purchased: bool = False,
         if ends_at is None:
             raise ValueError("Paid subscription end is required")
         return ("<b>⏳ У тебя сейчас пробный период</b>\n\n"
-                f"Осталось дней {days_left}\n\n"
+                f"Осталось <b>{days_left}</b> {_days_word(days_left)}\n\n"
                 "Ты уже оформил подписку, она начнет действовать после окончания "
                 "пробного периода с "
                 f"<b>{local_time(starts_at):%d.%m.%Y}</b> по "
@@ -213,15 +215,6 @@ def challenge_access_expired() -> str:
             "Твои избранные практики сохранены — они снова станут доступны после "
             "оформления подписки.\n\n"
             "Управлять подпиской можно в <b>Меню</b> ↙️")
-
-
-def challenge_finished_without_subscription() -> str:
-    return ("🕐 <b>Хочешь продолжить получать практики каждый день, как во время "
-            "челленджа?</b>\n\n"
-            "Это поможет закрепить привычку и продолжить заниматься регулярно.\n\n"
-            "<blockquote>Твои ежедневные привычки — твоё лучшее лекарство. "
-            "Или худшее.</blockquote>\n\n"
-            "Такая функция доступна только по подписке 👇")
 
 
 # Второе сообщение после окончания подписки (и пробы), с кнопкой тарифов.

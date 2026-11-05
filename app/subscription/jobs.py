@@ -206,10 +206,17 @@ async def _send_reminder(context, user_id, event, profile, now):
             keyboard = None
         else:
             from .old_users.notifications import NOTIFICATION_KINDS
-            from .old_users.messages import tariff_button_keyboard
+            from .old_users.messages import (feedback_keyboard, first_message_keyboard,
+                                             tariff_button_keyboard)
             url = context.bot_data['subscription_miniapp_url']
-            keyboard = (tariff_button_keyboard(url) if url and event.kind in NOTIFICATION_KINDS
-                        else optional_tariff_keyboard(url))
+            if event.kind == 'launch':
+                keyboard = first_message_keyboard(url) if url else None
+            elif event.kind == 'launch_feedback':
+                keyboard = feedback_keyboard()
+            else:
+                keyboard = (tariff_button_keyboard(url)
+                            if url and event.kind in NOTIFICATION_KINDS
+                            else optional_tariff_keyboard(url))
         if event.kind.endswith('expired') and current.state(moment) != AccessState.FREE:
             return
         if not already_sent:
@@ -337,7 +344,8 @@ def due_reminders(subscription: Subscription, now: datetime, *, old_user_offer=N
         for event in due_notifications(old_user_offer, now,
                 gift_active=state == AccessState.GIFT, free=state == AccessState.FREE,
                 has_paid=subscription.paid is not None, payment_pending=payment_pending):
-            end = (old_user_offer.gift.ends_at if event.kind.startswith('gift_')
+            end = (old_user_offer.gift.ends_at
+                   if event.kind.startswith('gift_') or event.kind.startswith('launch')
                    else old_user_offer.offer_ends)
             result.append(Reminder(event.kind, end, event.scheduled_at,
                                    old_user_offer.offer_ends))

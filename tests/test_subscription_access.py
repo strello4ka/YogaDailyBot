@@ -63,6 +63,7 @@ class SubscriptionScreensTest(unittest.TestCase):
     def test_paid_trial_status_shows_future_subscription_dates(self):
         paid = purchased_period('month', self.now, trial_ends_at=self.trial.ends_at)
         text = menu_text(Subscription(self.trial, paid), self.now)
+        self.assertIn('Осталось <b>14</b> дней', text)
         self.assertIn('после окончания пробного периода', text)
         self.assertIn(f'<b>{paid.starts_at:%d.%m.%Y}</b> по', text)
         self.assertIn(f'<b>{messages.last_access_date(paid.ends_at):%d.%m.%Y}</b>', text)
@@ -78,7 +79,7 @@ class SubscriptionScreensTest(unittest.TestCase):
         paid = purchased_period('month', self.now, trial_ends_at=gift.ends_at)
         purchased = menu_text(Subscription(paid=paid, gift=gift), self.now)
         self.assertIn('🎁 У тебя сейчас подарочный период', purchased)
-        self.assertIn('Осталось дней 30', purchased)
+        self.assertIn('Осталось <b>30</b> дней', purchased)
         self.assertIn('Ты уже оформил подписку', purchased)
         self.assertIn('после окончания подарочного периода', purchased)
         self.assertIn('<b>12.11.2026</b>', purchased)
@@ -125,11 +126,6 @@ class SubscriptionScreensTest(unittest.TestCase):
     def test_finished_access_titles_use_heart_where_agreed(self):
         self.assertIn('Пробный период завершён 🧡', messages.trial_expired())
         self.assertIn('Полный доступ завершен 🧡', messages.challenge_access_expired())
-
-    def test_finished_challenge_without_subscription_offers_subscription(self):
-        text = messages.challenge_finished_without_subscription()
-        self.assertIn('как во время челленджа', text)
-        self.assertIn('доступна только по подписке', text)
 
     def test_free_keyboard_and_expanding_selection_quote(self):
         self.assertEqual([[b.text for b in row] for row in reply_keyboard().keyboard],

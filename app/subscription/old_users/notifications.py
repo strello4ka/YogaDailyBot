@@ -7,6 +7,7 @@ from ..tariff import local_time
 from .rules import OldUserOffer
 
 NOTIFICATION_KINDS = frozenset((
+    'launch', 'launch_feedback',
     'gift_three_days', 'gift_last_day', 'gift_expired',
     'special_prices_seven_days', 'special_prices_three_days', 'special_prices_last_day',
 ))
@@ -22,6 +23,9 @@ def notification_schedule(offer: OldUserOffer):
     gift_end = local_time(offer.gift.ends_at)
     offer_end = local_time(offer.offer_ends)
     return (
+        OldUserNotification("launch", local_time(offer.gift.starts_at)),
+        OldUserNotification("launch_feedback",
+                            local_time(offer.gift.starts_at) + timedelta(hours=2)),
         OldUserNotification("gift_three_days",
                             gift_end - timedelta(days=3) + timedelta(hours=13)),
         OldUserNotification("gift_last_day",
@@ -38,15 +42,17 @@ def notification_schedule(offer: OldUserOffer):
 
 def due_notifications(offer, now, *, gift_active, free, has_paid, payment_pending):
     """Today's reminders only; never replay obsolete marketing after downtime."""
-    if has_paid:
-        return []
     now = local_time(now)
     result = []
     for event in notification_schedule(offer):
         scheduled = local_time(event.scheduled_at)
         if scheduled.date() != now.date() or scheduled > now:
             continue
-        if event.kind == 'gift_expired':
+        if event.kind in ('launch', 'launch_feedback'):
+            eligible = offer.gift.is_active(now)
+        elif has_paid:
+            eligible = False
+        elif event.kind == 'gift_expired':
             eligible = free  # Access expires even while checkout is pending.
         elif event.kind.startswith('gift_'):
             eligible = gift_active and not payment_pending

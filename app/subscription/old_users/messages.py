@@ -15,6 +15,7 @@ SUBSCRIPTION_DETAILS_BUTTON = "Что входит в подписку?"
 FREE_DETAILS_BUTTON = "Что останется бесплатным?"
 SUBSCRIPTION_DETAILS_CALLBACK = "old_users:subscription_details"
 FREE_DETAILS_CALLBACK = "old_users:free_details"
+FEEDBACK_CALLBACK = "old_users:feedback"
 
 
 def _offer_last_date(value: datetime):
@@ -24,14 +25,16 @@ def _offer_last_date(value: datetime):
     return local.date() if has_clock_time else last_access_date(local)
 
 
-def _days_label(value: int) -> str:
+def _days_word(value: int) -> str:
     if value % 10 == 1 and value % 100 != 11:
-        word = "день"
+        return "день"
     elif value % 10 in (2, 3, 4) and value % 100 not in (12, 13, 14):
-        word = "дня"
-    else:
-        word = "дней"
-    return f"{value} {word}"
+        return "дня"
+    return "дней"
+
+
+def _days_label(value: int) -> str:
+    return f"{value} {_days_word(value)}"
 
 
 def gift_status(days_left: int, starts_at: datetime, purchased: bool = False,
@@ -41,7 +44,7 @@ def gift_status(days_left: int, starts_at: datetime, purchased: bool = False,
         if ends_at is None:
             raise ValueError("Paid subscription end is required")
         return ("<b>🎁 У тебя сейчас подарочный период</b>\n\n"
-                f"Осталось дней {days_left}\n\n"
+                f"Осталось <b>{days_left}</b> {_days_word(days_left)}\n\n"
                 "Ты уже оформил подписку, она начнет действовать после окончания "
                 "подарочного периода с "
                 f"<b>{local_time(starts_at):%d.%m.%Y}</b> по "
@@ -72,6 +75,22 @@ def first_message(gift_ends: datetime) -> str:
         "Я ещё напомню, когда подарочный период будет заканчиваться, но купить подписку "
         "можно уже сейчас, она начнёт действовать <b>после подарочного периода</b> 👇"
     )
+
+
+def feedback_message() -> str:
+    """Ask the frozen launch cohort for feedback after the announcement."""
+    return (
+        "С началом нового этапа мне особенно важно узнать твоё мнение. "
+        "Расскажи, что тебе нравится, чего не хватает и что стоит улучшить.\n\n"
+        "<b>Спасибо, что помогаешь мне расти 🧡</b>"
+    )
+
+
+def feedback_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("Поделиться мнением", callback_data=FEEDBACK_CALLBACK,
+                             api_kwargs={"style": "primary"})
+    ]])
 
 
 def gift_three_days(name: str, gift_ends: datetime, offer_ends: datetime) -> str:
@@ -170,6 +189,10 @@ def special_prices_last_day() -> str:
 
 def reminder_text(kind, name, gift_ends, offer_ends):
     """Keep temporary notification copy out of the permanent reminder worker."""
+    if kind == 'launch':
+        return first_message(gift_ends)
+    if kind == 'launch_feedback':
+        return feedback_message()
     if kind == 'gift_three_days':
         return gift_three_days(name, gift_ends, offer_ends)
     if kind == 'gift_expired':

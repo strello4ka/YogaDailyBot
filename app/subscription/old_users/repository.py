@@ -22,6 +22,15 @@ def offer_from_values(gift_starts, gift_ends, offer_ends, used_at):
     return OldUserOffer(GiftPeriod(gift_starts, gift_ends), offer_ends, used_at)
 
 
+def save_feedback(cursor, user_id: int, username: Optional[str], text: str) -> None:
+    """Store one free-form response from the temporary old-user launch flow."""
+    cursor.execute(
+        "INSERT INTO old_user_feedback (user_id,username,feedback_text) "
+        "VALUES (%s,%s,%s)",
+        (user_id, username, text),
+    )
+
+
 def enroll(cursor, launch_at: datetime) -> int:
     """Freeze the cohort once; caller owns transaction and explicit approval."""
     offer = launch_offer(launch_at)

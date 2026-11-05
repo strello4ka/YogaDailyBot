@@ -71,8 +71,20 @@ def offer_text(value):
     """Второе сообщение через 10 секунд: предложение продолжить расписание."""
     return (
         f"🕐 <b>Хочешь продолжить получать практики каждый день в {value}, как во время челленджа?</b>\n\n"
-        "Это поможет закрепить привычку и продолжить заниматься регулярно.\n\n"
+        "Это поможет закрепить привычку и продолжить заниматься регулярно.\n"
         + quote("Твои ежедневные привычки - твое лучшее лекарство. Или худшее.")
+    )
+
+
+def offer_without_subscription_text() -> str:
+    """Предложение продолжить ежедневные практики без активной подписки."""
+    return (
+        "🕐 <b>Хочешь продолжить получать практики каждый день, как во время "
+        "челленджа?</b>\n\n"
+        "Это поможет закрепить привычку и продолжить заниматься регулярно.\n"
+        + quote("Твои ежедневные привычки — твоё лучшее лекарство. Или худшее.")
+        + "\n\n"
+        "Такая функция доступна только по подписке 👇"
     )
 
 
@@ -95,8 +107,7 @@ async def send_offer(context, state):
         text = offer_text(state["time"])
         reply_markup = keyboard(state["time"])
     else:
-        from app.subscription.messages import challenge_finished_without_subscription
-        text = challenge_finished_without_subscription()
+        text = offer_without_subscription_text()
         reply_markup = subscription_keyboard(context.bot_data.get("subscription_miniapp_url", ""))
     message = await context.bot.send_message(
         state["chat_id"], text, parse_mode="HTML", reply_markup=reply_markup
@@ -132,9 +143,8 @@ async def callback(update, context):
     if query.data in ("pc:continue", "pc:change"):
         has_subscription, _ = await _subscription_access(context, state["user_id"])
         if not has_subscription:
-            from app.subscription.messages import challenge_finished_without_subscription
             message = await query.message.reply_text(
-                challenge_finished_without_subscription(),
+                offer_without_subscription_text(),
                 parse_mode="HTML",
                 reply_markup=subscription_keyboard(
                     context.bot_data.get("subscription_miniapp_url", "")),
@@ -150,7 +160,7 @@ async def callback(update, context):
             state["time"],
             success_text=(
                 "Юхууу..нас не остановить!\n\n"
-                "Изменить время и остановить рассылку можно в меню → «Расписание»."
+                "Изменить время и остановить рассылку можно в Меню → «Расписание»."
             ),
         )
         return
@@ -173,7 +183,7 @@ async def _save_schedule(update, state, value, *, success_text=None):
         success_text = (
             "Готово ✅\n\n"
             f"Завтра в <b>{value}</b> начнется наш YogaDaily путь!\n\n"
-            "Изменить время и остановить рассылку можно в меню → «🕐 Расписание»."
+            "Изменить время и остановить рассылку можно в Меню → «🕐 Расписание»."
         )
     await update.effective_message.reply_text(success_text, parse_mode="HTML")
     return True

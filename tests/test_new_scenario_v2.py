@@ -15,6 +15,7 @@ from app.handlers.help import _faq_blocks, _root_blocks, _suggest_blocks, _tips_
 from app.challenge.flow.post_challenge import (
     keyboard as post_challenge_keyboard,
     offer_text,
+    offer_without_subscription_text,
     subscription_keyboard,
 )
 from app.onboarding.flow import (
@@ -523,6 +524,9 @@ class NewScenarioCopyTest(unittest.TestCase):
         self.assertNotIn("Продолжай пользоваться", finished)
 
     def test_post_challenge_without_subscription_has_tariffs_and_decline(self):
+        text = offer_without_subscription_text()
+        self.assertIn('как во время челленджа', text)
+        self.assertIn('доступна только по подписке', text)
         rows = [[button.text for button in row]
                 for row in subscription_keyboard("https://example.org").inline_keyboard]
         self.assertEqual(rows, [["Посмотреть тарифы"], ["Не хочу"]])

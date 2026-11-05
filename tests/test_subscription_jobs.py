@@ -30,8 +30,9 @@ class SubscriptionRemindersTest(unittest.TestCase):
                 before = due_reminders(state, moment - timedelta(seconds=1), old_user_offer=offer)
                 self.assertNotIn(notification.kind, [item.kind for item in before])
                 events = due_reminders(state, moment, old_user_offer=offer)
-                self.assertEqual([item.kind for item in events], [notification.kind])
-                self.assertEqual(events[0].offer_ends_at, offer.offer_ends)
+                matching = [item for item in events if item.kind == notification.kind]
+                self.assertEqual(len(matching), 1)
+                self.assertEqual(matching[0].offer_ends_at, offer.offer_ends)
                 tomorrow = due_reminders(state, moment + timedelta(days=1), old_user_offer=offer)
                 self.assertNotIn(notification.kind, [item.kind for item in tomorrow])
 
@@ -41,8 +42,13 @@ class SubscriptionRemindersTest(unittest.TestCase):
         for event in notification_schedule(offer):
             actual = due_reminders(Subscription(gift=offer.gift), event.scheduled_at,
                                    old_user_offer=offer, payment_pending=True)
-            self.assertEqual([item.kind for item in actual],
-                             ['gift_expired'] if event.kind == 'gift_expired' else [])
+            if event.kind == 'launch':
+                expected = ['launch']
+            elif event.kind == 'launch_feedback':
+                expected = ['launch', 'launch_feedback']
+            else:
+                expected = ['gift_expired'] if event.kind == 'gift_expired' else []
+            self.assertEqual([item.kind for item in actual], expected)
 
     def test_old_user_purchase_suppresses_sales_and_preserves_paid_activation(self):
         from app.subscription.old_users.notifications import notification_schedule
@@ -51,12 +57,15 @@ class SubscriptionRemindersTest(unittest.TestCase):
         state = Subscription(gift=offer.gift, paid=paid)
         for event in notification_schedule(offer):
             actual = due_reminders(state, event.scheduled_at, old_user_offer=offer)
-            self.assertNotIn(event.kind, [item.kind for item in actual])
+            if event.kind in ('launch', 'launch_feedback'):
+                self.assertIn(event.kind, [item.kind for item in actual])
+            else:
+                self.assertNotIn(event.kind, [item.kind for item in actual])
         self.assertEqual([item.kind for item in due_reminders(
             state, offer.gift.ends_at + timedelta(hours=8), old_user_offer=offer)],
             ['gift_subscription_activated'])
         used = replace(offer, used_at=at(2))
-        for event in notification_schedule(offer)[3:]:
+        for event in notification_schedule(offer)[5:]:
             self.assertEqual(due_reminders(Subscription(gift=offer.gift), event.scheduled_at,
                                           old_user_offer=used), [])
 

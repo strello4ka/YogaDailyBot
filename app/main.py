@@ -84,7 +84,13 @@ from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
 from .handlers.help import help_command, help_section_callback
-from .subscription.old_users.handlers import access_details_callback as old_user_access_details_callback
+from .subscription.old_users.handlers import (
+    WAITING_FOR_FEEDBACK,
+    access_details_callback as old_user_access_details_callback,
+    cancel_feedback_wait as cancel_old_user_feedback_wait,
+    feedback_callback as old_user_feedback_callback,
+    handle_feedback_input as handle_old_user_feedback_input,
+)
 from .handlers.commands_list import commands_list_command
 from .handlers.favorites import (
     favorite_command,
@@ -153,6 +159,9 @@ async def handle_text_input(update: Update, context):
 
     if context.user_data.get(WAITING_FOR_FLOW_ADD_KEY):
         await handle_flow_add_input(update, context)
+        return
+
+    if await handle_old_user_feedback_input(update, context):
         return
 
     if await handle_post_challenge_time(update, context):
@@ -317,6 +326,18 @@ def main():
         ),
         group=-3,
     )
+    application.add_handler(
+        MessageHandler(
+            filters.COMMAND & filters.ChatType.PRIVATE,
+            cancel_old_user_feedback_wait,
+            block=False,
+        ),
+        group=-7,
+    )
+    application.add_handler(
+        CallbackQueryHandler(cancel_old_user_feedback_wait, block=False),
+        group=-3,
+    )
     application.add_handler(MessageHandler(filters.COMMAND & filters.ChatType.PRIVATE, onboarding_guard_command), group=-1)
     application.add_handler(CallbackQueryHandler(onboarding_guard_callback), group=-1)
 
@@ -359,6 +380,10 @@ def main():
     application.add_handler(CallbackQueryHandler(
         old_user_access_details_callback,
         pattern="^old_users:(subscription_details|free_details)$",
+    ))
+    application.add_handler(CallbackQueryHandler(
+        old_user_feedback_callback,
+        pattern="^old_users:feedback$",
     ))
     application.add_handler(CallbackQueryHandler(handle_challenge_time_choice_callback, pattern="^want_start$"))
     application.add_handler(CallbackQueryHandler(by_mood_self_time_callback, pattern="^self_time:"))
@@ -421,6 +446,14 @@ def main():
     application.add_handler(
         MessageHandler(
             filters.TEXT & filters.Regex(f"^({'|'.join(escaped)})$") & filters.ChatType.PRIVATE,
+            cancel_old_user_feedback_wait,
+            block=False,
+        ),
+        group=-3,
+    )
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & filters.Regex(f"^({'|'.join(escaped)})$") & filters.ChatType.PRIVATE,
             handle_reply_button,
         )
     )
@@ -442,6 +475,9 @@ def main():
                 "\\*комментарий (не обязательно)\\*",
                 parse_mode='Markdown',
             )
+            return
+        if context.user_data.get(WAITING_FOR_FEEDBACK):
+            await update.message.reply_text("Пришли, пожалуйста, отзыв обычным текстом.")
             return
     
     # Регистрируем обработчик фото (для рассылки) с высоким приоритетом
