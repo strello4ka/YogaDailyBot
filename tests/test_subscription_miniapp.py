@@ -161,6 +161,7 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertNotIn('id="resume" class="secondary" target="_blank"', page)
         self.assertIn('window.location.assign(target)', client)
         self.assertNotIn('tg?.openLink', client)
+        self.assertIn('window.stop();', client)
         self.assertNotIn('id="back"', page)
         self.assertNotIn('replace_open_order', client)
         self.assertIn("status('Ожидаем оплату', '')", client)

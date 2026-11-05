@@ -156,12 +156,15 @@ function rememberConfirmation(value) {
 function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
   const target = confirmationUrl;
-  // Render a recovery action before navigating. If Telegram's WebView does not
-  // complete the internal transition, the user is not left with a frozen loader.
-  status('Ожидаем оплату', '');
-  rememberConfirmation(target);
+  // Navigate immediately inside Telegram's WebView, as before. If the WebView
+  // never starts the transition, restore checkout instead of leaving a loader.
   clearTimeout(poll);
-  if (orderId) poll = setTimeout(checkPayment, 5000);
+  poll = setTimeout(() => {
+    if (confirmationUrl === target) {
+      window.stop();
+      stopCreationWait();
+    }
+  }, PAYMENT_CREATION_TIMEOUT_MS);
   window.location.assign(target);
 }
 function pressedTransition(element, callback) {

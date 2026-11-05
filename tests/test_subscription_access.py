@@ -106,7 +106,25 @@ class SubscriptionScreensTest(unittest.TestCase):
         self.assertNotIn('рассылка по расписанию', last_day)
         expired = messages.challenge_access_expired()
         self.assertIn('Программа челленджа', expired)
+        self.assertNotIn('🌀', expired)
+        self.assertNotIn('Практика дня', expired)
+        self.assertNotIn('Прогресс', expired)
         self.assertNotIn('Рассылка по расписанию остановлена', expired)
+
+    def test_paid_expired_uses_short_free_mode_copy(self):
+        text = messages.paid_expired()
+        trial_text = messages.trial_expired()
+        self.assertIn('Теперь ты в бесплатной версии YogaDailyBot.', text)
+        self.assertEqual(text.split('\n\n', 1)[1], trial_text.split('\n\n', 1)[1])
+        self.assertNotIn('🌀', text)
+        self.assertNotIn('Практика дня', text)
+        self.assertNotIn('Прогресс', text)
+        self.assertNotIn('настройки', text)
+        self.assertNotIn('Меню', text)
+
+    def test_finished_access_titles_use_heart_where_agreed(self):
+        self.assertIn('Пробный период завершён 🧡', messages.trial_expired())
+        self.assertIn('Полный доступ завершен 🧡', messages.challenge_access_expired())
 
     def test_finished_challenge_without_subscription_offers_subscription(self):
         text = messages.challenge_finished_without_subscription()
