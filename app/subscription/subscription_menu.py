@@ -116,8 +116,7 @@ def install_test_subscriptions(application, environment, connection_factory):
         except Exception:
             provider.close()
             raise
-        application.bot_data['subscription_payment_service'] = PaymentService(
-            repository, provider, allowed_tariffs=('month',) if payment_config.live else None)
+        application.bot_data['subscription_payment_service'] = PaymentService(repository, provider)
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, guard_update), group=-6)
     application.add_handler(CallbackQueryHandler(guard_update), group=-6)
     application.add_handler(CallbackQueryHandler(restore_schedule_callback,

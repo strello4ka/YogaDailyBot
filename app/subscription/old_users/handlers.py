@@ -6,8 +6,9 @@ import time
 
 from app.handlers.help import FREE_MODE_FAQ_TEXT, SUBSCRIPTION_FAQ_TEXT
 
-from .messages import (FEEDBACK_CALLBACK, FREE_DETAILS_CALLBACK,
-                       SUBSCRIPTION_DETAILS_CALLBACK)
+from .messages import (FEEDBACK_CALLBACK, FEEDBACK_INPUT_PROMPT,
+                       FEEDBACK_SAVE_ERROR, FEEDBACK_THANK_YOU,
+                       FREE_DETAILS_CALLBACK, SUBSCRIPTION_DETAILS_CALLBACK)
 
 WAITING_FOR_FEEDBACK = "waiting_for_old_user_feedback"
 FEEDBACK_STATE_PREFIX = "old_user_feedback_wait:"
@@ -60,7 +61,7 @@ async def feedback_callback(update, context):
         context.user_data.pop(key, None)
     await asyncio.to_thread(_begin_feedback_wait, update.effective_user.id)
     context.user_data[WAITING_FOR_FEEDBACK] = True
-    await query.message.reply_text("Напиши мне любой текст.")
+    await query.message.reply_text(FEEDBACK_INPUT_PROMPT)
 
 
 async def cancel_feedback_wait(update, context):
@@ -106,7 +107,7 @@ async def handle_feedback_input(update, context):
     context.user_data[WAITING_FOR_FEEDBACK] = True
     text = (update.effective_message.text or "").strip()
     if not text:
-        await update.effective_message.reply_text("Напиши мне любой текст.")
+        await update.effective_message.reply_text(FEEDBACK_INPUT_PROMPT)
         return True
     try:
         await asyncio.to_thread(
@@ -116,14 +117,9 @@ async def handle_feedback_input(update, context):
             text,
         )
     except Exception:
-        await update.effective_message.reply_text(
-            "Не получилось сохранить сообщение. Попробуй ещё раз."
-        )
+        await update.effective_message.reply_text(FEEDBACK_SAVE_ERROR)
         return True
     context.user_data.pop(WAITING_FOR_FEEDBACK, None)
     await asyncio.to_thread(_clear_feedback_wait, update.effective_user.id)
-    await update.effective_message.reply_text(
-        "Спасибо за твою обратную связь 🧡\n"
-        "Я обязательно всё прочитаю и учту."
-    )
+    await update.effective_message.reply_text(FEEDBACK_THANK_YOU)
     return True

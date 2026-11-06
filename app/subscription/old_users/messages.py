@@ -16,6 +16,11 @@ FREE_DETAILS_BUTTON = "Что останется бесплатным?"
 SUBSCRIPTION_DETAILS_CALLBACK = "old_users:subscription_details"
 FREE_DETAILS_CALLBACK = "old_users:free_details"
 FEEDBACK_CALLBACK = "old_users:feedback"
+FEEDBACK_INPUT_PROMPT = "Напиши сюда любой текст"
+FEEDBACK_SAVE_ERROR = "Не получилось сохранить сообщение. Попробуй ещё раз."
+FEEDBACK_THANK_YOU = (
+    "Спасибо за твою обратную связь!"
+)
 
 
 def _offer_last_date(value: datetime):
@@ -60,9 +65,7 @@ def first_message(gift_ends: datetime) -> str:
     """Render the approved launch message for users from the frozen cohort."""
     access_until = _offer_last_date(gift_ends)
     return (
-        "<b>Если ты читаешь это,\n"
-        "поздравляю, ты — легенда\n"
-        "YogaDailyBot 🧡</b>\n\n"
+        "<b>Если ты читаешь это,поздравляю, ты — легенда YogaDailyBot 🧡</b>\n\n"
         "Когда мы познакомились, я только учился подбирать практики, "
         "иногда путался в кнопках и мечтал стать большим ботом для здорового тела.\n\n"
         "Благодаря тебе я вырос и готов к новому этапу:\n"

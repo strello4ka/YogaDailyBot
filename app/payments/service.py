@@ -86,12 +86,11 @@ def verify_payment(order, payment, *, expected_test=True):
 
 
 class PaymentService:
-    def __init__(self, repository, provider, *, allowed_tariffs=None):
+    def __init__(self, repository, provider):
         if not isinstance(getattr(provider, 'expected_test', None), bool):
             raise ValueError('Payment provider must declare test or live mode')
         self.repository = repository
         self.provider = provider
-        self.allowed_tariffs = frozenset(allowed_tariffs) if allowed_tariffs is not None else None
 
     def _verify(self, order, payment):
         return verify_payment(order, payment,
@@ -100,8 +99,6 @@ class PaymentService:
     def checkout(self, order_id, user_id, tariff_code, email, return_url, now,
                  expected_final_price=None):
         """Serialize different browser tabs and return an unfinished order first."""
-        if self.allowed_tariffs is not None and tariff_code not in self.allowed_tariffs:
-            raise ValueError('Tariff is not enabled for this payment run')
         with self.repository.payment_creation_lock(user_id):
             existing_id = self.repository.open_order_id(user_id)
             if existing_id and existing_id != str(order_id):
@@ -112,8 +109,6 @@ class PaymentService:
     def create(self, order_id, user_id, tariff_code, email, return_url, now,
                expected_final_price=None):
         """A retry must reuse its UUID, including after an HTTP timeout."""
-        if self.allowed_tariffs is not None and tariff_code not in self.allowed_tariffs:
-            raise ValueError('Tariff is not enabled for this payment run')
         order_id = str(UUID(str(order_id)))
         order = self.repository.get_order(order_id, user_id)
         if order is None:

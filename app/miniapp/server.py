@@ -99,12 +99,7 @@ class MiniApp:
                 elif trial_end and trial_end > now:
                     note = 'Подписка начнёт действовать с {} — после пробного периода.'.format(
                         trial_end.astimezone(MOSCOW).strftime('%d.%m.%Y'))
-                allowed = getattr(self.payments, 'allowed_tariffs', None)
                 catalog = tariffs(profile.old_user_offer, now)
-                if allowed is not None:
-                    catalog = [t for t in catalog if t['code'] in allowed]
-                if allowed is not None:
-                    note = 'Настоящее списание 350 ₽. Проверка реального магазина. ' + note
                 offer_ends_on = (last_access_date(profile.old_user_offer.offer_ends).isoformat()
                                  if profile.old_user_offer and
                                  profile.old_user_offer.special_price_active(now) else None)
@@ -193,8 +188,7 @@ def create_test_app(environment, connection_factory, *, provider=None):
         if owns_provider:
             provider.close()
         raise
-    return MiniApp(repository=repository, payments=PaymentService(
-                       repository, provider, allowed_tariffs=('month',) if config.live else None),
+    return MiniApp(repository=repository, payments=PaymentService(repository, provider),
                    bot_token=environment['BOT_TOKEN'], allowed_users=users, return_url=return_url)
 
 

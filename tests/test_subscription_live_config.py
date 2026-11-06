@@ -1,11 +1,11 @@
-"""Live-test opt-in and store isolation; no credentials, DB or network."""
+"""Live/test store isolation; no credentials, DB or network."""
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
 from datetime import datetime
 
 from app.payments.config import payment_settings
-from app.payments.service import PaymentService, new_order
+from app.payments.service import new_order
 from app.subscription.tariff import MOSCOW
 from app.miniapp.server import create_test_app
 from data.subscription_repository import SubscriptionRepository
@@ -16,7 +16,7 @@ class LiveConfigTest(unittest.TestCase):
         values = dict(ENV_FILE='test/.env.test', SUBSCRIPTION_TEST_ENABLED='true',
                       SUBSCRIPTION_TEST_DATABASE='yogadaily_test', BOT_TOKEN='123:fake',
                       SUBSCRIPTION_MINIAPP_URL='https://example.org/?test=1',
-                      SUBSCRIPTION_PAYMENT_MODE='live', SUBSCRIPTION_LIVE_PAYMENT_CONFIRM='1495040:350',
+                      SUBSCRIPTION_PAYMENT_MODE='live',
                       SUBSCRIPTION_YOOKASSA_LIVE_SHOP_ID='1495040',
                       SUBSCRIPTION_YOOKASSA_LIVE_SECRET_KEY='fake-live-secret')
         values.update(changes)
@@ -32,8 +32,7 @@ class LiveConfigTest(unittest.TestCase):
         for change in (dict(ENV_FILE='.env'), dict(SUBSCRIPTION_TEST_ENABLED='false'),
                        dict(SUBSCRIPTION_TEST_DATABASE='production'),
                        dict(SUBSCRIPTION_PAYMENT_MODE='typo'),
-                       dict(SUBSCRIPTION_LIVE_PAYMENT_CONFIRM=''),
-                       dict(SUBSCRIPTION_YOOKASSA_LIVE_SHOP_ID='1497096'),
+                       dict(SUBSCRIPTION_YOOKASSA_LIVE_SHOP_ID=''),
                        dict(SUBSCRIPTION_YOOKASSA_LIVE_SECRET_KEY='')):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 payment_settings(self.settings(**change))
@@ -50,23 +49,13 @@ class LiveConfigTest(unittest.TestCase):
         self.assertEqual(repo.call_args.kwargs['payment_scope'], 'live:1495040')
         provider.verify_store.assert_called_once()
         provider.verify_test_store.assert_not_called()
-        self.assertEqual(app.payments.allowed_tariffs, {'month'})
+        self.assertIs(app.payments.provider, provider)
 
     def test_test_provider_cannot_be_injected_into_live_server(self):
         provider = Mock(expected_test=True)
         with patch('data.subscription_repository.SubscriptionRepository'), self.assertRaises(ValueError):
             create_test_app(self.settings(), Mock(), provider=provider)
         provider.verify_store.assert_not_called()
-
-    def test_other_tariffs_never_reach_provider(self):
-        repo, provider = Mock(), Mock(expected_test=False)
-        service = PaymentService(repo, provider, allowed_tariffs=('month',))
-        for method in (service.create, service.checkout):
-            with self.assertRaises(ValueError):
-                method(uuid4(), 10, 'year', 'u@example.org', 'https://example.org',
-                       datetime.now(MOSCOW))
-        provider.create_payment.assert_not_called()
-        repo.save_order.assert_not_called()
 
     def test_repository_queries_always_bind_selected_store(self):
         connection = MagicMock()

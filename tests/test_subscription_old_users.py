@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from app.subscription.access import AccessState, Subscription
 from app.subscription.old_users.messages import (
+    FEEDBACK_INPUT_PROMPT,
     feedback_keyboard,
     feedback_message,
     first_message,
@@ -154,7 +155,7 @@ class OldUsersRulesTest(unittest.TestCase):
         begin.assert_called_once_with(42)
         self.assertTrue(context.user_data[WAITING_FOR_FEEDBACK])
         self.assertNotIn("waiting_for_time", context.user_data)
-        message.reply_text.assert_awaited_once_with("Напиши мне любой текст.")
+        message.reply_text.assert_awaited_once_with(FEEDBACK_INPUT_PROMPT)
 
         reply = SimpleNamespace(text="Мне всё нравится, но не хватает поиска.",
                                 reply_text=AsyncMock())
