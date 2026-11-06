@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
@@ -165,13 +165,10 @@ def create_test_app(environment, connection_factory, *, provider=None):
         raise ValueError('YooKassa credentials and Mini App URL are required for checkout')
     return_url = environment.get('SUBSCRIPTION_PAYMENT_RETURN_URL', '').strip() or url
     parsed_return = urlsplit(return_url)
-    query = dict(parse_qsl(parsed_return.query, keep_blank_values=True))
     same_host = parsed_return.hostname == urlsplit(url).hostname
-    telegram_main_app = (parsed_return.hostname == 't.me' and parsed_return.path.strip('/')
-                         and 'startapp' in query)
     if (parsed_return.scheme != 'https' or parsed_return.username or parsed_return.password
-            or not (same_host or telegram_main_app)):
-        raise ValueError('Payment return URL must open this Mini App or its Telegram Main Mini App')
+            or not same_host):
+        raise ValueError('Payment return URL must open this Mini App')
     repository = SubscriptionRepository(connection_factory, payment_scope=config.scope)
     repository.verify_test_database(database_name)
     owns_provider = provider is None

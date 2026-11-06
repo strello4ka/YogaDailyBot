@@ -160,7 +160,8 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertNotIn('id="resume" class="secondary" target="_blank"', page)
         self.assertIn('window.location.assign(target)', client)
         self.assertIn('tg.openLink(target)', client)
-        self.assertIn('tg.close()', client)
+        self.assertIn('if (orderId) poll = setTimeout(checkPayment, 5000)', client)
+        self.assertIn("'Вернись в YogaDailyBot.'", client)
         self.assertIn('window.stop();', client)
         self.assertNotIn('id="back"', page)
         self.assertNotIn('replace_open_order', client)
@@ -173,7 +174,8 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertIn("error('Упс...что-то пошло не так')", client)
         self.assertNotIn("$('check')", client)
         self.assertNotIn("status('Пока не удалось проверить оплату'", client)
-        self.assertIn("launchParams.get('tgWebAppStartParam')", client)
+        self.assertNotIn("launchParams.get('tgWebAppStartParam')", client)
+        self.assertNotIn("launchParams.get('checkout_order')", client)
         self.assertNotIn("status('Оплата отменена'", client)
         self.assertIn("data.status === 'canceled'", client)
         self.assertIn("$('tariffs-button').hidden = false", client)
@@ -181,7 +183,7 @@ class MiniAppHTTPTest(unittest.TestCase):
                       'только на первую покупку', client)
         self.assertIn("basePrice.className = 'tariff-base-price'", client)
         self.assertIn("rows.push(['tariff-monthly', monthly || '\\u00a0'])", client)
-        self.assertIn("$('loading-title').textContent = 'Ожидаем оплату'", client)
+        self.assertIn("$('loading-title').textContent = 'Ожидаем оплату…'", client)
         self.assertIn("$('loading-title').textContent = 'Не удалось открыть тарифы'", client)
         self.assertNotIn('Результат придёт сообщением в бот.', client)
         self.assertIn('Меню → Подписка → Посмотреть тарифы', client)
@@ -242,7 +244,7 @@ class TestServerSetupTest(unittest.TestCase):
                     BOT_TOKEN='123:fake',
                     SUBSCRIPTION_TEST_USERS='10', SUBSCRIPTION_TEST_DATABASE='yogadaily_test',
                     SUBSCRIPTION_MINIAPP_URL='https://example.org/pay',
-                    SUBSCRIPTION_PAYMENT_RETURN_URL='https://t.me/TestYogaBot?startapp=payment',
+                    SUBSCRIPTION_PAYMENT_RETURN_URL='https://example.org/pay?test=1',
                     SUBSCRIPTION_YOOKASSA_TEST_SHOP_ID='123',
                     SUBSCRIPTION_YOOKASSA_TEST_SECRET_KEY='fake')
 
@@ -263,15 +265,15 @@ class TestServerSetupTest(unittest.TestCase):
             repository_class.return_value.verify_test_database.assert_called_once_with('yogadaily_test')
             provider.verify_test_store.assert_called_once()
             self.assertEqual(app.allowed_users, {10})
-            self.assertEqual(app.return_url, 'https://t.me/TestYogaBot?startapp=payment')
+            self.assertEqual(app.return_url, 'https://example.org/pay?test=1')
             self.assertFalse(app.preview)
 
-    def test_return_url_must_be_the_app_or_telegram_main_app(self):
+    def test_return_url_must_be_the_same_miniapp_host(self):
         factory, provider = Mock(), Mock(expected_test=True)
         provider.verify_test_store.return_value = None
-        for return_url in ('http://t.me/TestYogaBot?startapp=payment',
+        for return_url in ('http://example.org/pay',
                            'https://evil.example/return',
-                           'https://t.me/TestYogaBot'):
+                           'https://t.me/TestYogaBot?startapp=payment'):
             with self.subTest(return_url=return_url), self.assertRaises(ValueError):
                 create_test_app(dict(self.settings(), SUBSCRIPTION_PAYMENT_RETURN_URL=return_url),
                                 factory, provider=provider)

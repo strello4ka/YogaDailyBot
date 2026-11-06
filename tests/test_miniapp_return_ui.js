@@ -28,14 +28,12 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
       ...(process.env.UI_TEST_BROWSER ? {channel:process.env.UI_TEST_BROWSER} : {})});
     for (const scenario of [
       {name:'fresh', checkout:true},
-      {name:'returned success without storage', returned:true, status:'succeeded',title:'Оплата принята 🧡'},
-      {name:'Telegram start return succeeds', telegramReturned:true, status:'succeeded',title:'Оплата принята 🧡'},
       {name:'saved success', saved:true, status:'succeeded',title:'Оплата принята 🧡'},
-      {name:'pending',returned:true,status:'pending',title:'Ожидаем оплату'},
-      {name:'payment status failure',returned:true,paymentFailed:true,title:'Ожидаем оплату'},
-      {name:'canceled stays visible in current session',returned:true,status:'canceled',title:'❌ Оплата не прошла'},
+      {name:'pending',saved:true,status:'pending',title:'Ожидаем оплату'},
+      {name:'payment status failure',saved:true,paymentFailed:true,title:'Ожидаем оплату'},
+      {name:'canceled stays visible in current session',saved:true,status:'canceled',title:'❌ Оплата не прошла'},
       {name:'invalid session',failed:true,statusCode:401},
-      {name:'return without Telegram session',failed:true,statusCode:401,returned:true},
+      {name:'return without Telegram session',failed:true,statusCode:401,browserReturned:true},
       {name:'server failure',failed:true,statusCode:503},
     ]) {
       const page = await browser.newPage({viewport:{width:390,height:844}});
@@ -68,8 +66,7 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
             confirmation_url:scenario.status==='pending' ? 'https://yookassa.ru/checkout' : null})});
       });
       await page.goto(`http://127.0.0.1:${server.address().port}/?test=1` +
-        (scenario.returned ? `&checkout_order=${order}` : '') +
-        (scenario.telegramReturned ? `&tgWebAppStartParam=payment_${order}` : ''),
+        (scenario.browserReturned ? '&payment_return=1' : ''),
         {waitUntil:'domcontentloaded'});
       assert.equal(await page.locator('#checkout').isVisible(),false);
       assert.equal(await page.locator('#loading').isVisible(),true);
@@ -86,10 +83,10 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
         assert.equal(await page.locator('#checkout').isVisible(),false);
         assert.equal(await page.evaluate(() => window.checkoutShown),false);
         if(scenario.statusCode === 401) {
-          if(scenario.returned) {
-            assert.equal(await page.locator('#loading-title').textContent(),'Ожидаем оплату');
-            assert.equal(await page.locator('#loading-text').textContent(),'');
-            assert.equal(await page.locator('#reload').textContent(),'Вернуться в бот');
+          if(scenario.browserReturned) {
+            assert.equal(await page.locator('#loading-title').textContent(),'Ожидаем оплату…');
+            assert.equal(await page.locator('#loading-text').textContent(),'Вернись в YogaDailyBot.');
+            assert.equal(await page.locator('#reload').isVisible(),false);
           } else {
             assert.equal(await page.locator('#loading-title').textContent(),'Не удалось открыть тарифы');
             assert.equal(await page.locator('#loading-text').textContent(),
@@ -109,7 +106,6 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
           assert.equal(await page.locator('#status-text').textContent(),'Попробуй ещё раз');
           assert.equal(await page.locator('#tariffs-button').textContent(),'Посмотреть тарифы');
           assert.equal(await page.locator('#tariffs-button').isVisible(),true);
-          assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
           assert.equal(await page.evaluate(() => sessionStorage.getItem('yoga-order')),null);
           await page.locator('#tariffs-button').click();
           await page.locator('#checkout').waitFor({state:'visible'});
@@ -150,9 +146,6 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
           assert.equal(await page.locator('#status-text').textContent(),'');
           assert.equal(await page.locator('#resume').isVisible(),false);
         }
-        if(!scenario.failed && !scenario.paymentFailed && scenario.status !== 'pending') {
-          assert.equal(await page.evaluate(() => new URL(location.href).searchParams.has('checkout_order')),false);
-        }
       }
       assert.deepEqual(errors,[]);
       console.log('PASS',scenario.name);
@@ -182,10 +175,11 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
     assert.equal(await loaderPage.locator('#pay').isDisabled(),true);
     assert.equal(await loaderPage.locator('#payment-status').isVisible(),false);
     releaseCreate();
-    await loaderPage.waitForFunction(() => window.miniAppClosed === true);
+    await loaderPage.waitForFunction(() => Boolean(window.openedPaymentUrl));
     assert.equal(await loaderPage.evaluate(() => window.openedPaymentUrl),'https://yookassa.ru/checkout');
+    assert.equal(await loaderPage.evaluate(() => window.miniAppClosed === true),false);
     assert.equal(loaderPage.url().startsWith('http://127.0.0.1:'),true);
-    console.log('PASS YooKassa opens externally and the Mini App closes');
+    console.log('PASS YooKassa opens externally and the Mini App stays open');
     await loaderPage.close();
 
     const timeoutPage = await browser.newPage({viewport:{width:390,height:844}});

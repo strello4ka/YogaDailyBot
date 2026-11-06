@@ -4,14 +4,11 @@ const tg = window.Telegram?.WebApp;
 const launchParams = new URLSearchParams(window.location.search);
 // This switch selects a route only; the local server authenticates every request.
 const testCheckout = launchParams.get('test') === '1';
-const telegramStart = launchParams.get('tgWebAppStartParam') || '';
-const returnedOrder = launchParams.get('checkout_order') ||
-  (telegramStart.startsWith('payment_') ? telegramStart.slice('payment_'.length) : null);
+const browserPaymentReturn = launchParams.get('payment_return') === '1';
 function clearSavedOrder() {
   sessionStorage.removeItem('yoga-order');
   const url = new URL(window.location.href);
-  url.searchParams.delete('checkout_order');
-  url.searchParams.delete('tgWebAppStartParam');
+  url.searchParams.delete('payment_return');
   window.history.replaceState(null, '', url.href);
 }
 const money = value => new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 0}).format(value / 100) + ' ₽';
@@ -157,12 +154,12 @@ function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
   const target = confirmationUrl;
   // The bank deep links used by SBP cannot reliably leave Telegram's WebView.
-  // Open YooKassa in the system browser and close this Mini App so that the
-  // Telegram return URL creates one fresh instance instead of stacking two.
+  // Open YooKassa in the system browser and keep this Mini App alive so that
+  // the user can return to the authenticated payment status in Telegram.
   if (tg?.openLink) {
     clearTimeout(poll);
+    if (orderId) poll = setTimeout(checkPayment, 5000);
     tg.openLink(target);
-    tg.close();
     return;
   }
   // Browser fallback for local preview and clients without the Mini App API.
@@ -226,7 +223,7 @@ async function checkPayment() {
       $('checkout').hidden = false;
       updatePrice();
     } else {
-      if (!confirmationUrl && !returnedOrder && $('payment-status').hidden) {
+      if (!confirmationUrl && $('payment-status').hidden) {
         if (creationWaitExpired()) {
           stopCreationWait();
           return;
@@ -327,9 +324,7 @@ async function load() {
       $('tariffs').append(label);
     }
     updatePrice();
-    // The returned UUID selects an order, never authorizes or confirms a payment.
-    // The server checks Telegram identity, ownership and the provider status.
-    orderId = returnedOrder || data.order_id || sessionStorage.getItem('yoga-order');
+    orderId = data.order_id || sessionStorage.getItem('yoga-order');
     if (orderId && !preview) {
       await checkPayment();
     } else {
@@ -338,12 +333,12 @@ async function load() {
     }
   } catch (e) {
     if (e.status === 401) {
-      if (returnedOrder) {
-        $('loading-title').textContent = 'Ожидаем оплату';
+      if (browserPaymentReturn) {
+        $('loading-title').textContent = 'Ожидаем оплату…';
         $('loading-title').classList.add('screen-state-title');
-        $('loading-text').textContent = '';
-        $('loading-text').hidden = true;
-        $('reload').textContent = 'Вернуться в бот';
+        $('loading-text').textContent = 'Вернись в YogaDailyBot.';
+        $('loading-text').hidden = false;
+        $('reload').hidden = true;
       } else {
         $('loading-title').textContent = 'Не удалось открыть тарифы';
         $('loading-title').classList.remove('screen-state-title');
@@ -351,12 +346,14 @@ async function load() {
           'Открой тарифы заново через Меню → Подписка → Посмотреть тарифы.';
         $('reload').textContent = 'Закрыть';
       }
-      $('reload').dataset.action = 'close';
+      if (!browserPaymentReturn) $('reload').dataset.action = 'close';
     } else {
       $('loading-text').textContent = 'Не удалось загрузить данные. ' + e.message;
     }
     $('loading-text').hidden = false;
-    $('reload').hidden = false;
+    if (!(e.status === 401 && browserPaymentReturn)) {
+      $('reload').hidden = false;
+    }
   }
 }
 load();

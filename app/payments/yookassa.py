@@ -57,17 +57,11 @@ class YooKassaClient:
         if age < timedelta(0) or age >= timedelta(hours=23):
             raise ValueError('Order requires reconciliation before another creation attempt')
         UUID(order.order_id)
-        # Preserve the Mini App query and identify this order after the provider
-        # redirect, including when the browser has lost its sessionStorage.
+        # Preserve the Mini App query. A browser return has no Telegram identity,
+        # so it only renders a neutral page and receives no order identifier.
         query = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-                 if key not in ('checkout_order', 'startapp')]
-        if parsed.hostname == 't.me' and any(
-                key == 'startapp' for key, _ in parse_qsl(parsed.query, keep_blank_values=True)):
-            # Telegram passes this value to the configured Main Mini App. The
-            # server still authenticates the user and resolves their open order.
-            query.append(('startapp', 'payment_' + order.order_id))
-        else:
-            query.append(('checkout_order', order.order_id))
+                 if key != 'payment_return']
+        query.append(('payment_return', '1'))
         return_url = parsed._replace(query=urlencode(query)).geturl()
         self.verify_store()
         payment = self._request('POST', 'payments', headers={'Idempotence-Key': order.order_id}, json={
