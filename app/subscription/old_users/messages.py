@@ -154,7 +154,6 @@ def gift_subscription_activated(name: str, ends_at: datetime) -> str:
         f"Она действует до <b>{last_access_date(ends_at):%d.%m.%Y}</b>.\n\n"
         "Все возможности YogaDailyBot остаются доступны 🧡\n"
         "Управлять подпиской можно в <b>Меню</b> ↙️\n\n"
-        + greeting
     )
 
 
