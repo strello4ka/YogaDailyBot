@@ -161,7 +161,8 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
 
     const loaderPage = await browser.newPage({viewport:{width:390,height:844}});
     await loaderPage.addInitScript(() => {
-      window.Telegram={WebApp:{initData:'mock',ready(){},expand(){},close(){}}};
+      window.Telegram={WebApp:{initData:'mock',ready(){},expand(){},
+        openLink(url){window.openedPaymentUrl=url;},close(){window.miniAppClosed=true;}}};
     });
     await loaderPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
     await loaderPage.route('**/test-api/session', route => route.fulfill({status:200,
@@ -181,8 +182,10 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
     assert.equal(await loaderPage.locator('#pay').isDisabled(),true);
     assert.equal(await loaderPage.locator('#payment-status').isVisible(),false);
     releaseCreate();
-    await loaderPage.waitForURL('https://yookassa.ru/checkout');
-    console.log('PASS YooKassa opens inside the Mini App WebView');
+    await loaderPage.waitForFunction(() => window.miniAppClosed === true);
+    assert.equal(await loaderPage.evaluate(() => window.openedPaymentUrl),'https://yookassa.ru/checkout');
+    assert.equal(loaderPage.url().startsWith('http://127.0.0.1:'),true);
+    console.log('PASS YooKassa opens externally and the Mini App closes');
     await loaderPage.close();
 
     const timeoutPage = await browser.newPage({viewport:{width:390,height:844}});

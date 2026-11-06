@@ -156,8 +156,16 @@ function rememberConfirmation(value) {
 function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
   const target = confirmationUrl;
-  // Navigate immediately inside Telegram's WebView, as before. If the WebView
-  // never starts the transition, restore checkout instead of leaving a loader.
+  // The bank deep links used by SBP cannot reliably leave Telegram's WebView.
+  // Open YooKassa in the system browser and close this Mini App so that the
+  // Telegram return URL creates one fresh instance instead of stacking two.
+  if (tg?.openLink) {
+    clearTimeout(poll);
+    tg.openLink(target);
+    tg.close();
+    return;
+  }
+  // Browser fallback for local preview and clients without the Mini App API.
   clearTimeout(poll);
   poll = setTimeout(() => {
     if (confirmationUrl === target) {
@@ -272,7 +280,7 @@ $('resume').addEventListener('click', event => {
   if (!confirmationUrl) { event.preventDefault(); return; }
   event.preventDefault();
   const target = confirmationUrl;
-  pressedTransition(event.currentTarget, () => window.location.assign(target));
+  pressedTransition(event.currentTarget, () => openConfirmation(target));
 });
 $('tariffs-button').addEventListener('click', () => {
   $('payment-status').hidden = true;
