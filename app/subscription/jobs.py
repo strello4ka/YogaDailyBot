@@ -247,32 +247,6 @@ async def _send_reminder(context, user_id, event, profile, now):
                 await asyncio.to_thread(repository.mark_notification_sent, user_id, tariff_key,
                                         datetime.now(MOSCOW))
 
-
-async def _send_restore_offer(context, user_id, now):
-    from .subscription_menu import offer_schedule_restore
-    repository = context.bot_data['subscription_repository']
-    offer = await asyncio.to_thread(repository.restore_offer, user_id, now)
-    if not offer:
-        return
-    from app.onboarding.state import load_state
-    onboarding = await asyncio.to_thread(load_state, user_id)
-    chat_id, saved_time, start = offer
-    period_token = str(int(start.timestamp()))
-    if onboarding and (onboarding.get('step') != 'complete'
-                       or onboarding.get('subscription_paid_period_token') == period_token):
-        return  # This purchase uses the onboarding schedule screen instead.
-    event_key = 'schedule_restore_offer:' + period_token
-    async with _notice_lock(repository, user_id, event_key) as acquired:
-        if not acquired or await asyncio.to_thread(repository.notification_sent, user_id, event_key):
-            return
-        # A concurrent expiration or answer can invalidate the offer.
-        if await asyncio.to_thread(repository.restore_offer, user_id, datetime.now(MOSCOW)) != offer:
-            return
-        await offer_schedule_restore(context.bot, chat_id, saved_time, period_token)
-        await asyncio.to_thread(repository.mark_notification_sent, user_id, event_key,
-                                datetime.now(MOSCOW))
-
-
 async def deliver_test_reminders(context):
     repository = context.bot_data.get('subscription_repository')
     if repository is None:
@@ -299,10 +273,6 @@ async def deliver_test_reminders(context):
                     await _send_reminder(context, user_id, event, profile, now)
                 except Exception:
                     logger.warning('Subscription reminder failed user=%s kind=%s', user_id, event.kind)
-            try:
-                await _send_restore_offer(context, user_id, now)
-            except Exception:
-                logger.warning('Schedule restore offer failed user=%s', user_id)
         except Exception:
             logger.warning('Subscription reminder worker failed user=%s', user_id)
 

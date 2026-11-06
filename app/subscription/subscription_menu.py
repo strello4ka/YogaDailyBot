@@ -119,8 +119,6 @@ def install_test_subscriptions(application, environment, connection_factory):
         application.bot_data['subscription_payment_service'] = PaymentService(repository, provider)
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, guard_update), group=-6)
     application.add_handler(CallbackQueryHandler(guard_update), group=-6)
-    application.add_handler(CallbackQueryHandler(restore_schedule_callback,
-                                                pattern=r"^subscription_restore:(yes|no):[0-9]+$"))
     from .jobs import synchronize_test_access, reconcile_test_payments, deliver_test_reminders
     from .payment_wakeup import install as install_payment_wakeup
     install_payment_wakeup(application, connection_factory)
@@ -194,39 +192,3 @@ async def guard_update(update, context):
             context.user_data.pop(key, None)
         await send_locked(context.bot, chat.id, feature, url)
         raise ApplicationHandlerStop
-
-
-async def offer_schedule_restore(bot, chat_id, saved_time, period_token):
-    """Payment completion may call this only for a purchase from free mode."""
-    from app.onboarding.messages import SCHEDULE_OFFER
-    text = (messages.restore_schedule(saved_time) if saved_time not in (None, '', '00:00')
-            else SCHEDULE_OFFER)
-    return await bot.send_message(chat_id, text, parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("Да", callback_data="subscription_restore:yes:{}".format(period_token)),
-            InlineKeyboardButton("Не сейчас", callback_data="subscription_restore:no:{}".format(period_token)),
-        ]]))
-
-
-async def restore_schedule_callback(update, context):
-    from .access import repository_for
-    query = update.callback_query
-    repository = repository_for(context, update.effective_user.id)
-    if repository is None:
-        await query.answer()
-        return
-    _, choice, period_token = query.data.split(':', 2)
-    now = datetime.now(MOSCOW)
-    outcome = await asyncio.to_thread(
-        repository.resolve_restore, update.effective_user.id, period_token, now,
-        choice == 'yes')
-    if outcome == 'stale':
-        await query.answer("Это предложение уже неактуально.", show_alert=True)
-        return
-    await query.answer()
-    await query.edit_message_reply_markup(reply_markup=None)
-    if outcome == 'restored':
-        await query.message.reply_text("Расписание восстановлено 🧡 Практики начнут приходить с завтрашнего дня.")
-    elif outcome == 'setup':
-        from app.handlers.schedule import send_schedule_time_prompt
-        await send_schedule_time_prompt(update, context)

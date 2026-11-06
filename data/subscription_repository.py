@@ -295,10 +295,9 @@ class SubscriptionRepository:
             cursor.execute("UPDATE subscription_accounts SET subscription_starts=%s,subscription_ends=%s,"
                            "email=%s,subscription_state=%s,updated_at=%s,"
                            "special_offer_used_at=CASE WHEN %s THEN COALESCE(special_offer_used_at,%s) "
-                           "ELSE special_offer_used_at END,"
-                           "schedule_restore_required=schedule_restore_required OR %s WHERE user_id=%s",
+                           "ELSE special_offer_used_at END WHERE user_id=%s",
                            (account_start, end, order.email, state.value, now,
-                            saved[5], now, snapshot.state(now) == AccessState.FREE, order.user_id))
+                            saved[5], now, order.user_id))
             cursor.execute("UPDATE subscription_orders SET status='succeeded',granted_at=%s,"
                            "period_starts_at=%s,period_ends_at=%s,updated_at=%s WHERE order_id=%s",
                            (now, start, end, now, order.order_id))
@@ -334,8 +333,6 @@ class SubscriptionRepository:
                            "WHERE user_id=%s AND subscription_state IS DISTINCT FROM %s",
                            (state.value, now, user_id, state.value))
             if state == AccessState.FREE:
-                cursor.execute("UPDATE subscription_accounts SET schedule_restore_required=TRUE "
-                               "WHERE user_id=%s", (user_id,))
                 cursor.execute("UPDATE users SET daily_schedule_enabled=FALSE "
                                "WHERE user_id=%s AND bot_mode IS DISTINCT FROM 'challenge' "
                                "AND daily_schedule_enabled=TRUE", (user_id,))
@@ -427,48 +424,6 @@ class SubscriptionRepository:
                            "AND filter_key <> 'day' GROUP BY filter_key ORDER BY COUNT(*) DESC,filter_key LIMIT 2",
                            (user_id, start, end))
             result['filter_keys'] = [row[0] for row in cursor.fetchall()]
-            return result
-
-    def restore_offer(self, user_id, now):
-        with self._transaction() as cursor:
-            cursor.execute("SELECT u.chat_id,u.notify_time,a.subscription_starts FROM subscription_accounts a "
-                           "JOIN users u ON u.user_id=a.user_id WHERE a.user_id=%s "
-                           "AND a.schedule_restore_required=TRUE AND a.subscription_starts<=%s AND a.subscription_ends>%s "
-                           "AND u.bot_mode IS DISTINCT FROM 'challenge' AND EXISTS "
-                           "(SELECT 1 FROM subscription_orders o JOIN subscription_notifications n "
-                           "ON n.user_id=o.user_id AND n.event_key='payment_success:' || o.order_id::text "
-                           "WHERE o.user_id=a.user_id AND o.period_starts_at>=a.subscription_starts)",
-                           (user_id, now, now))
-            return cursor.fetchone()
-
-    def dismiss_restore_offer(self, user_id):
-        """The post-challenge flow owns the schedule choice for this user."""
-        with self._transaction() as cursor:
-            cursor.execute("UPDATE subscription_accounts SET schedule_restore_required=FALSE "
-                           "WHERE user_id=%s", (user_id,))
-
-    def resolve_restore(self, user_id, period_token, now, accept):
-        """Consume consent once; an old button cannot affect a later subscription."""
-        with self._transaction() as cursor:
-            cursor.execute("SELECT subscription_starts,subscription_ends,schedule_restore_required "
-                           "FROM subscription_accounts WHERE user_id=%s FOR UPDATE", (user_id,))
-            row = cursor.fetchone()
-            if (not row or not row[0] or not row[2] or str(int(row[0].timestamp())) != period_token
-                    or not row[0] <= now < row[1]):
-                return 'stale'
-            cursor.execute("SELECT notify_time,bot_mode FROM users WHERE user_id=%s FOR UPDATE", (user_id,))
-            user = cursor.fetchone()
-            if not user or user[1] == 'challenge':
-                return 'stale'
-            if accept and user[0] not in (None, '', '00:00'):
-                cursor.execute("UPDATE users SET daily_schedule_enabled=TRUE,is_paused=FALSE,paused_at=NULL,"
-                               "first_daily_send_date=%s,bot_mode='daily' WHERE user_id=%s",
-                               (local_time(now).date() + timedelta(days=1), user_id))
-                result = 'restored'
-            else:
-                result = 'setup' if accept else 'declined'
-            cursor.execute("UPDATE subscription_accounts SET schedule_restore_required=FALSE WHERE user_id=%s",
-                           (user_id,))
             return result
 
     def mark_notification_sent(self, user_id: int, event_key: str, sent_at: datetime) -> None:

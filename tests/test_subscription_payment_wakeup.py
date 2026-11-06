@@ -9,22 +9,19 @@ from app.subscription.payment_wakeup import _connect, install, listen, process_w
 
 
 class PaymentWakeupTest(unittest.IsolatedAsyncioTestCase):
-    async def test_only_allowed_user_is_dispatched_before_schedule_offer(self):
+    async def test_only_allowed_user_is_dispatched(self):
         context = SimpleNamespace(bot_data={'subscription_test_users': {10}})
         calls = []
         async def reconcile(*args, **kwargs):
             calls.append('payment')
             self.assertEqual(kwargs['user_ids'], {10})
             self.assertFalse(kwargs['check_pending'])
-        async def restore(*args):
-            calls.append('schedule')
-        with patch('app.subscription.payment_wakeup.reconcile_test_payments', side_effect=reconcile), patch(
-                'app.subscription.payment_wakeup._send_restore_offer', side_effect=restore):
+        with patch('app.subscription.payment_wakeup.reconcile_test_payments', side_effect=reconcile):
             for payload in ('bad', '0', '-1', '11'):
                 await process_wakeup(context, payload)
             self.assertEqual(calls, [])
             await process_wakeup(context, '10')
-            self.assertEqual(calls, ['payment', 'schedule'])
+            self.assertEqual(calls, ['payment'])
 
     async def test_listener_reads_notifications_and_cleans_up_on_stop(self):
         read_fd, write_fd = os.pipe()

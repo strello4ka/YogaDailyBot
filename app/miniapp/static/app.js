@@ -313,10 +313,9 @@ async function load() {
   // The YooKassa return opens in an ordinary browser without Telegram auth.
   // It has one deliberately static state and must not call any API.
   if (browserPaymentReturn) {
-    $('loading-title').textContent = 'Ожидаем оплату…';
+    $('loading-title').textContent = 'Ожидаем оплату… Вернись в YogaDailyBot.';
     $('loading-title').classList.add('screen-state-title');
-    $('loading-text').textContent = 'Вернись в YogaDailyBot.';
-    $('loading-text').hidden = false;
+    $('loading-text').hidden = true;
     $('reload').hidden = true;
     return;
   }

@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS subscription_accounts (
     subscription_state TEXT NOT NULL DEFAULT 'free'
         CONSTRAINT subscription_accounts_state_check
         CHECK (subscription_state IN ('free', 'trial', 'trial_paid', 'paid')),
-    schedule_restore_required BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK ((trial_started_at IS NULL AND trial_ends_at IS NULL) OR

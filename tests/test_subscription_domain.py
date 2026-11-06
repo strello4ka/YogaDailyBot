@@ -180,31 +180,5 @@ class SubscriptionStorageBoundaryTest(unittest.TestCase):
         self.assertTrue(statements[-1].startswith('INSERT'))
         load.assert_not_called()
 
-    def test_old_restore_button_cannot_change_schedule(self):
-        from datetime import timedelta
-        start = at(20)
-        self.cursor.fetchone.return_value = (start, start + timedelta(days=30), True)
-        self.assertEqual(self.repository.resolve_restore(10, str(int(at(19).timestamp())),
-                                                         at(21), True), 'stale')
-        self.assertFalse(any(c.args[0].startswith('UPDATE') for c in self.cursor.execute.call_args_list))
-
-    def test_restore_consent_enables_saved_time_from_next_day(self):
-        start = at(20)
-        self.cursor.fetchone.side_effect = [(start, at(30), True), ('09:30', 'daily')]
-        self.assertEqual(self.repository.resolve_restore(10, str(int(start.timestamp())),
-                                                         at(21), True), 'restored')
-        updates = [c.args for c in self.cursor.execute.call_args_list if c.args[0].startswith('UPDATE')]
-        self.assertEqual(updates[0][1][0], at(22).date())
-        self.assertIn('schedule_restore_required=FALSE', updates[-1][0])
-
-    def test_no_saved_time_routes_to_setup_without_enabling_delivery(self):
-        start = at(20)
-        self.cursor.fetchone.side_effect = [(start, at(30), True), ('00:00', 'daily')]
-        self.assertEqual(self.repository.resolve_restore(10, str(int(start.timestamp())),
-                                                         at(21), True), 'setup')
-        self.assertFalse(any('daily_schedule_enabled=TRUE' in c.args[0]
-                             for c in self.cursor.execute.call_args_list))
-
-
 if __name__ == "__main__":
     unittest.main()

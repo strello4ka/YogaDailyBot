@@ -100,10 +100,8 @@ async def _subscription_access(context, user_id):
 
 
 async def send_offer(context, state):
-    has_subscription, repository = await _subscription_access(context, state["user_id"])
+    has_subscription, _ = await _subscription_access(context, state["user_id"])
     if has_subscription:
-        if repository is not None:
-            await asyncio.to_thread(repository.dismiss_restore_offer, state["user_id"])
         text = offer_text(state["time"])
         reply_markup = keyboard(state["time"])
     else:

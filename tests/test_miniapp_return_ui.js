@@ -77,8 +77,9 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
       assert.deepEqual(loadingStyle,{fontSize:'18px',fontWeight:'400'});
       if (!scenario.browserReturned) releaseSession();
       if (scenario.browserReturned) {
-        assert.equal(await page.locator('#loading-title').textContent(),'Ожидаем оплату…');
-        assert.equal(await page.locator('#loading-text').textContent(),'Вернись в YogaDailyBot.');
+        assert.equal(await page.locator('#loading-title').textContent(),
+          'Ожидаем оплату… Вернись в YogaDailyBot.');
+        assert.equal(await page.locator('#loading-text').isVisible(),false);
         assert.equal(await page.locator('#reload').isVisible(),false);
         assert.equal(await page.locator('#checkout').isVisible(),false);
         assert.deepEqual(errors,[]);

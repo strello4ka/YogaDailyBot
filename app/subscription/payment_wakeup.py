@@ -4,9 +4,7 @@ import logging
 from contextlib import suppress
 from types import SimpleNamespace
 
-from .jobs import reconcile_test_payments, _send_restore_offer
-from .tariff import MOSCOW
-from datetime import datetime
+from .jobs import reconcile_test_payments
 
 logger = logging.getLogger(__name__)
 CHANNEL = 'subscription_payment_ready'
@@ -39,7 +37,6 @@ async def process_wakeup(context, payload):
     # The shared worker re-reads verified durable orders and uses the existing
     # PostgreSQL notification locks. Payload alone cannot grant or notify access.
     await reconcile_test_payments(context, user_ids={user_id}, check_pending=False)
-    await _send_restore_offer(context, user_id, datetime.now(MOSCOW))
 
 
 async def listen(application, factory):

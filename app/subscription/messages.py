@@ -161,7 +161,6 @@ def trial_subscription_activated(name: str, ends_at: datetime) -> str:
         f"Она действует до <b>{last_access_date(ends_at):%d.%m.%Y}</b>.\n\n"
         "Все возможности YogaDailyBot остаются доступны 🧡\n"
         "Управлять подпиской можно в <b>Меню</b> ↙️\n\n"
-        + greeting
     )
 
 
@@ -229,14 +228,9 @@ def payment_accepted(name: str, ends_at: datetime) -> str:
     if name:
         return ("✅ <b>Оплата принята</b>\n\n"
                 f"Подписка действует до <b>{last_access_date(ends_at):%d.%m.%Y}</b>.\n"
-                "Управлять подпиской можно в <b>Меню</b> ↙️\n\n"
+                "Управлять подпиской и настроить расписание можно в <b>Меню</b> ↙️\n\n"
                 f"{escape(name)}, рад, что ты остаешься со мной 🧡")
     return ("✅ <b>Оплата принята</b>\n\n"
             f"Подписка действует до <b>{last_access_date(ends_at):%d.%m.%Y}</b>.\n"
-            "Управлять подпиской можно в <b>Меню</b> ↙️\n\n"
+            "Управлять подпиской и настроить расписание можно в <b>Меню</b> ↙️\n\n"
             "Рад, что ты остаешься со мной 🧡")
-
-
-def restore_schedule(saved_time: str) -> str:
-    return ("Хочешь восстановить автоматическую отправку практик в "
-            f"<b>{escape(saved_time)}</b>? \n\n" + SCHEDULE_DESCRIPTION)

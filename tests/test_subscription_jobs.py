@@ -463,7 +463,7 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.context.bot.send_message.call_args.kwargs['reply_markup'].keyboard[0][0].text,
                          'Практика дня')
 
-    async def test_restore_offer_contains_yes_no_and_is_not_resent(self):
+    async def test_payment_activation_does_not_send_restore_offer(self):
         paid_start = at(15)
         paid = purchased_period('month', at(3), trial_ends_at=paid_start)
         self.repo.synchronize_access.return_value = Subscription(self.trial, paid)
@@ -474,7 +474,4 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
             clock.combine.side_effect = datetime.combine
             await deliver_test_reminders(self.context)
             await deliver_test_reminders(self.context)
-        self.context.bot.send_message.assert_awaited_once()
-        labels = [button.text for button in self.context.bot.send_message.call_args.kwargs[
-            'reply_markup'].inline_keyboard[0]]
-        self.assertEqual(labels, ['Да', 'Не сейчас'])
+        self.context.bot.send_message.assert_not_awaited()

@@ -15,25 +15,6 @@ from app.onboarding import messages as onboarding_messages
 from app.onboarding.flow import _send_step, _subscription_variant, handle_reply
 
 
-class ScheduleRestoreFlowTest(unittest.IsolatedAsyncioTestCase):
-    async def test_setup_goes_directly_to_shared_time_screen(self):
-        from app.subscription.subscription_menu import restore_schedule_callback
-        from app.handlers.schedule import SCHEDULE_MENU_TIME_KEY, TIME_INPUT_TEXT
-        repository = Mock()
-        repository.resolve_restore.return_value = 'setup'
-        query = SimpleNamespace(data='subscription_restore:yes:123', answer=AsyncMock(),
-                                edit_message_reply_markup=AsyncMock())
-        update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
-                                 effective_chat=SimpleNamespace(id=1), callback_query=query)
-        context = SimpleNamespace(user_data={}, bot=SimpleNamespace(send_message=AsyncMock()),
-            bot_data={'subscription_repository': repository, 'subscription_test_users': None})
-        await restore_schedule_callback(update, context)
-        context.bot.send_message.assert_awaited_once()
-        self.assertEqual(context.bot.send_message.await_args.kwargs['text'], TIME_INPUT_TEXT)
-        self.assertTrue(context.user_data[SCHEDULE_MENU_TIME_KEY])
-        query.answer.assert_awaited_once()
-
-
 class SubscriptionScreensTest(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 10, 13, 12, tzinfo=MOSCOW)
@@ -89,6 +70,7 @@ class SubscriptionScreensTest(unittest.TestCase):
     def test_html_from_user_data_is_escaped(self):
         text = messages.payment_accepted('<b>A&B</b>', self.trial.ends_at)
         self.assertIn('&lt;b&gt;A&amp;B&lt;/b&gt;', text)
+        self.assertIn('настроить расписание', text)
         text = messages.trial_subscription_activated('<b>A&B</b>', self.trial.ends_at)
         self.assertIn('&lt;b&gt;A&amp;B&lt;/b&gt;', text)
         text = messages.trial_last_day(completions=4, categories=['<a>'])
