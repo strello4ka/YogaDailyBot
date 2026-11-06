@@ -6,8 +6,9 @@ from datetime import datetime
 
 from app.payments.config import payment_settings
 from app.payments.service import new_order
+from app.subscription.runtime import subscription_settings
 from app.subscription.tariff import MOSCOW
-from app.miniapp.server import create_test_app
+from app.miniapp.server import create_production_app, create_test_app
 from data.subscription_repository import SubscriptionRepository
 
 
@@ -81,3 +82,57 @@ class LiveConfigTest(unittest.TestCase):
         sql, params = cursor.execute.call_args.args
         self.assertIn('payment_scope', sql)
         self.assertEqual(params[-1], 'live:1495040')
+
+
+class ProductionConfigTest(unittest.TestCase):
+    def settings(self, **changes):
+        values = dict(
+            ENV_FILE='.env',
+            RAILWAY_ENVIRONMENT_NAME='production',
+            SUBSCRIPTION_ENABLED='true',
+            SUBSCRIPTION_DATABASE='yogadaily',
+            SUBSCRIPTION_ONBOARDING_ENABLED='true',
+            BOT_TOKEN='123:fake',
+            SUBSCRIPTION_MINIAPP_URL='https://pay.example.org/',
+            SUBSCRIPTION_PAYMENT_RETURN_URL='https://pay.example.org/',
+            SUBSCRIPTION_PAYMENT_MODE='live',
+            SUBSCRIPTION_YOOKASSA_LIVE_SHOP_ID='1495040',
+            SUBSCRIPTION_YOOKASSA_LIVE_SECRET_KEY='fake-live-secret',
+        )
+        values.update(changes)
+        return values
+
+    def test_production_runtime_has_no_test_allowlist(self):
+        config = subscription_settings(self.settings())
+        self.assertTrue(config.production)
+        self.assertEqual(config.database_name, 'yogadaily')
+        self.assertIsNone(config.allowed_users)
+
+    def test_production_is_rejected_outside_its_isolated_contour(self):
+        invalid = (
+            dict(RAILWAY_ENVIRONMENT_NAME='test'),
+            dict(ENV_FILE='test/.env.test'),
+            dict(SUBSCRIPTION_DATABASE='yogadaily_test'),
+            dict(SUBSCRIPTION_MINIAPP_URL=''),
+            dict(SUBSCRIPTION_ONBOARDING_ENABLED='false'),
+            dict(SUBSCRIPTION_PAYMENT_MODE='test'),
+            dict(SUBSCRIPTION_TEST_ENABLED='true'),
+        )
+        for changes in invalid:
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                subscription_settings(self.settings(**changes))
+
+    def test_production_app_checks_database_and_live_store(self):
+        provider = Mock(expected_test=False)
+        with patch('data.subscription_repository.SubscriptionRepository') as repo_class:
+            app = create_production_app(self.settings(), Mock(), provider=provider)
+        repo_class.return_value.verify_database.assert_called_once_with('yogadaily')
+        provider.verify_store.assert_called_once()
+        provider.verify_test_store.assert_not_called()
+        self.assertIsNone(app.allowed_users)
+
+    def test_test_provider_cannot_enter_production_app(self):
+        provider = Mock(expected_test=True)
+        with patch('data.subscription_repository.SubscriptionRepository'), self.assertRaises(ValueError):
+            create_production_app(self.settings(), Mock(), provider=provider)
+        provider.verify_store.assert_not_called()

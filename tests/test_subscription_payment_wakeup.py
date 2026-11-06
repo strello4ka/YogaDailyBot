@@ -10,13 +10,13 @@ from app.subscription.payment_wakeup import _connect, install, listen, process_w
 
 class PaymentWakeupTest(unittest.IsolatedAsyncioTestCase):
     async def test_only_allowed_user_is_dispatched(self):
-        context = SimpleNamespace(bot_data={'subscription_test_users': {10}})
+        context = SimpleNamespace(bot_data={'subscription_allowed_users': {10}})
         calls = []
         async def reconcile(*args, **kwargs):
             calls.append('payment')
             self.assertEqual(kwargs['user_ids'], {10})
             self.assertFalse(kwargs['check_pending'])
-        with patch('app.subscription.payment_wakeup.reconcile_test_payments', side_effect=reconcile):
+        with patch('app.subscription.payment_wakeup.reconcile_payments', side_effect=reconcile):
             for payload in ('bad', '0', '-1', '11'):
                 await process_wakeup(context, payload)
             self.assertEqual(calls, [])

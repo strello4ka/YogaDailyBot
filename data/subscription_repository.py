@@ -59,19 +59,19 @@ class SubscriptionRepository:
         return _snapshot(row) if row is not None else None
 
     def enrolled_user_ids(self):
-        """Only accounts that started the test flow need background jobs."""
+        """Only enrolled subscription accounts need background jobs."""
         with self._transaction() as cursor:
             cursor.execute("SELECT user_id FROM subscription_accounts")
             return [row[0] for row in cursor.fetchall()]
 
-    def verify_test_database(self, expected_name: str) -> None:
+    def verify_database(self, expected_name: str) -> None:
         with self._transaction() as cursor:
             cursor.execute("SELECT current_database(), to_regclass('subscription_accounts'), "
                            "to_regclass('subscription_daily_practices'), "
                            "to_regclass('subscription_orders'),to_regclass('subscription_notifications')")
             row = cursor.fetchone()
             if row[0] != expected_name or any(table is None for table in row[1:]):
-                raise ValueError("Wrong test database or subscription migration has not been applied")
+                raise ValueError("Wrong database or subscription migration has not been applied")
             cursor.execute("SELECT is_old_user,gift_starts,gift_ends,offer_ends,special_offer_used_at "
                            "FROM subscription_accounts LIMIT 0")
             cursor.execute("SELECT base_price,final_price,special_offer_applied,offer_ends_at_order "

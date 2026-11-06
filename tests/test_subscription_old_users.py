@@ -265,7 +265,7 @@ class OldUsersRulesTest(unittest.TestCase):
         text = gift_subscription_activated('<Катя>', at(31))
         self.assertIn('Подарочный месяц завершился', text)
         self.assertIn('до <b>30.10.2026</b>', text)
-        self.assertIn('&lt;Катя&gt;, рад', text)
+        self.assertNotIn('&lt;Катя&gt;', text)
 
     def test_special_prices_seven_day_copy_uses_last_offer_day(self):
         text = special_prices_seven_days(datetime(2026, 11, 14, tzinfo=MOSCOW))

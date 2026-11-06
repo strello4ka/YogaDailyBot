@@ -1,4 +1,4 @@
-"""Payment provider settings for the isolated test runtime."""
+"""Payment-provider settings for isolated test and production runtimes."""
 from dataclasses import dataclass, field
 
 
@@ -22,13 +22,16 @@ class PaymentSettings:
 
 def payment_settings(environment):
     # Validate environment isolation even when this helper is called independently.
-    from app.subscription.subscription_menu import test_settings
-    if test_settings(environment) is None:
-        raise ValueError('Test subscription mode is disabled')
+    from app.subscription.runtime import subscription_settings
+    runtime = subscription_settings(environment)
+    if runtime is None:
+        raise ValueError('Subscription mode is disabled')
     mode = environment.get('SUBSCRIPTION_PAYMENT_MODE', 'test')
     if mode not in ('test', 'live'):
         raise ValueError('Payment mode must be test or live')
     live = mode == 'live'
+    if runtime.production and not live:
+        raise ValueError('Production subscriptions require a live store')
     prefix = 'SUBSCRIPTION_YOOKASSA_{}'.format('LIVE' if live else 'TEST')
     shop_id = environment.get(prefix + '_SHOP_ID', '')
     secret = environment.get(prefix + '_SECRET_KEY', '')

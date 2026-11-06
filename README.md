@@ -96,27 +96,36 @@ flowchart TB
         TDB["Postgres Test<br/>база yogadaily_test"]
         TV["postgres-volume<br/>диск тестовой БД"]
 
-        TB --> TM
-        TB --> TDB
-        TM --> TDB
+        TB -->|"открывает тарифы"| TM
+        TB <--> TDB
+        TM <--> TDB
         TDB --- TV
     end
 
-    subgraph PROD["Production-контур"]
+    subgraph PROD["Production-контур — Railway project YDB"]
         PB["YogaDailyBot<br/>production Telegram-токен"]
         PM["MiniApp Production<br/>production-магазин ЮKassa"]
         PDB["Postgres Production<br/>данные реальных пользователей"]
         PV["диск production-БД"]
 
-        PB --> PM
-        PB --> PDB
-        PM --> PDB
+        PB -->|"открывает тарифы"| PM
+        PB <--> PDB
+        PM <--> PDB
         PDB --- PV
     end
 
+    TS["Тестовый магазин ЮKassa"]
+    LS["Production-магазин ЮKassa"]
     RA["ReceiptAutomation<br/>общий сервис чеков НПД и email"]
-    TM -. "только редкий реальный платёж" .-> RA
-    PM --> RA
+    MN["Мой налог"]
+    EMAIL["Email с чеком"]
+
+    TM <-->|"обычные тесты"| TS
+    TM <-.->|"редкая проверка реальной оплаты"| LS
+    PM <--> LS
+    LS -->|"успешные платежи с метаданными"| RA
+    RA --> MN
+    RA --> EMAIL
 ```
 
 ### Какие компоненты разделяются
@@ -128,9 +137,13 @@ flowchart TB
   используется, чтобы ошибочная тестовая настройка не затронула продажи.
 - Тестовая и production-базы PostgreSQL всегда раздельны.
 - `postgres-volume` — не отдельное приложение, а постоянный диск конкретной базы.
-- `ReceiptAutomation` может быть общим для обоих контуров, пока реальные платежи
-  проходят через один production-магазин ЮKassa и оформляются от одного
-  плательщика НПД.
+- `ReceiptAutomation` — один общий сервис для обоих контуров. Он не подключается
+  к базам ботов и не вызывается Mini App напрямую: сервис самостоятельно читает
+  успешные платежи из production-магазина ЮKassa по согласованным метаданным,
+  регистрирует доход в «Моём налоге» и отправляет чек на email. Его служебное
+  состояние хранится отдельно в SQLite-файле на собственном Railway volume.
+- Webhook тестовой и production Mini App разделены. Каждый webhook работает
+  только со своей базой и выдаёт доступ только пользователям своего контура.
 
 ### Режимы оплаты в MiniApp-Test
 
@@ -265,6 +278,31 @@ CHALLENGE_START_DATE=<YYYY-MM-DD понедельник старта, МСК>
 CHALLENGE_START_PRACTICE_ID=<id первой практики потока>
 ```
 
+Для запуска подписки к production-боту добавляются только после создания и
+проверки отдельной production Mini App:
+
+```env
+SUBSCRIPTION_ENABLED=true
+SUBSCRIPTION_DATABASE=<то же имя БД, что в POSTGRESQL_DBNAME>
+SUBSCRIPTION_ONBOARDING_ENABLED=true
+SUBSCRIPTION_MINIAPP_URL=https://<production-mini-app-domain>/
+SUBSCRIPTION_PAYMENT_RETURN_URL=https://<production-mini-app-domain>/
+SUBSCRIPTION_PAYMENT_MODE=live
+SUBSCRIPTION_YOOKASSA_LIVE_SHOP_ID=<production shop id>
+SUBSCRIPTION_YOOKASSA_LIVE_SECRET_KEY=<production secret key>
+```
+
+`SUBSCRIPTION_TEST_ENABLED`, `SUBSCRIPTION_TEST_DATABASE` и
+`SUBSCRIPTION_TEST_USERS` в production не задаются. Код блокирует запуск, если
+одновременно включены test и production, выбрана тестовая БД, отключён новый шаг
+онбординга, указан не-HTTPS адрес Mini App или выбран не live-магазин.
+
+Production Mini App — отдельный Railway-сервис из
+`Dockerfile.miniapp-production`. Он получает production-токен бота, подключение
+только к production-БД и те же live-реквизиты ЮKassa. Подготовленный код и
+миграция сами по себе не создают сервис, не применяют схему и не включают
+подписку.
+
 Памятка «что сделать перед каждым новым потоком»: `[app/challenge/запуск-нового-потока-челленджа.md](app/challenge/запуск-нового-потока-челленджа.md)`.
 
 ### Как выкатывается production
@@ -273,6 +311,45 @@ CHALLENGE_START_PRACTICE_ID=<id первой практики потока>
 2. Railway автоматически запускает новый deploy.
 3. Проверяем `Deploy Logs`: должно быть `Application started`, без `Traceback`/`ERROR`.
 4. Делаем smoke-test в Telegram: `/start`, принятие соглашения, пропуск или сохранение времени, быстрые фильтры и раздел расписания.
+
+### Порядок первого запуска подписки
+
+Подготовка выполняется поэтапно. Переход к следующему этапу не означает
+автоматического разрешения на production-действия.
+
+1. Зафиксировать проверенный commit в `test` и убедиться, что полный набор тестов
+   проходит.
+2. Проверить Variables production-бота, будущей production Mini App и общего
+   `ReceiptAutomation`, не выводя значения секретов в логи или документацию.
+3. Создать свежую резервную копию production-БД и убедиться, что её можно скачать
+   или восстановить. Старый локальный дамп до этого момента не удалять.
+4. При остановленном production-боте вручную применить
+   `data/migrations/20261106_production_subscriptions.sql`. Перед применением
+   отдельно проверить имя подключённой БД. Миграция не запускается приложением.
+5. Read-only запросами проверить наличие пяти таблиц и отсутствие записей в
+   `subscription_accounts`, `subscription_orders` и `subscription_notifications`.
+6. Создать отдельный Railway-сервис production Mini App из
+   `Dockerfile.miniapp-production`, подключить только production-БД и live-магазин,
+   затем проверить health/API без создания платежа.
+7. Настроить в ЮKassa production webhook на `/api/yookassa/webhook` домена этой
+   Mini App и проверить, что тестовый webhook остаётся привязан к тестовому
+   сервису.
+8. **Стоп перед включением:** не добавлять `SUBSCRIPTION_ENABLED=true`, не
+   запускать новый онбординг и не активировать группу старых пользователей без
+   отдельной команды владельца непосредственно перед релизом.
+9. После отдельного подтверждения включить production-переменные бота и выполнить
+   smoke-test: новый пользователь, пробный период, тарифы, одна реальная оплата,
+   сообщение об оплате, доступ, расписание и регистрация чека общим сервисом.
+10. Разовый сценарий `old_users` запускать отдельной командой только после
+    успешного smoke-test основного сценария и повторной проверки даты запуска.
+
+Аварийный откат не удаляет таблицы и платёжные данные. Нужно отключить
+`SUBSCRIPTION_ENABLED`, вернуть ранее проверенную версию production-бота и
+остановить production Mini App, если причина находится в ней. Уже принятый платёж
+и выданный срок сохраняются в БД; удалять или откатывать их вручную нельзя.
+Повторное включение выполняется только после сверки заказов `pending` и
+`succeeded` с ЮKassa. Общий сервис чеков при откате не выключается: он независимо
+обрабатывает уже успешные live-платежи по метаданным.
 
 
 
@@ -447,6 +524,96 @@ flowchart TD
 - `challenge_summary_stopped` — `true` после финальной сводки (день 29); сбрасывается командой `/challenge_summary_reset`
 - `challenge_weekly_schedule_last_sent_date` — дата последней отправки воскресного расписания
 - `challenge_auto_exit_sent_on` — дата автозавершения в личку на день 29
+
+
+
+### Таблица `subscription_accounts`
+
+Одна наглядная запись о доступе пользователя. Таблица существует отдельно в
+тестовой и production-базе; данные между контурами не переносятся.
+
+- `user_id` — ID пользователя Telegram (PRIMARY KEY)
+- `trial_started_at`, `trial_ends_at` — начало и окончание пробного периода
+- `subscription_starts`, `subscription_ends` — начало и окончание оплаченного доступа
+- `subscription_state` — текущее состояние доступа: `free`, `trial`,
+  `trial_paid`, `gift`, `gift_paid` или `paid`
+- `email` — последний email, указанный пользователем для чека
+- `is_old_user` — входит ли пользователь в разовую группу старых пользователей
+- `gift_starts`, `gift_ends` — границы подарочного периода
+- `offer_ends` — окончание действия специальных цен
+- `special_offer_used_at` — когда была использована единственная покупка по
+  специальной цене
+- `created_at`, `updated_at` — служебные даты записи
+
+
+
+### Таблица `subscription_orders`
+
+История заказов. Оплаченный заказ не удаляется и не перезаписывается новым.
+
+- `order_id` — UUID заказа (PRIMARY KEY и ключ идемпотентности ЮKassa)
+- `user_id` — пользователь из `subscription_accounts`
+- `tariff_code`, `duration_days` — выбранный тариф и длительность доступа
+- `base_price` — обычная цена
+- `final_price` — итоговая цена покупки
+- `special_offer_applied`, `offer_ends_at_order` — применялась ли специальная
+  цена и до какой даты действовало предложение в момент заказа
+- `payment_scope` — конкретный магазин ЮKassa (`test:<shop_id>` или
+  `live:<shop_id>`), чтобы заказы разных магазинов не смешивались
+- `email` — email для чека, зафиксированный в заказе
+- `provider_payment_id` — идентификатор платежа ЮKassa
+- `status` — `created`, `pending`, `succeeded` или `canceled`
+- `granted_at`, `period_starts_at`, `period_ends_at` — факт и границы выданного доступа
+- `created_at`, `updated_at` — служебные даты заказа
+
+Поле `superseded_at` в целевую production-схему не входит: сценарий замены
+незавершённого заказа больше не используется.
+
+
+
+### Таблица `subscription_notifications`
+
+Журнал уже отправленных уведомлений. Пара `user_id + event_key` уникальна и
+защищает напоминания и результаты оплаты от намеренной повторной отправки.
+
+- `user_id` — пользователь
+- `event_key` — уникальный ключ события и периода
+- `sent_at` — когда Telegram подтвердил отправку
+
+
+
+### Таблица `subscription_daily_practices`
+
+Закрепляет «Практику дня» за конкретным пользователем на календарную дату по
+Москве. Эта уже протестированная логика входит в первый production-релиз подписки.
+
+- `user_id` — пользователь
+- `moscow_date` — дата по Москве
+- `practice_catalog` — каталог практики
+- `practice_id` — выбранная практика
+
+Пара `user_id + moscow_date` уникальна. Повторное нажатие в один день возвращает
+пользователю ту же практику; у разных пользователей практика может отличаться.
+
+Общий `practice_day_calendar`, где одной дате соответствует одна практика для
+всех пользователей, запланирован как отдельная продуктовая доработка после
+запуска подписки. Он не входит в текущую production-миграцию и будет реализован
+отдельным изменением с собственной миграцией и возможностью независимого отката.
+
+
+
+### Таблица `old_user_feedback`
+
+Временная таблица разового сценария старых пользователей.
+
+- `feedback_id` — ID отзыва
+- `user_id`, `username` — пользователь, оставивший отзыв
+- `feedback_text` — текст сообщения
+- `created_at` — дата получения
+
+Создание таблиц подписки само по себе не включает монетизацию, не выдаёт
+подарочный доступ и не запускает рассылку старым пользователям. Активация
+переходного сценария выполняется отдельно и вручную.
 
 
 

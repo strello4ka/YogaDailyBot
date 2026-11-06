@@ -3,12 +3,12 @@
 import asyncio
 from datetime import datetime
 from urllib.parse import urlsplit
-from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from . import messages
 from .access import AccessState, Feature, Subscription, has_access
+from .runtime import subscription_settings
 from .old_users import messages as old_user_messages
 from .tariff import MOSCOW
 
@@ -64,51 +64,26 @@ async def send_menu(bot, chat_id: int, subscription: Subscription,
                                   reply_markup=optional_tariff_keyboard(miniapp_url))
 
 
-def test_settings(environment):
-    """Require the explicit test flag, env file and isolated database settings."""
-    if environment.get("SUBSCRIPTION_TEST_ENABLED", "").lower() != "true":
-        return None
-    test_env = Path(__file__).resolve().parents[2] / "test" / ".env.test"
-    if Path(environment.get("ENV_FILE", "")).resolve() != test_env:
-        raise ValueError("Subscriptions may only run with the project's test/.env.test")
-    bot_id, separator, token_secret = environment.get("BOT_TOKEN", "").partition(":")
-    if not separator or not bot_id.isdigit() or not token_secret:
-        raise ValueError("BOT_TOKEN must contain a numeric bot ID and token secret")
-    # Telegram tokens do not identify a bot as test or production. Isolation here
-    # comes from the explicit flag, exact env-file path and dedicated database.
-    # An empty allowlist enables the feature for every user in that environment.
-    raw_users = environment.get("SUBSCRIPTION_TEST_USERS", "").strip()
-    users = (frozenset(int(value.strip()) for value in raw_users.split(",") if value.strip())
-             if raw_users else None)
-    if users is not None and (not users or any(user_id <= 0 for user_id in users)):
-        raise ValueError("Test user IDs must be positive")
-    url = environment.get("SUBSCRIPTION_MINIAPP_URL", "")
-    if url:
-        tariff_keyboard(url)
-    database_name = environment.get("SUBSCRIPTION_TEST_DATABASE", "")
-    if database_name != 'yogadaily_test':
-        raise ValueError("Subscriptions require the isolated yogadaily_test database")
-    return users, url, database_name
-
-
-def install_test_subscriptions(application, environment, connection_factory):
-    settings = test_settings(environment)
+def install_subscriptions(application, environment, connection_factory):
+    settings = subscription_settings(environment)
     if settings is None:
         return
     from data.subscription_repository import SubscriptionRepository
     from telegram.ext import CallbackQueryHandler, MessageHandler, filters
-    users, configured_url, database_name = settings
     from app.payments.config import payment_settings
     payment_config = payment_settings(environment)
-    # Trial reminders can always show the existing tariff preview. Real test
-    # checkout is enabled only with an explicitly configured Mini App URL.
+    # Test reminders may show the existing tariff preview before checkout is
+    # connected. Production is rejected earlier unless its Mini App URL exists.
     from app.handlers.donations import MINIAPP_PREVIEW_URL
-    url = configured_url or MINIAPP_PREVIEW_URL
+    url = settings.miniapp_url or MINIAPP_PREVIEW_URL
     repository = SubscriptionRepository(connection_factory, payment_scope=payment_config.scope)
-    repository.verify_test_database(database_name)
+    repository.verify_database(settings.database_name)
     application.bot_data.update(subscription_repository=repository,
-                                subscription_test_users=users, subscription_miniapp_url=url)
-    if payment_config.shop_id and configured_url:
+                                subscription_allowed_users=settings.allowed_users,
+                                subscription_database=settings.database_name,
+                                subscription_runtime=settings.runtime,
+                                subscription_miniapp_url=url)
+    if payment_config.shop_id and settings.miniapp_url:
         from app.payments.service import PaymentService
         provider = payment_config.client()
         try:
@@ -119,19 +94,17 @@ def install_test_subscriptions(application, environment, connection_factory):
         application.bot_data['subscription_payment_service'] = PaymentService(repository, provider)
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, guard_update), group=-6)
     application.add_handler(CallbackQueryHandler(guard_update), group=-6)
-    from .jobs import synchronize_test_access, reconcile_test_payments, deliver_test_reminders
+    from .jobs import synchronize_access, reconcile_payments, deliver_reminders
     from .payment_wakeup import install as install_payment_wakeup
-    install_payment_wakeup(application, connection_factory)
-    application.job_queue.run_repeating(synchronize_test_access, interval=60, first=1,
-                                        name="subscription_test_access")
-    application.job_queue.run_repeating(reconcile_test_payments, interval=60, first=5,
-                                        name='subscription_test_payments',
+    install_payment_wakeup(application, connection_factory, settings.database_name)
+    application.job_queue.run_repeating(synchronize_access, interval=60, first=1,
+                                        name="subscription_access")
+    application.job_queue.run_repeating(reconcile_payments, interval=60, first=5,
+                                        name='subscription_payments',
                                         job_kwargs={'max_instances': 1, 'coalesce': True})
-    application.job_queue.run_repeating(deliver_test_reminders, interval=60, first=1,
-                                        name='subscription_test_reminders',
+    application.job_queue.run_repeating(deliver_reminders, interval=60, first=1,
+                                        name='subscription_reminders',
                                         job_kwargs={'max_instances': 1, 'coalesce': True})
-
-
 def requested_feature(text, callback, *, waiting_for_time=False):
     command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text.strip() else ""
     if command == "/favorite" or callback.startswith("fav_"):

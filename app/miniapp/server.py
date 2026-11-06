@@ -78,7 +78,7 @@ class MiniApp:
                                              'preview': True, 'order_id': None})
                 return respond('403 Forbidden', {'error': 'В предпросмотре оплата отключена'})
             if self.repository is None or self.payments is None:
-                return respond('503 Service Unavailable', {'error': 'Тестовая оплата ещё не подключена'})
+                return respond('503 Service Unavailable', {'error': 'Оплата ещё не подключена'})
             if path == '/api/yookassa/webhook':
                 from app.payments.webhook import handle_notification
                 handle_notification(data, self.payments, now, self.allowed_users)
@@ -90,7 +90,7 @@ class MiniApp:
                 return respond('401 Unauthorized', {'error': 'Сессия Telegram недействительна'})
             profile = self.repository.checkout_profile(user_id)
             if profile is None:
-                return respond('403 Forbidden', {'error': 'Сначала пройди онбординг в тестовом боте'})
+                return respond('403 Forbidden', {'error': 'Сначала пройди онбординг в боте'})
             if path == '/api/session':
                 email, trial_end, paid_end = profile.email, profile.trial_ends, profile.subscription_ends
                 note = ''
@@ -149,17 +149,19 @@ def create_preview_app():
     return TestGateway(MiniApp(preview=True), os.environ.get('MINIAPP_TEST_BACKEND_URL', ''))
 
 
-def create_test_app(environment, connection_factory, *, provider=None):
-    """Fail closed before accepting requests from an HTTPS reverse proxy."""
-    from app.subscription.subscription_menu import test_settings
+def _create_subscription_app(environment, connection_factory, expected_runtime, *, provider=None):
+    """Build one checkout app after validating the selected isolated runtime."""
+    from app.subscription.runtime import subscription_settings
     from data.subscription_repository import SubscriptionRepository
     from app.payments.service import PaymentService
     from app.payments.config import payment_settings
 
-    settings = test_settings(environment)
+    settings = subscription_settings(environment)
     if settings is None:
-        raise ValueError('Test subscription mode is disabled')
-    users, url, database_name = settings
+        raise ValueError('Subscription mode is disabled')
+    if settings.runtime != expected_runtime:
+        raise ValueError('Unexpected subscription runtime')
+    users, url = settings.allowed_users, settings.miniapp_url
     config = payment_settings(environment)
     if not config.shop_id or not config.secret or not url:
         raise ValueError('YooKassa credentials and Mini App URL are required for checkout')
@@ -170,7 +172,7 @@ def create_test_app(environment, connection_factory, *, provider=None):
             or not same_host):
         raise ValueError('Payment return URL must open this Mini App')
     repository = SubscriptionRepository(connection_factory, payment_scope=config.scope)
-    repository.verify_test_database(database_name)
+    repository.verify_database(settings.database_name)
     owns_provider = provider is None
     if owns_provider:
         provider = config.client()
@@ -189,6 +191,17 @@ def create_test_app(environment, connection_factory, *, provider=None):
                    bot_token=environment['BOT_TOKEN'], allowed_users=users, return_url=return_url)
 
 
+def create_test_app(environment, connection_factory, *, provider=None):
+    """Fail closed before accepting test-checkout requests."""
+    return _create_subscription_app(environment, connection_factory, 'test', provider=provider)
+
+
+def create_production_app(environment, connection_factory, *, provider=None):
+    """Fail closed unless production DB, bot, Mini App and live store agree."""
+    return _create_subscription_app(
+        environment, connection_factory, 'production', provider=provider)
+
+
 def create_hosted_test_app():
     """Run the same isolated test checkout on persistent Railway infrastructure."""
     import os
@@ -196,6 +209,13 @@ def create_hosted_test_app():
         raise ValueError('Hosted test Mini App is disabled')
     from data.postgres_db import get_connection
     return create_test_app(os.environ, get_connection)
+
+
+def create_hosted_production_app():
+    """Railway entry point for the dedicated production Mini App service."""
+    import os
+    from data.postgres_db import get_connection
+    return create_production_app(os.environ, get_connection)
 
 
 if __name__ == '__main__':

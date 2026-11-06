@@ -9,7 +9,8 @@ from app.subscription.demo import start_trial
 from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.free import locked_text, reply_keyboard, send_locked
 from app.subscription.subscription_menu import (menu_text, send_menu, tariff_keyboard,
-    test_settings, install_test_subscriptions, guard_update)
+    install_subscriptions, guard_update)
+from app.subscription.runtime import subscription_settings
 from app.subscription.tariff import MOSCOW, purchased_period
 from app.onboarding import messages as onboarding_messages
 from app.onboarding.flow import _send_step, _subscription_variant, handle_reply
@@ -72,7 +73,10 @@ class SubscriptionScreensTest(unittest.TestCase):
         self.assertIn('&lt;b&gt;A&amp;B&lt;/b&gt;', text)
         self.assertIn('настроить расписание', text)
         text = messages.trial_subscription_activated('<b>A&B</b>', self.trial.ends_at)
-        self.assertIn('&lt;b&gt;A&amp;B&lt;/b&gt;', text)
+        self.assertIn('Пробный период завершился', text)
+        last_day = messages.last_access_date(self.trial.ends_at)
+        self.assertIn(f'до <b>{last_day:%d.%m.%Y}</b>', text)
+        self.assertNotIn('&lt;b&gt;A&amp;B&lt;/b&gt;', text)
         text = messages.trial_last_day(completions=4, categories=['<a>'])
         self.assertIn('«&lt;a&gt;»', text)
 
@@ -142,23 +146,24 @@ class TestRolloutSafetyTest(unittest.TestCase):
                     SUBSCRIPTION_TEST_DATABASE="yogadaily_test")
 
     def test_disabled_does_not_require_configuration(self):
-        self.assertIsNone(test_settings({}))
+        self.assertIsNone(subscription_settings({}))
 
     def test_test_environment_and_database_must_be_explicit(self):
         env = self.settings()
-        self.assertEqual(test_settings(env)[0], frozenset((1, 2)))
-        self.assertIsNone(test_settings(dict(env, SUBSCRIPTION_TEST_USERS=""))[0])
+        self.assertEqual(subscription_settings(env).allowed_users, frozenset((1, 2)))
+        self.assertIsNone(subscription_settings(
+            dict(env, SUBSCRIPTION_TEST_USERS="")).allowed_users)
         for key, value in [("ENV_FILE", ".env"), ("BOT_TOKEN", "bad-token"),
                            ("SUBSCRIPTION_TEST_DATABASE", ""),
                            ("SUBSCRIPTION_TEST_DATABASE", "production")]:
             with self.subTest(key=key), self.assertRaises(ValueError):
-                test_settings(dict(env, **{key: value}))
+                subscription_settings(dict(env, **{key: value}))
 
     def test_test_mode_without_checkout_url(self):
         env = dict(self.settings(), SUBSCRIPTION_MINIAPP_URL="")
-        self.assertEqual(test_settings(env)[1], "")
+        self.assertEqual(subscription_settings(env).miniapp_url, "")
         with self.assertRaises(ValueError):
-            test_settings(dict(env, SUBSCRIPTION_MINIAPP_URL="http://localhost:8765"))
+            subscription_settings(dict(env, SUBSCRIPTION_MINIAPP_URL="http://localhost:8765"))
 
     def test_test_bot_uses_tariff_preview_without_checkout_url(self):
         from app.handlers.donations import MINIAPP_PREVIEW_URL
@@ -167,7 +172,7 @@ class TestRolloutSafetyTest(unittest.TestCase):
                    SUBSCRIPTION_YOOKASSA_TEST_SECRET_KEY="test-secret")
         application = Mock(bot_data={}, job_queue=Mock())
         with patch('data.subscription_repository.SubscriptionRepository'):
-            install_test_subscriptions(application, env, Mock())
+            install_subscriptions(application, env, Mock())
         self.assertEqual(application.bot_data['subscription_miniapp_url'], MINIAPP_PREVIEW_URL)
         self.assertEqual(tariff_keyboard(application.bot_data['subscription_miniapp_url'])
                          .inline_keyboard[0][0].text, 'Посмотреть тарифы')
@@ -177,7 +182,7 @@ class TestRolloutSafetyTest(unittest.TestCase):
 
     def test_unlisted_users_do_not_touch_subscription_storage(self):
         repository = Mock()
-        context = SimpleNamespace(bot_data=dict(subscription_repository=repository, subscription_test_users={1}))
+        context = SimpleNamespace(bot_data=dict(subscription_repository=repository, subscription_allowed_users={1}))
         self.assertIsNone(repository_for(context, 2))
         self.assertTrue(runtime_has_access(context, 2, Feature.FAVORITES))
         repository.get.assert_not_called()
@@ -185,13 +190,13 @@ class TestRolloutSafetyTest(unittest.TestCase):
     def test_missing_enrollment_does_not_restrict_old_users(self):
         repository = Mock()
         repository.get.return_value = None
-        context = SimpleNamespace(bot_data=dict(subscription_repository=repository, subscription_test_users={1}))
+        context = SimpleNamespace(bot_data=dict(subscription_repository=repository, subscription_allowed_users={1}))
         self.assertTrue(runtime_has_access(context, 1, Feature.SELECTION))
 
     def test_isolated_test_bot_can_include_all_its_users(self):
         repository = Mock()
         context = SimpleNamespace(bot_data=dict(subscription_repository=repository,
-                                                subscription_test_users=None))
+                                                subscription_allowed_users=None))
         self.assertIs(repository_for(context, 946774551), repository)
 
 
@@ -201,7 +206,7 @@ class TestGuardTest(unittest.IsolatedAsyncioTestCase):
         repository.synchronize_access.return_value = Subscription()
         bot = SimpleNamespace(send_message=AsyncMock())
         context = SimpleNamespace(bot=bot, user_data={}, bot_data=dict(
-            subscription_test_users={1}, subscription_repository=repository,
+            subscription_allowed_users={1}, subscription_repository=repository,
             subscription_miniapp_url="https://example.org"))
         for text, callback in (("/start", None), (None, "start_restart_yes")):
             with self.subTest(text=text, callback=callback):
@@ -233,7 +238,7 @@ class TestGuardTest(unittest.IsolatedAsyncioTestCase):
         repository.get.return_value = Subscription()
         repository.synchronize_access.return_value = Subscription()
         context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()), user_data={},
-            bot_data=dict(subscription_test_users={1}, subscription_repository=repository,
+            bot_data=dict(subscription_allowed_users={1}, subscription_repository=repository,
                           subscription_miniapp_url="https://example.org"))
         update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
             effective_chat=SimpleNamespace(id=1, type="private"),
@@ -253,7 +258,7 @@ class ReturningOnboardingSubscriptionTest(unittest.IsolatedAsyncioTestCase):
         repository.get.return_value = Subscription(old_trial)
         bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=9)))
         context = SimpleNamespace(bot=bot, bot_data={"subscription_miniapp_url":
-                                  "https://example.org", "subscription_test_users": None,
+                                  "https://example.org", "subscription_allowed_users": None,
                                   "subscription_repository": repository})
         state = {"user_id": 1, "chat_id": 1, "step": "subscription"}
         with patch("app.onboarding.flow.save_state"), patch(
@@ -274,7 +279,7 @@ class ReturningOnboardingSubscriptionTest(unittest.IsolatedAsyncioTestCase):
         repository = Mock()
         repository.get.return_value = Subscription(
             start_trial(datetime(2025, 1, 1, tzinfo=MOSCOW)))
-        context = SimpleNamespace(bot_data={"subscription_test_users": None,
+        context = SimpleNamespace(bot_data={"subscription_allowed_users": None,
                                   "subscription_repository": repository})
         state = {"user_id": 1, "chat_id": 1, "step": "subscription"}
         update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
@@ -289,7 +294,7 @@ class ReturningOnboardingSubscriptionTest(unittest.IsolatedAsyncioTestCase):
         now = datetime.now(MOSCOW)
         repository = Mock()
         repository.get.return_value = Subscription(paid=purchased_period("month", now))
-        context = SimpleNamespace(bot_data={"subscription_test_users": None,
+        context = SimpleNamespace(bot_data={"subscription_allowed_users": None,
                                   "subscription_repository": repository})
         with patch("app.subscription.access.repository_for", return_value=repository):
             self.assertEqual(await _subscription_variant(context, 1), "active")

@@ -10,8 +10,8 @@ from app.subscription.demo import start_trial
 from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.old_users.rules import launch_offer
 from dataclasses import replace
-from app.subscription.jobs import due_reminders, reconcile_test_payments, deliver_payment_notice
-from app.subscription.jobs import deliver_test_reminders, Reminder, _send_reminder
+from app.subscription.jobs import due_reminders, reconcile_payments, deliver_payment_notice
+from app.subscription.jobs import deliver_reminders, Reminder, _send_reminder
 from app.subscription.tariff import MOSCOW, purchased_period
 
 
@@ -143,25 +143,25 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.service.refresh_details.side_effect = confirm
         self.context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()), bot_data={
             'subscription_repository': self.repo, 'subscription_payment_service': self.service,
-            'subscription_test_users': {10}, 'subscription_miniapp_url':'https://example.org',
+            'subscription_allowed_users': {10}, 'subscription_miniapp_url':'https://example.org',
         })
 
     async def test_closed_miniapp_does_not_prevent_confirmation_and_notice(self):
-        await reconcile_test_payments(self.context)
+        await reconcile_payments(self.context)
         self.service.refresh_details.assert_called_once()
         self.assertEqual(self.service.refresh_details.call_args.args[:2], ('order-1', 10))
         self.context.bot.send_message.assert_awaited_once()
         self.assertIn('Оплата принята', self.context.bot.send_message.call_args.kwargs['text'])
         self.assertIn('&lt;Катя&gt;', self.context.bot.send_message.call_args.kwargs['text'])
         self.assertIn('payment_success:order-1', self.sent)
-        await reconcile_test_payments(self.context)
+        await reconcile_payments(self.context)
         self.context.bot.send_message.assert_awaited_once()
 
     async def test_canceled_payment_sends_one_retry_message_with_tariff_button(self):
         self.pending.clear()
         self.canceled[:] = ['canceled-order']
-        await reconcile_test_payments(self.context, check_pending=False)
-        await reconcile_test_payments(self.context, check_pending=False)
+        await reconcile_payments(self.context, check_pending=False)
+        await reconcile_payments(self.context, check_pending=False)
         self.context.bot.send_message.assert_awaited_once()
         call = self.context.bot.send_message.await_args
         self.assertIn('Оплата не прошла', call.kwargs['text'])
@@ -174,11 +174,11 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
     async def test_telegram_failure_retries_notice_without_regrant(self):
         self.context.bot.send_message.side_effect = RuntimeError('Telegram unavailable')
         with self.assertLogs('app.subscription.jobs', level='WARNING'):
-            await reconcile_test_payments(self.context)
+            await reconcile_payments(self.context)
         self.assertFalse(self.sent)
         self.assertEqual(self.granted, ['order-1'])
         self.context.bot.send_message.side_effect = None
-        await reconcile_test_payments(self.context)
+        await reconcile_payments(self.context)
         self.assertIn('payment_success:order-1', self.sent)
         self.service.refresh_details.assert_called_once()
 
@@ -186,7 +186,7 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.service.refresh_details.side_effect = RuntimeError('Provider unavailable')
         self.granted[:] = ['earlier-paid-order']
         with self.assertLogs('app.subscription.jobs', level='WARNING'):
-            await reconcile_test_payments(self.context)
+            await reconcile_payments(self.context)
         self.assertNotIn('payment_success:order-1', self.sent)
         self.assertIn('payment_success:earlier-paid-order', self.sent)
 
@@ -217,13 +217,13 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.pending.clear()
         self.granted[:] = ['order-1']
         with patch('app.subscription.jobs._notice_lock', locked):
-            await asyncio.gather(reconcile_test_payments(self.context),
-                                 reconcile_test_payments(self.context, user_ids={10}, check_pending=False))
+            await asyncio.gather(reconcile_payments(self.context),
+                                 reconcile_payments(self.context, user_ids={10}, check_pending=False))
         self.context.bot.send_message.assert_awaited_once()
 
     async def test_fast_delivery_never_checks_other_pending_payment(self):
         self.granted[:] = ['confirmed-order']
-        await reconcile_test_payments(self.context, user_ids={10}, check_pending=False)
+        await reconcile_payments(self.context, user_ids={10}, check_pending=False)
         self.service.refresh_details.assert_not_called()
         self.repo.touch_order_check.assert_not_called()
         self.assertIn('payment_success:confirmed-order', self.sent)
@@ -233,7 +233,7 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         def check(*args):
             self.assertIn('payment_success:confirmed-order', self.sent)
         self.service.refresh_details.side_effect = check
-        await reconcile_test_payments(self.context)
+        await reconcile_payments(self.context)
         self.service.refresh_details.assert_called_once()
         self.context.bot.send_message.assert_awaited_once()
 
@@ -246,12 +246,12 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
             if not release.wait(3):
                 raise RuntimeError('Test did not release provider call')
         self.service.refresh_details.side_effect = slow_check
-        periodic = asyncio.create_task(reconcile_test_payments(self.context))
+        periodic = asyncio.create_task(reconcile_payments(self.context))
         try:
             self.assertTrue(await asyncio.to_thread(entered.wait, 1))
             # A webhook commits this grant while another order's API call stalls.
             self.granted[:] = ['webhook-confirmed']
-            await asyncio.wait_for(reconcile_test_payments(
+            await asyncio.wait_for(reconcile_payments(
                 self.context, user_ids={10}, check_pending=False), timeout=1)
             self.assertIn('payment_success:webhook-confirmed', self.sent)
             self.assertFalse(periodic.done())
@@ -262,15 +262,15 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.context.bot.send_message.assert_awaited_once()
 
     async def test_allowlist_is_required(self):
-        self.context.bot_data['subscription_test_users'] = set()
-        await reconcile_test_payments(self.context)
+        self.context.bot_data['subscription_allowed_users'] = set()
+        await reconcile_payments(self.context)
         self.repo.payment_work.assert_not_called()
         self.service.refresh_details.assert_not_called()
 
     async def test_test_bot_without_allowlist_checks_only_enrolled_accounts(self):
-        self.context.bot_data['subscription_test_users'] = None
+        self.context.bot_data['subscription_allowed_users'] = None
         self.repo.enrolled_user_ids.return_value = [10]
-        await reconcile_test_payments(self.context)
+        await reconcile_payments(self.context)
         self.repo.enrolled_user_ids.assert_called_once()
         self.repo.payment_work.assert_called_with(10)
 
@@ -278,7 +278,7 @@ class PaymentWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.context.bot_data.pop('subscription_payment_service')
         self.pending.clear()
         self.granted[:] = ['already-committed']
-        await reconcile_test_payments(self.context)
+        await reconcile_payments(self.context)
         self.assertIn('payment_success:already-committed', self.sent)
 
 
@@ -301,7 +301,7 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.repo.restore_offer.return_value = None
         self.repo.old_user_reminder_context.return_value = (None, False)
         self.context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()), bot_data={
-            'subscription_repository': self.repo, 'subscription_test_users': {10},
+            'subscription_repository': self.repo, 'subscription_allowed_users': {10},
             'subscription_miniapp_url': 'https://example.org'})
 
     async def test_old_user_reminders_reach_worker_and_are_not_sent_twice(self):
@@ -315,8 +315,8 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
                 with patch('app.subscription.jobs.datetime') as clock:
                     clock.now.return_value = event.scheduled_at
                     clock.combine.side_effect = datetime.combine
-                    await deliver_test_reminders(self.context)
-                    await deliver_test_reminders(self.context)
+                    await deliver_reminders(self.context)
+                    await deliver_reminders(self.context)
                 calls = self.context.bot.send_message.await_args_list
                 self.assertEqual(len(calls), 2 if event.kind == 'gift_expired' else 1)
                 self.assertIn(event.kind, ' '.join(self.sent))
@@ -360,8 +360,8 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         with patch('app.subscription.jobs.datetime') as clock:
             clock.now.return_value = moment
             clock.combine.side_effect = datetime.combine
-            await deliver_test_reminders(self.context)
-            await deliver_test_reminders(self.context)
+            await deliver_reminders(self.context)
+            await deliver_reminders(self.context)
         self.context.bot.send_message.assert_awaited_once()
         text = self.context.bot.send_message.call_args.kwargs['text']
         self.assertIn('через 3 дня', text)
@@ -376,8 +376,8 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         with patch('app.subscription.jobs.datetime') as clock:
             clock.now.return_value = moment
             clock.combine.side_effect = datetime.combine
-            await deliver_test_reminders(self.context)
-            await deliver_test_reminders(self.context)
+            await deliver_reminders(self.context)
+            await deliver_reminders(self.context)
         self.context.bot.send_message.assert_awaited_once()
         call = self.context.bot.send_message.call_args
         self.assertIn('Пробный период завершился', call.kwargs['text'])
@@ -394,7 +394,7 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         with patch('app.subscription.jobs.datetime') as clock:
             clock.now.return_value = moment
             clock.combine.side_effect = datetime.combine
-            await deliver_test_reminders(self.context)
+            await deliver_reminders(self.context)
         self.context.bot.send_message.assert_awaited_once()
         text = self.context.bot.send_message.call_args.kwargs['text']
         self.assertIn('последний день полного доступа', text)
@@ -406,7 +406,7 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         with patch('app.subscription.jobs.datetime') as clock:
             clock.now.return_value = moment
             clock.combine.side_effect = datetime.combine
-            await deliver_test_reminders(self.context)
+            await deliver_reminders(self.context)
         self.context.bot.send_message.assert_awaited_once()
         text = self.context.bot.send_message.call_args.kwargs['text']
         self.assertIn('Полный доступ закончится через 3 дня', text)
@@ -418,7 +418,7 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         with patch('app.subscription.jobs.datetime') as clock:
             clock.now.return_value = moment
             clock.combine.side_effect = datetime.combine
-            await deliver_test_reminders(self.context)
+            await deliver_reminders(self.context)
         self.context.bot.send_message.assert_not_awaited()
 
     async def test_renewal_before_delivery_suppresses_old_reminder(self):
@@ -472,6 +472,6 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         with patch('app.subscription.jobs.datetime') as clock:
             clock.now.return_value = moment
             clock.combine.side_effect = datetime.combine
-            await deliver_test_reminders(self.context)
-            await deliver_test_reminders(self.context)
+            await deliver_reminders(self.context)
+            await deliver_reminders(self.context)
         self.context.bot.send_message.assert_not_awaited()

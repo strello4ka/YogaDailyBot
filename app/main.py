@@ -287,11 +287,11 @@ def main():
         .build()
     )
 
-    # Opt-in subscription test rollout; installer validates the explicit test
-    # settings, rollout allowlist and dedicated database name.
-    from app.subscription.subscription_menu import install_test_subscriptions
+    # Opt-in subscriptions; installer fails closed when runtime, database,
+    # Mini App or payment-store settings do not match the selected environment.
+    from app.subscription.subscription_menu import install_subscriptions
     from data.postgres_db import get_connection
-    install_test_subscriptions(application, os.environ, get_connection)
+    install_subscriptions(application, os.environ, get_connection)
 
     # Блокировка / разблокировка бота пользователем
     application.add_handler(

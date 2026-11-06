@@ -1,1 +1,1 @@
-"""Test payment integration; importing this package has no side effects."""
+"""Subscription payment integration; importing this package has no side effects."""

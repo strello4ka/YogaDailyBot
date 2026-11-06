@@ -26,8 +26,8 @@ async def _user_reminders(context, user_id, subscription, now):
                          payment_pending=pending)
 
 
-async def _test_user_ids(context, repository):
-    configured = context.bot_data.get('subscription_test_users')
+async def _subscription_user_ids(context, repository):
+    configured = context.bot_data.get('subscription_allowed_users')
     if configured is not None:
         return configured
     return await asyncio.to_thread(repository.enrolled_user_ids)
@@ -89,7 +89,7 @@ async def _deliver_ready_payments(context, user_id):
         try:
             await deliver_payment_notice(context, user_id, order_id, datetime.now(MOSCOW))
         except Exception:
-            logger.warning('Test payment notification failed order=%s', order_id)
+            logger.warning('Payment notification failed order=%s', order_id)
     canceled = await asyncio.to_thread(repository.canceled_payment_work, user_id)
     for order_id in canceled:
         try:
@@ -101,13 +101,13 @@ async def _deliver_ready_payments(context, user_id):
     await continue_after_subscription_payment(context, user_id)
 
 
-async def reconcile_test_payments(context, *, user_ids=None, check_pending=True):
+async def reconcile_payments(context, *, user_ids=None, check_pending=True):
     """Deliver ready results first; only periodic reconciliation polls YooKassa."""
     repository = context.bot_data.get('subscription_repository')
     service = context.bot_data.get('subscription_payment_service')
     if repository is None:
         return
-    allowed = await _test_user_ids(context, repository)
+    allowed = await _subscription_user_ids(context, repository)
     selected = allowed if user_ids is None else set(user_ids).intersection(allowed)
     for user_id in selected:
         try:
@@ -123,7 +123,7 @@ async def reconcile_test_payments(context, *, user_ids=None, check_pending=True)
                                                 context.bot_data['subscription_miniapp_url'])
                     except Exception:
                         # No provider body, personal data or credentials in logs.
-                        logger.warning('Test payment reconciliation failed order=%s', order_id)
+                        logger.warning('Payment reconciliation failed order=%s', order_id)
                     finally:
                         await asyncio.to_thread(repository.touch_order_check, order_id, user_id,
                                                 datetime.now(MOSCOW))
@@ -131,7 +131,7 @@ async def reconcile_test_payments(context, *, user_ids=None, check_pending=True)
             if service is not None and pending:
                 await _deliver_ready_payments(context, user_id)
         except Exception:
-            logger.warning('Test payment worker failed user=%s', user_id)
+            logger.warning('Payment worker failed user=%s', user_id)
 
 
 _FILTER_LABELS = {
@@ -247,11 +247,11 @@ async def _send_reminder(context, user_id, event, profile, now):
                 await asyncio.to_thread(repository.mark_notification_sent, user_id, tariff_key,
                                         datetime.now(MOSCOW))
 
-async def deliver_test_reminders(context):
+async def deliver_reminders(context):
     repository = context.bot_data.get('subscription_repository')
     if repository is None:
         return
-    for user_id in await _test_user_ids(context, repository):
+    for user_id in await _subscription_user_ids(context, repository):
         try:
             now = datetime.now(MOSCOW)
             subscription = await asyncio.to_thread(repository.synchronize_access, user_id, now)
@@ -359,14 +359,14 @@ def due_reminders(subscription: Subscription, now: datetime, *, old_user_offer=N
     return result
 
 
-async def synchronize_test_access(context):
-    """Only explicitly allowlisted test users; no existing-user rollout."""
+async def synchronize_access(context):
+    """Synchronize enrolled users, optionally limited by a test allowlist."""
     repository = context.bot_data.get("subscription_repository")
     if repository is None:
         return
     now = datetime.now(MOSCOW)
-    for user_id in await _test_user_ids(context, repository):
+    for user_id in await _subscription_user_ids(context, repository):
         try:
             await asyncio.to_thread(repository.synchronize_access, user_id, now)
         except Exception:
-            logger.exception("Subscription test state synchronization failed user=%s", user_id)
+            logger.exception("Subscription state synchronization failed user=%s", user_id)

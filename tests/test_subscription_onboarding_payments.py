@@ -23,7 +23,7 @@ class CheckoutOnboardingTest(unittest.IsolatedAsyncioTestCase):
         self.repo.mark_notification_sent.side_effect = lambda user, key, now: self.sent.add(key)
         self.repo.get.return_value = Subscription(paid=purchased_period('month', datetime.now(MOSCOW)))
         self.context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()), bot_data={
-            'subscription_repository': self.repo, 'subscription_test_users': None,
+            'subscription_repository': self.repo, 'subscription_allowed_users': None,
             'subscription_miniapp_url': 'https://example.org/?test=1'})
 
     async def test_success_waits_for_notice_then_advances_once(self):
@@ -91,7 +91,7 @@ class CheckoutOnboardingTest(unittest.IsolatedAsyncioTestCase):
         update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
             effective_message=SimpleNamespace(text='Начать 14 дней бесплатно'))
         with patch('app.onboarding.flow.load_state', return_value=self.state), patch(
-                'app.subscription.jobs.reconcile_test_payments', new_callable=AsyncMock) as retry, patch(
+                'app.subscription.jobs.reconcile_payments', new_callable=AsyncMock) as retry, patch(
                 'app.onboarding.flow._transition', new_callable=AsyncMock) as transition:
             await handle_reply(update, self.context)
         retry.assert_awaited_once_with(self.context, user_ids={1}, check_pending=False)

@@ -61,9 +61,9 @@ def has_access(subscription: Subscription, feature: Feature, now: datetime) -> b
 def repository_for(context, user_id):
     """Return the configured repository when this user passes the rollout allowlist."""
     data = getattr(context, "bot_data", None) or {}
-    if "subscription_test_users" not in data:
+    if "subscription_allowed_users" not in data:
         return None
-    users = data["subscription_test_users"]
+    users = data["subscription_allowed_users"]
     if users is not None and user_id not in users:
         return None
     return data.get("subscription_repository")

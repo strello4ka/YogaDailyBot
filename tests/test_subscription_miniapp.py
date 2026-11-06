@@ -267,7 +267,7 @@ class TestServerSetupTest(unittest.TestCase):
         factory, provider = Mock(), Mock(expected_test=True)
         with patch('data.subscription_repository.SubscriptionRepository') as repository_class:
             app = create_test_app(self.settings(), factory, provider=provider)
-            repository_class.return_value.verify_test_database.assert_called_once_with('yogadaily_test')
+            repository_class.return_value.verify_database.assert_called_once_with('yogadaily_test')
             provider.verify_test_store.assert_called_once()
             self.assertEqual(app.allowed_users, {10})
             self.assertEqual(app.return_url, 'https://example.org/pay?test=1')
