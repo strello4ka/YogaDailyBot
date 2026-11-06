@@ -21,6 +21,7 @@ function monthlyPrice(tariff) {
 }
 let catalog = [], preview = false, orderId = null, poll = null, checking = false;
 let confirmationUrl = '', paymentCreationStartedAt = null;
+let resumeLoaderTimeout = null;
 let initData = tg?.initData || sessionStorage.getItem('yoga-init-data') || '';
 if (tg?.initData) sessionStorage.setItem('yoga-init-data', tg.initData);
 tg?.ready();
@@ -122,7 +123,7 @@ function stopCreationWait() {
   $('loading').hidden = true;
   $('payment-status').hidden = true;
   $('checkout').hidden = false;
-  error('Упс...что-то пошло не так');
+  error('Упс… что-то пошло не так');
   updatePrice();
 }
 function status(title, text) {
@@ -150,6 +151,17 @@ function rememberConfirmation(value) {
     return true;
   } catch (_) { return false; }
 }
+function restoreResumeButton(message = '') {
+  clearTimeout(resumeLoaderTimeout); resumeLoaderTimeout = null;
+  const resume = $('resume');
+  resume.textContent = 'Вернуться к оплате';
+  resume.classList.remove('is-busy');
+  resume.removeAttribute('aria-disabled');
+  if (message) {
+    $('status-text').textContent = message;
+    $('status-text').hidden = false;
+  }
+}
 function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
   const target = confirmationUrl;
@@ -172,10 +184,14 @@ function openConfirmation(value) {
   }, PAYMENT_CREATION_TIMEOUT_MS);
   window.location.assign(target);
 }
-function pressedTransition(element, callback) {
+function pressedTransition(element, callback, timeoutCallback = null) {
   if (element.classList.contains('is-busy')) return;
   showButtonLoader(element, 'Загрузка');
   tg?.HapticFeedback?.impactOccurred?.('light');
+  if (timeoutCallback) {
+    clearTimeout(resumeLoaderTimeout);
+    resumeLoaderTimeout = setTimeout(timeoutCallback, PAYMENT_CREATION_TIMEOUT_MS);
+  }
   window.setTimeout(callback, 110);
 }
 async function checkPayment() {
@@ -212,7 +228,10 @@ async function checkPayment() {
         if (creationWaitExpired()) { stopCreationWait(); return; }
       }
       status('Ожидаем оплату', '');
-      if (canResume) $('resume').hidden = false;
+      if (canResume) {
+        restoreResumeButton();
+        $('resume').hidden = false;
+      }
       poll = setTimeout(checkPayment, 5000);
     }
   } catch (e) {
@@ -241,7 +260,10 @@ async function checkPayment() {
         }
         const canResume = rememberConfirmation(confirmationUrl);
         status('Ожидаем оплату', '');
-        if (canResume) $('resume').hidden = false;
+        if (canResume) {
+          restoreResumeButton();
+          $('resume').hidden = false;
+        }
       }
       poll = setTimeout(checkPayment, 5000);
     }
@@ -277,7 +299,9 @@ $('resume').addEventListener('click', event => {
   if (!confirmationUrl) { event.preventDefault(); return; }
   event.preventDefault();
   const target = confirmationUrl;
-  pressedTransition(event.currentTarget, () => openConfirmation(target));
+  pressedTransition(event.currentTarget, () => openConfirmation(target), () => {
+    restoreResumeButton('Упс… что-то пошло не так');
+  });
 });
 $('tariffs-button').addEventListener('click', () => {
   $('payment-status').hidden = true;
@@ -290,6 +314,16 @@ $('reload').addEventListener('click', () => {
 });
 $('close').addEventListener('click', () => tg?.close());
 async function load() {
+  // The YooKassa return opens in an ordinary browser without Telegram auth.
+  // It has one deliberately static state and must not call any API.
+  if (browserPaymentReturn) {
+    $('loading-title').textContent = 'Ожидаем оплату…';
+    $('loading-title').classList.add('screen-state-title');
+    $('loading-text').textContent = 'Вернись в YogaDailyBot.';
+    $('loading-text').hidden = false;
+    $('reload').hidden = true;
+    return;
+  }
   try {
     const data = await api('/api/session');
     catalog = data.tariffs; preview = data.preview;
@@ -332,28 +366,16 @@ async function load() {
       $('checkout').hidden = false;
     }
   } catch (e) {
-    if (e.status === 401) {
-      if (browserPaymentReturn) {
-        $('loading-title').textContent = 'Ожидаем оплату…';
-        $('loading-title').classList.add('screen-state-title');
-        $('loading-text').textContent = 'Вернись в YogaDailyBot.';
-        $('loading-text').hidden = false;
-        $('reload').hidden = true;
-      } else {
-        $('loading-title').textContent = 'Не удалось открыть тарифы';
-        $('loading-title').classList.remove('screen-state-title');
-        $('loading-text').textContent =
-          'Открой тарифы заново через Меню → Подписка → Посмотреть тарифы.';
-        $('reload').textContent = 'Закрыть';
-      }
-      if (!browserPaymentReturn) $('reload').dataset.action = 'close';
-    } else {
-      $('loading-text').textContent = 'Не удалось загрузить данные. ' + e.message;
-    }
+    // Do not introduce a separate technical-error screen. If the checkout
+    // cannot be initialized, use the single agreed unavailable-session state.
+    $('loading-title').textContent = 'Не удалось открыть тарифы';
+    $('loading-title').classList.remove('screen-state-title');
+    $('loading-text').textContent =
+      'Открой тарифы заново через Меню → Подписка → Посмотреть тарифы.';
+    $('reload').textContent = 'Закрыть';
+    $('reload').dataset.action = 'close';
     $('loading-text').hidden = false;
-    if (!(e.status === 401 && browserPaymentReturn)) {
-      $('reload').hidden = false;
-    }
+    $('reload').hidden = false;
   }
 }
 load();

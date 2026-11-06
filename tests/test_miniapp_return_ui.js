@@ -75,28 +75,27 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
         return {fontSize:style.fontSize,fontWeight:style.fontWeight};
       });
       assert.deepEqual(loadingStyle,{fontSize:'18px',fontWeight:'400'});
-      releaseSession();
+      if (!scenario.browserReturned) releaseSession();
+      if (scenario.browserReturned) {
+        assert.equal(await page.locator('#loading-title').textContent(),'Ожидаем оплату…');
+        assert.equal(await page.locator('#loading-text').textContent(),'Вернись в YogaDailyBot.');
+        assert.equal(await page.locator('#reload').isVisible(),false);
+        assert.equal(await page.locator('#checkout').isVisible(),false);
+        assert.deepEqual(errors,[]);
+        console.log('PASS',scenario.name);
+        await page.close();
+        continue;
+      }
       if(scenario.checkout) {
         await page.locator('#checkout').waitFor({state:'visible'});
       } else if(scenario.failed) {
         await page.locator('#reload').waitFor({state:'visible'});
         assert.equal(await page.locator('#checkout').isVisible(),false);
         assert.equal(await page.evaluate(() => window.checkoutShown),false);
-        if(scenario.statusCode === 401) {
-          if(scenario.browserReturned) {
-            assert.equal(await page.locator('#loading-title').textContent(),'Ожидаем оплату…');
-            assert.equal(await page.locator('#loading-text').textContent(),'Вернись в YogaDailyBot.');
-            assert.equal(await page.locator('#reload').isVisible(),false);
-          } else {
-            assert.equal(await page.locator('#loading-title').textContent(),'Не удалось открыть тарифы');
-            assert.equal(await page.locator('#loading-text').textContent(),
-              'Открой тарифы заново через Меню → Подписка → Посмотреть тарифы.');
-            assert.equal(await page.locator('#reload').textContent(),'Закрыть');
-          }
-        } else {
-          assert.equal(await page.locator('#loading-title').textContent(),'Загружаем…');
-          assert.equal(await page.locator('#reload').textContent(),'Попробовать снова');
-        }
+        assert.equal(await page.locator('#loading-title').textContent(),'Не удалось открыть тарифы');
+        assert.equal(await page.locator('#loading-text').textContent(),
+          'Открой тарифы заново через Меню → Подписка → Посмотреть тарифы.');
+        assert.equal(await page.locator('#reload').textContent(),'Закрыть');
       } else {
         releasePayment();
         if(scenario.status === 'canceled') {
@@ -213,7 +212,7 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
     releaseSlowCreate();
     await timeoutPage.waitForFunction(() => !document.getElementById('error').hidden);
     assert.equal(await timeoutPage.locator('#error').textContent(),
-      'Упс...что-то пошло не так');
+      'Упс… что-то пошло не так');
     assert.equal(await timeoutPage.locator('#pay').isEnabled(),true);
     assert.equal(await timeoutPage.locator('#pay').textContent(),'Оплатить · 350 ₽');
     assert.equal(await timeoutPage.evaluate(() => sessionStorage.getItem('yoga-order')),order);
