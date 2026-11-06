@@ -151,16 +151,12 @@ function rememberConfirmation(value) {
     return true;
   } catch (_) { return false; }
 }
-function restoreResumeButton(message = '') {
+function restoreResumeButton() {
   clearTimeout(resumeLoaderTimeout); resumeLoaderTimeout = null;
   const resume = $('resume');
   resume.textContent = 'Вернуться к оплате';
   resume.classList.remove('is-busy');
   resume.removeAttribute('aria-disabled');
-  if (message) {
-    $('status-text').textContent = message;
-    $('status-text').hidden = false;
-  }
 }
 function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
@@ -300,7 +296,7 @@ $('resume').addEventListener('click', event => {
   event.preventDefault();
   const target = confirmationUrl;
   pressedTransition(event.currentTarget, () => openConfirmation(target), () => {
-    restoreResumeButton('Упс… что-то пошло не так');
+    restoreResumeButton();
   });
 });
 $('tariffs-button').addEventListener('click', () => {

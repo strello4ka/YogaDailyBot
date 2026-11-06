@@ -169,7 +169,7 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertIn("status('❌ Оплата не прошла', 'Попробуй ещё раз')", client)
         self.assertIn("loader.className = 'button-loader'", client)
         self.assertIn("showButtonLoader(element, 'Загрузка')", client)
-        self.assertIn("restoreResumeButton('Упс… что-то пошло не так')", client)
+        self.assertNotIn("restoreResumeButton('Упс… что-то пошло не так')", client)
         self.assertIn('setTimeout(timeoutCallback, PAYMENT_CREATION_TIMEOUT_MS)', client)
         self.assertIn("class=\"screen-state-title\">Загружаем…", page)
         self.assertIn('const PAYMENT_CREATION_TIMEOUT_MS = 30000;', client)
