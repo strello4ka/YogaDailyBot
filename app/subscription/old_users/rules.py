@@ -1,13 +1,18 @@
 """Date and eligibility rules for the one-off old-users transition."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from ..tariff import local_time, midnight
 
 GIFT_DAYS = 30
 EXTRA_OFFER_DAYS = 14
+
+
+def registration_cutoff(launch_at: datetime) -> datetime:
+    """users.created_at is a naive UTC timestamp; compare instants, not dates."""
+    return local_time(launch_at).astimezone(timezone.utc).replace(tzinfo=None)
 
 
 @dataclass(frozen=True)

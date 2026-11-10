@@ -22,6 +22,7 @@ function monthlyPrice(tariff) {
 let catalog = [], preview = false, orderId = null, poll = null, checking = false;
 let confirmationUrl = '', paymentCreationStartedAt = null;
 let resumeLoaderTimeout = null;
+let resumeRequested = false;
 let initData = tg?.initData || sessionStorage.getItem('yoga-init-data') || '';
 if (tg?.initData) sessionStorage.setItem('yoga-init-data', tg.initData);
 tg?.ready();
@@ -127,6 +128,7 @@ function stopCreationWait() {
   updatePrice();
 }
 function status(title, text) {
+  if (title !== 'Ожидаем оплату') restoreResumeButton();
   $('loading').hidden = true;
   $('checkout').hidden = true; $('payment-status').hidden = false;
   $('payment-status').classList.toggle('waiting', title === 'Ожидаем оплату');
@@ -153,10 +155,18 @@ function rememberConfirmation(value) {
 }
 function restoreResumeButton() {
   clearTimeout(resumeLoaderTimeout); resumeLoaderTimeout = null;
+  resumeRequested = false;
   const resume = $('resume');
   resume.textContent = 'Вернуться к оплате';
   resume.classList.remove('is-busy');
   resume.removeAttribute('aria-disabled');
+}
+function waitingForPayment() {
+  status('Ожидаем оплату', '');
+  // The same button can re-fetch the existing checkout URL after a failed
+  // status request. A background poll must not reset its 30-second loader.
+  $('resume').hidden = false;
+  if (!$('resume').classList.contains('is-busy')) restoreResumeButton();
 }
 function openConfirmation(value) {
   if (!rememberConfirmation(value)) throw new Error('invalid-payment-url');
@@ -218,49 +228,25 @@ async function checkPayment() {
       poll = setTimeout(checkPayment, 2000);
     } else {
       const canResume = rememberConfirmation(data.confirmation_url);
-      if (canResume) paymentCreationStartedAt = null;
-      else {
-        if (paymentCreationStartedAt === null) paymentCreationStartedAt = Date.now();
-        if (creationWaitExpired()) { stopCreationWait(); return; }
-      }
-      status('Ожидаем оплату', '');
-      if (canResume) {
-        restoreResumeButton();
-        $('resume').hidden = false;
+      paymentCreationStartedAt = null;
+      waitingForPayment();
+      if (canResume && resumeRequested) {
+        resumeRequested = false;
+        openConfirmation(confirmationUrl);
+        return;
       }
       poll = setTimeout(checkPayment, 5000);
     }
   } catch (e) {
     if (e.status === 404) {
+      restoreResumeButton();
       clearSavedOrder(); orderId = null;
       confirmationUrl = '';
       $('payment-status').hidden = true;
       $('checkout').hidden = false;
       updatePrice();
     } else {
-      if (!confirmationUrl && $('payment-status').hidden) {
-        if (creationWaitExpired()) {
-          stopCreationWait();
-          return;
-        }
-        $('loading').hidden = true;
-        $('checkout').hidden = false;
-        showPayLoader();
-      } else {
-        if (!confirmationUrl && paymentCreationStartedAt === null) {
-          paymentCreationStartedAt = Date.now();
-        }
-        if (!confirmationUrl && creationWaitExpired()) {
-          stopCreationWait();
-          return;
-        }
-        const canResume = rememberConfirmation(confirmationUrl);
-        status('Ожидаем оплату', '');
-        if (canResume) {
-          restoreResumeButton();
-          $('resume').hidden = false;
-        }
-      }
+      waitingForPayment();
       poll = setTimeout(checkPayment, 5000);
     }
   } finally { checking = false; }
@@ -288,14 +274,28 @@ $('payment-form').addEventListener('submit', async event => {
   } catch (e) {
     if (e.status === 409) { clearSavedOrder(); window.location.reload(); return; }
     paymentCreationStartedAt = null;
-    error(e.message); updatePrice();
+    if (e.status === 404) {
+      clearSavedOrder(); orderId = null; confirmationUrl = '';
+      error('Время ожидания истекло. Попробуй оплатить ещё раз.');
+    } else {
+      error(e.message);
+    }
+    updatePrice();
   }
 });
 $('resume').addEventListener('click', event => {
-  if (!confirmationUrl) { event.preventDefault(); return; }
   event.preventDefault();
-  const target = confirmationUrl;
-  pressedTransition(event.currentTarget, () => openConfirmation(target), () => {
+  if (event.currentTarget.classList.contains('is-busy')) return;
+  resumeRequested = true;
+  pressedTransition(event.currentTarget, () => {
+    if (!resumeRequested) return; // A terminal result may arrive during the press animation.
+    if (confirmationUrl) {
+      resumeRequested = false;
+      openConfirmation(confirmationUrl);
+    } else {
+      checkPayment();
+    }
+  }, () => {
     restoreResumeButton();
   });
 });

@@ -2,12 +2,11 @@
 
 from datetime import datetime
 
-from ..tariff import local_time
-from .rules import launch_offer
+from .rules import launch_offer, registration_cutoff
 
 
 def preview(cursor, launch_at: datetime):
-    launch_day = local_time(launch_at).date()
-    cursor.execute("SELECT COUNT(*) FROM users WHERE created_at::date < %s", (launch_day,))
+    cursor.execute("SELECT COUNT(*) FROM users WHERE created_at < %s",
+                   (registration_cutoff(launch_at),))
     count = cursor.fetchone()[0]
     return count, launch_offer(launch_at)

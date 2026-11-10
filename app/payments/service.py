@@ -11,6 +11,7 @@ from uuid import UUID
 from app.subscription.tariff import TARIFFS, local_time
 
 logger = logging.getLogger(__name__)
+CREATION_WINDOW_HOURS = 23
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class Order:
     email: str
     created_at: datetime
     provider_payment_id: Optional[str] = None
+    status: str = 'created'
 
     @property
     def amount(self):
@@ -100,6 +102,7 @@ class PaymentService:
                  expected_final_price=None):
         """Serialize different browser tabs and return an unfinished order first."""
         with self.repository.payment_creation_lock(user_id):
+            self.repository.expire_created_orders(user_id, now)
             existing_id = self.repository.open_order_id(user_id)
             if existing_id and existing_id != str(order_id):
                 return existing_id, None
@@ -111,6 +114,8 @@ class PaymentService:
         """A retry must reuse its UUID, including after an HTTP timeout."""
         order_id = str(UUID(str(order_id)))
         order = self.repository.get_order(order_id, user_id)
+        if order is not None and order.status == 'expired':
+            raise LookupError('Checkout expired')
         if order is None:
             price, offer_ends = self.repository.checkout_price(user_id, tariff_code, now)
             if expected_final_price is not None and int(expected_final_price) != price.final_price:
@@ -138,12 +143,13 @@ class PaymentService:
 
     def refresh_details(self, order_id, user_id, now, return_url=None):
         order = self.repository.get_order(order_id, user_id)
-        if order is None:
+        if order is None or order.status == 'expired':
             raise LookupError('Order not found')
         if order.provider_payment_id is None:
             if return_url:
                 # Recover a creation response lost in transit with the same key.
                 with self.repository.payment_creation_lock(user_id):
+                    self.repository.expire_created_orders(user_id, now)
                     self.create(order.order_id, user_id, order.tariff_code, order.email, return_url, now)
                 order = self.repository.get_order(order_id, user_id)
             if order.provider_payment_id is None:

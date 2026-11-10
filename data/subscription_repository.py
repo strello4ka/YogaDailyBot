@@ -108,6 +108,16 @@ class SubscriptionRepository:
                            ('subscription_checkout:{}'.format(user_id),))
             yield
 
+    def expire_created_orders(self, user_id, now):
+        from app.payments.service import CREATION_WINDOW_HOURS
+        scope, params = self._payment_scope_sql()
+        with self._transaction() as cursor:
+            cursor.execute(
+                "UPDATE subscription_orders SET status='expired',updated_at=%s "
+                "WHERE user_id=%s AND status='created' AND provider_payment_id IS NULL "
+                "AND created_at <= %s" + scope,
+                (now, user_id, now - timedelta(hours=CREATION_WINDOW_HOURS)) + params)
+
     def open_order_id(self, user_id):
         scope, params = self._payment_scope_sql()
         with self._transaction() as cursor:
@@ -234,7 +244,7 @@ class SubscriptionRepository:
         scope, params = self._payment_scope_sql()
         with self._transaction() as cursor:
             cursor.execute("SELECT order_id,user_id,tariff_code,duration_days,base_price,final_price,"
-                           "special_offer_applied,offer_ends_at_order,email,created_at,provider_payment_id "
+                           "special_offer_applied,offer_ends_at_order,email,created_at,provider_payment_id,status "
                            "FROM subscription_orders "
                            "WHERE order_id=%s AND user_id=%s" + scope,
                            (order_id, user_id) + params)
@@ -399,6 +409,16 @@ class SubscriptionRepository:
                 (user_id, event_key),
             )
             return cursor.fetchone() is not None
+
+    def notification_sent_at(self, user_id: int, event_key: str) -> Optional[datetime]:
+        """Actual acknowledged delivery time, durable across bot restarts."""
+        with self._transaction() as cursor:
+            cursor.execute(
+                "SELECT sent_at FROM subscription_notifications WHERE user_id=%s AND event_key=%s",
+                (user_id, event_key),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
 
     def reminder_profile(self, user_id, trial=None):
         with self._transaction() as cursor:

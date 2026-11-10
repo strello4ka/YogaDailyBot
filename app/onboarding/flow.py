@@ -37,7 +37,9 @@ async def _subscription_variant(context, user_id):
         return "new"
     if subscription.state(datetime.now().astimezone()) != AccessState.FREE:
         return "active"
-    return "used" if subscription.trial is not None else "new"
+    # Old-user gifts and past purchases are access history too. They must not
+    # reopen the first-time trial screen when the user restarts onboarding.
+    return "used" if any((subscription.trial, subscription.gift, subscription.paid)) else "new"
 
 
 def _used_subscription_keyboard(context):
@@ -349,6 +351,13 @@ async def guard_callback(update, context):
     state = load_state(update.effective_user.id) if update.effective_user else None
     data = update.callback_query.data or ""
     if state and state.get("step") != "complete" and not data.startswith(("ob3:", "start_restart_")):
+        from app.subscription.old_users.messages import (FEEDBACK_CALLBACK, FREE_DETAILS_CALLBACK,
+                                                         SUBSCRIPTION_DETAILS_CALLBACK)
+        if data in (FEEDBACK_CALLBACK, FREE_DETAILS_CALLBACK, SUBSCRIPTION_DETAILS_CALLBACK):
+            from app.subscription.access import current_subscription
+            subscription = await asyncio.to_thread(current_subscription, context, update.effective_user.id)
+            if subscription is not None and subscription.gift is not None:
+                return  # Launch messages also belong to old users mid-onboarding.
         await update.callback_query.answer("Сначала закончи настройку бота.", show_alert=True)
         raise ApplicationHandlerStop
 

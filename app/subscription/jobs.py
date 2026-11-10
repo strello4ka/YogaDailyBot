@@ -19,11 +19,16 @@ logger = logging.getLogger(__name__)
 
 async def _user_reminders(context, user_id, subscription, now):
     offer, pending = None, False
+    launch_sent_at = None
     if subscription.gift is not None:
         repository = context.bot_data['subscription_repository']
         offer, pending = await asyncio.to_thread(repository.old_user_reminder_context, user_id)
+        if offer is not None:
+            launch_key = 'launch:' + local_time(offer.gift.ends_at).isoformat()
+            launch_sent_at = await asyncio.to_thread(repository.notification_sent_at,
+                                                     user_id, launch_key)
     return due_reminders(subscription, now, old_user_offer=offer,
-                         payment_pending=pending)
+                         payment_pending=pending, launch_sent_at=launch_sent_at)
 
 
 async def _subscription_user_ids(context, repository):
@@ -223,7 +228,8 @@ async def _send_reminder(context, user_id, event, profile, now):
             await context.bot.send_message(chat_id=profile['chat_id'],
                                            text=reminder_text(event, profile),
                                            parse_mode='HTML', reply_markup=keyboard)
-            await asyncio.to_thread(repository.mark_notification_sent, user_id, event.key, moment)
+            await asyncio.to_thread(repository.mark_notification_sent, user_id, event.key,
+                                    datetime.now(MOSCOW))
     # Telegram messages can have one keyboard type. Change the reply keyboard
     # on the expiry message; offer tariff navigation in a separate short message.
     if event.kind.endswith('expired') and context.bot_data['subscription_miniapp_url']:
@@ -294,7 +300,7 @@ def _at(day: date, hour: int) -> datetime:
 
 
 def due_reminders(subscription: Subscription, now: datetime, *, old_user_offer=None,
-                  payment_pending=False) -> List[Reminder]:
+                  payment_pending=False, launch_sent_at=None) -> List[Reminder]:
     """Return today's eligible events, not a backlog of obsolete sales messages.
 
     The three-day event uses the exclusive expiry date minus three days:
@@ -313,7 +319,8 @@ def due_reminders(subscription: Subscription, now: datetime, *, old_user_offer=N
         from .old_users.notifications import due_notifications
         for event in due_notifications(old_user_offer, now,
                 gift_active=state == AccessState.GIFT, free=state == AccessState.FREE,
-                has_paid=subscription.paid is not None, payment_pending=payment_pending):
+                has_paid=subscription.paid is not None, payment_pending=payment_pending,
+                launch_sent_at=launch_sent_at):
             end = (old_user_offer.gift.ends_at
                    if event.kind.startswith('gift_') or event.kind.startswith('launch')
                    else old_user_offer.offer_ends)

@@ -324,7 +324,10 @@ Production Mini App — отдельный Railway-сервис из
 3. Создать свежую резервную копию production-БД и убедиться, что её можно скачать
    или восстановить. Старый локальный дамп до этого момента не удалять.
 4. При остановленном production-боте вручную применить
-   `data/migrations/20261106_production_subscriptions.sql`. Перед применением
+   `data/migrations/20261106_production_subscriptions.sql`, затем
+   `data/migrations/20261109_expired_subscription_orders.sql`. Вторую миграцию
+   также нужно применить к уже настроенной тестовой БД перед обновлением кода.
+   Перед применением
    отдельно проверить имя подключённой БД. Миграция не запускается приложением.
 5. Read-only запросами проверить наличие пяти таблиц и отсутствие записей в
    `subscription_accounts`, `subscription_orders` и `subscription_notifications`.

@@ -121,6 +121,15 @@ class SubscriptionStorageBoundaryTest(unittest.TestCase):
     def test_constructing_repository_does_not_open_a_connection(self):
         self.factory.assert_not_called()
 
+    def test_notification_delivery_time_is_loaded_without_mutating_it(self):
+        self.cursor.fetchone.return_value = (at(1, 13),)
+        self.assertEqual(self.repository.notification_sent_at(10, 'launch:period'), at(1, 13))
+        sql, params = self.cursor.execute.call_args.args
+        self.assertTrue(sql.startswith('SELECT sent_at'))
+        self.assertEqual(params, (10, 'launch:period'))
+        self.cursor.fetchone.return_value = None
+        self.assertIsNone(self.repository.notification_sent_at(10, 'launch:period'))
+
     def test_old_user_reminders_read_frozen_offer_and_pending_checkout(self):
         from app.subscription.old_users.rules import launch_offer
         offer = launch_offer(at(1))

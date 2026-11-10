@@ -11,6 +11,7 @@ from uuid import UUID
 import httpx
 
 from app.subscription.tariff import local_time
+from app.payments.service import CREATION_WINDOW_HOURS
 
 
 class YooKassaClient:
@@ -54,7 +55,7 @@ class YooKassaClient:
         # Provider idempotence lasts 24h. Never silently create a second payment
         # when a previous creation request has an unknown outcome beyond that window.
         age = local_time(now) - local_time(order.created_at)
-        if age < timedelta(0) or age >= timedelta(hours=23):
+        if age < timedelta(0) or age >= timedelta(hours=CREATION_WINDOW_HOURS):
             raise ValueError('Order requires reconciliation before another creation attempt')
         UUID(order.order_id)
         # Preserve the Mini App query. A browser return has no Telegram identity,

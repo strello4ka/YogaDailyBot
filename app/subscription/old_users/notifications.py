@@ -40,11 +40,19 @@ def notification_schedule(offer: OldUserOffer):
     )
 
 
-def due_notifications(offer, now, *, gift_active, free, has_paid, payment_pending):
+def due_notifications(offer, now, *, gift_active, free, has_paid, payment_pending,
+                      launch_sent_at=None):
     """Today's reminders only; never replay obsolete marketing after downtime."""
     now = local_time(now)
     result = []
     for event in notification_schedule(offer):
+        if event.kind == 'launch_feedback':
+            # The schedule's nominal launch date is not proof of delivery.
+            # In particular, do not send feedback after a failed announcement.
+            if launch_sent_at is None:
+                continue
+            event = OldUserNotification(event.kind,
+                                       local_time(launch_sent_at) + timedelta(hours=2))
         scheduled = local_time(event.scheduled_at)
         if scheduled.date() != now.date() or scheduled > now:
             continue

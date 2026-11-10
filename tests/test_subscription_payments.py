@@ -150,6 +150,19 @@ class PaymentsTest(unittest.TestCase):
         repo.attach_payment.assert_not_called()
         repo.cancel_order.assert_not_called()
 
+    def test_expired_order_cannot_recreate_provider_payment(self):
+        repo, provider = Mock(), Mock(expected_test=True)
+        repo.payment_creation_lock.return_value = nullcontext()
+        order = replace(self.order, provider_payment_id=None)
+        repo.get_order.side_effect = [order, replace(order, status='expired')]
+        now = NOW + timedelta(hours=23)
+        with self.assertRaises(LookupError):
+            PaymentService(repo, provider).refresh_details(
+                order.order_id, order.user_id, now, 'https://example.org')
+        repo.expire_created_orders.assert_called_once_with(order.user_id, now)
+        provider.create_payment.assert_not_called()
+        provider.get_payment.assert_not_called()
+
     def test_special_price_is_resolved_by_server_and_snapshotted(self):
         repo, provider = Mock(), Mock(expected_test=True)
         repo.get_order.return_value = None

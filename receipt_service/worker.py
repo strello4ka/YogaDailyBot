@@ -16,6 +16,30 @@ class ReceiptWorker:
 
     def run_once(self, now=None):
         now = now or datetime.now(timezone.utc)
+        discovery_error = None
+        try:
+            discovered = self._discover_payments(now)
+        except Exception as error:
+            # Collection and delivery are independent. Existing receipts must
+            # keep progressing even while YooKassa is unavailable. Report the
+            # failed collection after draining the durable queue, not as success.
+            discovery_error = error
+            discovered = 0
+
+        for job in self.store.jobs('unknown'):
+            self._reconcile(job)
+        for job in self.store.jobs('ready'):
+            self._register(job)
+        for job in self.store.jobs('registered', 'email_pending'):
+            self._email(job)
+        self._send_problem_alerts()
+        counts = self.store.counts()
+        logger.info('Receipt cycle complete: discovered=%s states=%s', discovered, counts)
+        if discovery_error is not None:
+            raise discovery_error
+        return {'discovered': discovered, 'states': counts}
+
+    def _discover_payments(self, now):
         checkpoint = self.store.get_value('yookassa_checkpoint')
         saved_floor = self.store.get_value('yookassa_sync_from')
         floor = parse_time(saved_floor) if saved_floor else self.settings.sync_from
@@ -35,17 +59,7 @@ class ReceiptWorker:
             self.store.add_payment(payment)
             discovered += 1
         self.store.set_value('yookassa_checkpoint', now.isoformat())
-
-        for job in self.store.jobs('unknown'):
-            self._reconcile(job)
-        for job in self.store.jobs('ready'):
-            self._register(job)
-        for job in self.store.jobs('registered', 'email_pending'):
-            self._email(job)
-        self._send_problem_alerts()
-        counts = self.store.counts()
-        logger.info('Receipt cycle complete: discovered=%s states=%s', discovered, counts)
-        return {'discovered': discovered, 'states': counts}
+        return discovered
 
     def _receipt_name(self, job):
         return '{} [yookassa:{}]'.format(job['service_name'], job['payment_id'])
@@ -80,6 +94,10 @@ class ReceiptWorker:
                                             parse_time(job['paid_at']))
         except (TemporaryFailure, PermanentFailure) as error:
             self.store.transition(job['payment_id'], 'unknown', 'unknown', last_error=str(error))
+            return
+        except Exception as error:
+            self.store.transition(job['payment_id'], 'unknown', 'unknown',
+                                  last_error='Receipt lookup failed: ' + type(error).__name__)
             return
         if uuid:
             self.store.transition(job['payment_id'], 'unknown', 'registered',

@@ -4,8 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from ..tariff import local_time
-from .rules import GiftPeriod, OldUserOffer, launch_offer
+from .rules import GiftPeriod, OldUserOffer, launch_offer, registration_cutoff
 
 
 @dataclass(frozen=True)
@@ -42,13 +41,13 @@ def enroll(cursor, launch_at: datetime) -> int:
     if frozen is not None:
         expected = (offer.gift.starts_at, offer.gift.ends_at, offer.offer_ends)
         if tuple(frozen) != expected:
-            raise ValueError("Old-user cohort is already frozen for another launch date")
+            raise ValueError("Old-user cohort is already frozen for another launch moment")
         return 0
-    launch_day = local_time(launch_at).date()
+    cutoff = registration_cutoff(launch_at)
     cursor.execute(
         "INSERT INTO subscription_accounts "
         "(user_id,is_old_user,gift_starts,gift_ends,offer_ends,subscription_state,updated_at) "
-        "SELECT user_id,TRUE,%s,%s,%s,'gift',%s FROM users WHERE created_at::date < %s "
+        "SELECT user_id,TRUE,%s,%s,%s,'gift',%s FROM users WHERE created_at < %s "
         "ON CONFLICT (user_id) DO UPDATE SET is_old_user=TRUE,gift_starts=%s,gift_ends=%s,"
         "offer_ends=%s,subscription_state=CASE "
         "WHEN subscription_accounts.subscription_starts<=%s "
@@ -56,7 +55,7 @@ def enroll(cursor, launch_at: datetime) -> int:
         "WHEN subscription_accounts.subscription_ends>%s THEN 'gift_paid' "
         "ELSE 'gift' END,updated_at=%s "
         "WHERE subscription_accounts.is_old_user IS FALSE",
-        (offer.gift.starts_at, offer.gift.ends_at, offer.offer_ends, launch_at, launch_day,
+        (offer.gift.starts_at, offer.gift.ends_at, offer.offer_ends, launch_at, cutoff,
          offer.gift.starts_at, offer.gift.ends_at, offer.offer_ends,
          launch_at, launch_at, launch_at, launch_at),
     )

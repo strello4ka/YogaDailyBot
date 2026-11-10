@@ -2,7 +2,7 @@
 
 import unittest
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -35,7 +35,8 @@ from app.subscription.old_users.handlers import (
 from app.subscription.old_users.notifications import notification_schedule
 from app.subscription.old_users.prices import SPECIAL_PRICES, checkout_price
 from app.subscription.old_users.repository import enroll
-from app.subscription.old_users.rules import launch_offer
+from app.subscription.old_users.rules import launch_offer, registration_cutoff
+from app.subscription.old_users.activation import preview
 from app.subscription.tariff import MOSCOW
 
 
@@ -44,6 +45,44 @@ def at(day, hour=0):
 
 
 class OldUsersRulesTest(unittest.TestCase):
+    def test_exact_launch_cutoff_includes_same_day_starts_before_launch(self):
+        launch = at(1, 15)
+        cutoff = registration_cutoff(launch)
+        self.assertEqual(cutoff, datetime(2026, 10, 1, 12))
+        before = launch - timedelta(microseconds=1)
+        for first_start, expected in ((before, True), (launch, False),
+                                      (launch + timedelta(seconds=1), False)):
+            utc_timestamp = first_start.astimezone(timezone.utc).replace(tzinfo=None)
+            self.assertEqual(utc_timestamp < cutoff, expected)
+        self.assertEqual(registration_cutoff(launch.astimezone(timezone.utc)), cutoff)
+
+    def test_preview_and_activation_use_the_same_timestamp_without_onboarding_filter(self):
+        launch = at(1, 15)
+        cursor = Mock()
+        cursor.fetchone.return_value = (4,)
+        count, offer = preview(cursor, launch)
+        self.assertEqual(count, 4)
+        preview_sql, preview_params = cursor.execute.call_args.args
+        self.assertIn('created_at < %s', preview_sql)
+        self.assertNotIn('onboarding', preview_sql)
+        self.assertEqual(preview_params, (datetime(2026, 10, 1, 12),))
+        cursor.fetchone.return_value = None
+        enroll(cursor, launch)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn('WHERE created_at < %s', sql)
+        self.assertNotIn('created_at::date', sql)
+        self.assertNotIn('onboarding', sql)
+        self.assertEqual(params[4], preview_params[0])
+        self.assertEqual(offer.gift.starts_at, launch)
+
+    def test_launch_cli_accepts_exact_instant_with_required_timezone(self):
+        from tools.activate_old_users import parse_launch_at
+        self.assertEqual(parse_launch_at('2026-10-01T15:00:00+03:00'), at(1, 15))
+        self.assertEqual(parse_launch_at('2026-10-01T12:00:00Z'), at(1, 15))
+        for invalid in ('2026-10-01', '2026-10-01T15:00:00', 'not-a-date'):
+            with self.assertRaises(ValueError):
+                parse_launch_at(invalid)
+
     def test_launch_builds_thirty_day_gift_and_fourteen_extra_offer_days(self):
         offer = launch_offer(at(1, 18))
         self.assertEqual(offer.gift.starts_at, at(1, 18))
@@ -286,6 +325,41 @@ class OldUsersRulesTest(unittest.TestCase):
         self.assertIn('такие же цены, как для всех', text)
         self.assertIn('запрыгивать в последний вагон', text)
         self.assertIn('то момент настал!', text)
+
+
+class OldUserOnboardingGuardTest(unittest.IsolatedAsyncioTestCase):
+    async def test_announcement_buttons_work_during_old_user_onboarding(self):
+        from app.onboarding.flow import guard_callback
+        old = Subscription(gift=launch_offer(at(1)).gift)
+        for step in ('welcome', 'agreement', 'subscription', 'time_input'):
+            for data in ('old_users:subscription_details', 'old_users:free_details',
+                         'old_users:feedback'):
+                with self.subTest(step=step, data=data):
+                    state = dict(user_id=42, step=step)
+                    query = SimpleNamespace(data=data, answer=AsyncMock())
+                    update = SimpleNamespace(effective_user=SimpleNamespace(id=42), callback_query=query)
+                    with patch('app.onboarding.flow.load_state', return_value=state), patch(
+                            'app.subscription.access.current_subscription', return_value=old), patch(
+                            'app.onboarding.flow.save_state') as save:
+                        await guard_callback(update, SimpleNamespace())
+                    query.answer.assert_not_awaited()
+                    save.assert_not_called()
+                    self.assertEqual(state['step'], step)
+
+    async def test_unrelated_callbacks_and_non_old_users_remain_guarded(self):
+        from app.onboarding.flow import guard_callback
+        from telegram.ext import ApplicationHandlerStop
+        for subscription, data in ((Subscription(), 'old_users:feedback'),
+                                   (None, 'old_users:subscription_details'),
+                                   (Subscription(gift=launch_offer(at(1)).gift), 'schedule_pick_time')):
+            with self.subTest(subscription=subscription, data=data):
+                query = SimpleNamespace(data=data, answer=AsyncMock())
+                update = SimpleNamespace(effective_user=SimpleNamespace(id=42), callback_query=query)
+                with patch('app.onboarding.flow.load_state', return_value={'step': 'welcome'}), patch(
+                        'app.subscription.access.current_subscription', return_value=subscription):
+                    with self.assertRaises(ApplicationHandlerStop):
+                        await guard_callback(update, SimpleNamespace())
+                query.answer.assert_awaited_once()
 
 
 if __name__ == '__main__':

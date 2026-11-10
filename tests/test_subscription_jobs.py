@@ -20,6 +20,24 @@ def at(day, hour=0):
 
 
 class SubscriptionRemindersTest(unittest.TestCase):
+    def test_feedback_needs_delivered_launch_and_two_hours_after_actual_delivery(self):
+        offer = launch_offer(at(1))
+        state = Subscription(gift=offer.gift)
+        without_launch = due_reminders(state, at(1, 15), old_user_offer=offer)
+        self.assertNotIn('launch_feedback', [event.kind for event in without_launch])
+        delivered = at(1, 13)
+        for moment, expected in ((at(1, 15) - timedelta(seconds=1), False),
+                                 (at(1, 15), True)):
+            events = due_reminders(state, moment, old_user_offer=offer, launch_sent_at=delivered)
+            self.assertEqual('launch_feedback' in [event.kind for event in events], expected)
+
+    def test_feedback_delivery_delay_crosses_midnight(self):
+        offer = launch_offer(at(1))
+        events = due_reminders(Subscription(gift=offer.gift), at(2, 1),
+                               old_user_offer=offer, launch_sent_at=at(1, 23))
+        self.assertEqual([event.kind for event in events], ['launch_feedback'])
+        self.assertEqual(events[0].scheduled_at, at(2, 1))
+
     def test_all_old_user_reminders_are_due_only_on_their_scheduled_day(self):
         from app.subscription.old_users.notifications import notification_schedule
         offer = launch_offer(at(1))
@@ -27,9 +45,11 @@ class SubscriptionRemindersTest(unittest.TestCase):
         for notification in notification_schedule(offer):
             with self.subTest(kind=notification.kind):
                 moment = notification.scheduled_at
-                before = due_reminders(state, moment - timedelta(seconds=1), old_user_offer=offer)
+                before = due_reminders(state, moment - timedelta(seconds=1), old_user_offer=offer,
+                                       launch_sent_at=offer.gift.starts_at)
                 self.assertNotIn(notification.kind, [item.kind for item in before])
-                events = due_reminders(state, moment, old_user_offer=offer)
+                events = due_reminders(state, moment, old_user_offer=offer,
+                                       launch_sent_at=offer.gift.starts_at)
                 matching = [item for item in events if item.kind == notification.kind]
                 self.assertEqual(len(matching), 1)
                 self.assertEqual(matching[0].offer_ends_at, offer.offer_ends)
@@ -41,7 +61,8 @@ class SubscriptionRemindersTest(unittest.TestCase):
         offer = launch_offer(at(1))
         for event in notification_schedule(offer):
             actual = due_reminders(Subscription(gift=offer.gift), event.scheduled_at,
-                                   old_user_offer=offer, payment_pending=True)
+                                   old_user_offer=offer, payment_pending=True,
+                                   launch_sent_at=offer.gift.starts_at)
             if event.kind == 'launch':
                 expected = ['launch']
             elif event.kind == 'launch_feedback':
@@ -56,7 +77,8 @@ class SubscriptionRemindersTest(unittest.TestCase):
         paid = purchased_period('month', at(2), trial_ends_at=offer.gift.ends_at)
         state = Subscription(gift=offer.gift, paid=paid)
         for event in notification_schedule(offer):
-            actual = due_reminders(state, event.scheduled_at, old_user_offer=offer)
+            actual = due_reminders(state, event.scheduled_at, old_user_offer=offer,
+                                   launch_sent_at=offer.gift.starts_at)
             if event.kind in ('launch', 'launch_feedback'):
                 self.assertIn(event.kind, [item.kind for item in actual])
             else:
@@ -289,9 +311,14 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(onboarding.stop)
         self.repo = Mock()
         self.sent = set()
+        self.sent_at = {}
         self.repo.notification_lock.side_effect = lambda *args: nullcontext(True)
         self.repo.notification_sent.side_effect = lambda user, key: key in self.sent
-        self.repo.mark_notification_sent.side_effect = lambda user, key, now: self.sent.add(key)
+        def mark_sent(user, key, now):
+            self.sent.add(key)
+            self.sent_at[key] = now
+        self.repo.mark_notification_sent.side_effect = mark_sent
+        self.repo.notification_sent_at.side_effect = lambda user, key: self.sent_at.get(key)
         self.trial = start_trial(at(1))
         self.state = Subscription(self.trial)
         self.repo.synchronize_access.return_value = self.state
@@ -303,6 +330,49 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
         self.context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()), bot_data={
             'subscription_repository': self.repo, 'subscription_allowed_users': {10},
             'subscription_miniapp_url': 'https://example.org'})
+
+    async def test_failed_launch_does_not_send_feedback_and_success_starts_its_timer(self):
+        offer = launch_offer(at(1))
+        self.repo.old_user_reminder_context.return_value = (offer, False)
+        self.repo.get.return_value = self.repo.synchronize_access.return_value = Subscription(gift=offer.gift)
+        with patch('app.subscription.jobs.datetime') as clock:
+            clock.now.return_value = at(1, 12)
+            clock.combine.side_effect = datetime.combine
+            self.context.bot.send_message.side_effect = RuntimeError('Telegram unavailable')
+            with self.assertLogs('app.subscription.jobs', level='WARNING'):
+                await deliver_reminders(self.context)
+            self.context.bot.send_message.assert_awaited_once()
+            self.assertFalse(self.sent)
+            self.context.bot.send_message.reset_mock()
+            self.context.bot.send_message.side_effect = None
+            clock.now.return_value = at(1, 13)
+            await deliver_reminders(self.context)
+            self.context.bot.send_message.assert_awaited_once()
+            self.context.bot.send_message.reset_mock()
+            clock.now.return_value = at(1, 15) - timedelta(seconds=1)
+            await deliver_reminders(self.context)
+            self.context.bot.send_message.assert_not_awaited()
+            # Only the persisted delivery time is needed, not in-memory timers.
+            restarted_context = SimpleNamespace(bot=self.context.bot, bot_data=dict(self.context.bot_data))
+            clock.now.return_value = at(1, 15)
+            await deliver_reminders(restarted_context)
+            await deliver_reminders(restarted_context)
+            self.context.bot.send_message.assert_awaited_once()
+            self.assertEqual(len(self.sent), 2)
+
+    async def test_launch_delivery_time_is_recorded_after_telegram_acknowledges(self):
+        offer = launch_offer(at(1))
+        self.repo.old_user_reminder_context.return_value = (offer, False)
+        self.repo.get.return_value = self.repo.synchronize_access.return_value = Subscription(gift=offer.gift)
+        with patch('app.subscription.jobs.datetime') as clock:
+            clock.now.return_value = at(1, 12)
+            clock.combine.side_effect = datetime.combine
+            async def acknowledge(*args, **kwargs):
+                clock.now.return_value = at(1, 12) + timedelta(minutes=1)
+            self.context.bot.send_message.side_effect = acknowledge
+            await deliver_reminders(self.context)
+        key = 'launch:' + offer.gift.ends_at.isoformat()
+        self.assertEqual(self.sent_at[key], at(1, 12) + timedelta(minutes=1))
 
     async def test_old_user_reminders_reach_worker_and_are_not_sent_twice(self):
         from app.subscription.old_users.notifications import notification_schedule

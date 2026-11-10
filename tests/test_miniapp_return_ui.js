@@ -144,7 +144,8 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
         }
         if(scenario.paymentFailed) {
           assert.equal(await page.locator('#status-text').textContent(),'');
-          assert.equal(await page.locator('#resume').isVisible(),false);
+          assert.equal(await page.locator('#resume').isVisible(),true);
+          assert.equal(await page.locator('#resume').textContent(),'Вернуться к оплате');
         }
       }
       assert.deepEqual(errors,[]);
@@ -238,12 +239,81 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
     await pendingWithoutUrlPage.waitForFunction(() => checking===false);
     await pendingWithoutUrlPage.evaluate(() => window.advanceTestClock(31000));
     await pendingWithoutUrlPage.evaluate(() => checkPayment());
-    await pendingWithoutUrlPage.waitForFunction(() => !document.getElementById('error').hidden);
-    assert.equal(await pendingWithoutUrlPage.locator('#checkout').isVisible(),true);
-    assert.equal(await pendingWithoutUrlPage.locator('#pay').isEnabled(),true);
-    assert.equal(await pendingWithoutUrlPage.locator('#pay').textContent(),'Оплатить · 350 ₽');
-    console.log('PASS pending payment without YooKassa URL restores pay button');
+    assert.equal(await pendingWithoutUrlPage.locator('#checkout').isVisible(),false);
+    assert.equal(await pendingWithoutUrlPage.locator('#error').isVisible(),false);
+    assert.equal(await pendingWithoutUrlPage.locator('#resume').isVisible(),true);
+    assert.equal(await pendingWithoutUrlPage.locator('#resume').getAttribute('aria-disabled'),null);
+    console.log('PASS pending payment without URL stays on the retryable waiting screen');
     await pendingWithoutUrlPage.close();
+
+    for (const result of ['pending', 'succeeded', 'canceled']) {
+      const retryPage = await browser.newPage({viewport:{width:390,height:844}});
+      await retryPage.clock.install();
+      await retryPage.addInitScript(({order}) => {
+        sessionStorage.setItem('yoga-order',order);
+        window.openedPaymentUrls=[];
+        window.Telegram={WebApp:{initData:'mock',ready(){},expand(){},close(){},
+          openLink(url){window.openedPaymentUrls.push(url);}}};
+      }, {order});
+      let statusCalls=0, creates=0, recovery=null;
+      await retryPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
+      await retryPage.route('**/test-api/session', route => route.fulfill({json:session}));
+      await retryPage.route('**/test-api/payments', route => {
+        creates++;
+        return route.fulfill({status:500,json:{error:'Must not create another payment'}});
+      });
+      await retryPage.route('**/test-api/payments/*', route => {
+        statusCalls++;
+        assert.equal(new URL(route.request().url()).pathname.split('/').pop(),order);
+        return route.fulfill(recovery === null
+          ? {status:503,json:{error:'Temporarily unavailable'}}
+          : {json:{status:recovery,ends_on:'2026-12-31',
+            confirmation_url:recovery==='pending' ? 'https://yookassa.ru/checkout' : null}});
+      });
+      await retryPage.goto(`http://127.0.0.1:${server.address().port}/?test=1`);
+      await retryPage.locator('#resume').waitFor({state:'visible'});
+      assert.equal(await retryPage.locator('#checkout').isVisible(),false);
+      await retryPage.locator('#resume').click();
+      await retryPage.clock.runFor(120);
+      await retryPage.waitForFunction(() => checking===false);
+      assert.equal(await retryPage.locator('#resume').getAttribute('aria-disabled'),'true');
+      assert.equal(await retryPage.locator('#resume .button-loader').isVisible(),true);
+      // Background checks must not release a clicked button prematurely.
+      await retryPage.clock.runFor(5000);
+      await retryPage.waitForFunction(() => checking===false);
+      assert.equal(await retryPage.locator('#resume').getAttribute('aria-disabled'),'true');
+      const callsBeforeDuplicate=statusCalls;
+      await retryPage.locator('#resume').evaluate(element => element.click());
+      await retryPage.clock.runFor(120);
+      assert.equal(statusCalls,callsBeforeDuplicate);
+      await retryPage.clock.fastForward(25000);
+      assert.equal(await retryPage.locator('#resume').getAttribute('aria-disabled'),null);
+      assert.equal(await retryPage.locator('#resume').textContent(),'Вернуться к оплате');
+      assert.equal(await retryPage.locator('#checkout').isVisible(),false);
+      recovery=result;
+      await retryPage.locator('#resume').click();
+      await retryPage.clock.runFor(120);
+      if(result==='pending') {
+        await retryPage.waitForFunction(() => window.openedPaymentUrls.length===1);
+        assert.deepEqual(await retryPage.evaluate(() => window.openedPaymentUrls),
+                         ['https://yookassa.ru/checkout']);
+        await retryPage.clock.runFor(5000);
+        await retryPage.waitForFunction(() => checking===false);
+        assert.equal(await retryPage.locator('#resume').getAttribute('aria-disabled'),'true');
+        await retryPage.clock.fastForward(25000);
+        assert.equal(await retryPage.locator('#resume').getAttribute('aria-disabled'),null);
+      } else {
+        const title=result==='succeeded' ? 'Оплата принята 🧡' : '❌ Оплата не прошла';
+        await retryPage.waitForFunction(title => document.getElementById('status-title').textContent===title,title);
+        assert.deepEqual(await retryPage.evaluate(() => window.openedPaymentUrls),[]);
+        assert.equal(await retryPage.locator('#resume').isVisible(),false);
+        await retryPage.clock.fastForward(31000);
+        assert.equal(await retryPage.locator('#resume').isVisible(),false);
+      }
+      assert.equal(creates,0);
+      console.log('PASS status retry after timeout without a new payment:',result);
+      await retryPage.close();
+    }
   } finally {
     if(browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

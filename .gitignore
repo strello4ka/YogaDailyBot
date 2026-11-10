@@ -60,6 +60,7 @@ tools/.env.broadcast
 !data/migrations/20261022_old_users.sql
 !data/migrations/20261020_payment_scope.sql
 !data/migrations/20261106_production_subscriptions.sql
+!data/migrations/20261109_expired_subscription_orders.sql
 
 # Временные файлы
 .DS_Store

@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import json
 import unittest
+from unittest.mock import Mock
 
 import httpx
 
@@ -52,6 +53,57 @@ class MailStub:
 
 
 class ReceiptWorkerTest(unittest.TestCase):
+    def test_failed_receipt_lookup_does_not_block_other_receipts(self):
+        with TemporaryDirectory() as directory:
+            store = StateStore(str(Path(directory) / 'state.db'))
+            store.add_payment(dict(PAYMENT, id='uncertain'))
+            store.transition('uncertain', 'ready', 'unknown')
+            nalog, mail = NalogStub(), MailStub()
+            nalog.find_income = Mock(side_effect=[httpx.ConnectError('offline'), 'found'])
+            now = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
+            settings = SimpleNamespace(sync_from=now - timedelta(hours=2),
+                                       mynalog_writes_enabled=True, email_enabled=True,
+                                       mynalog_inn='123456789012')
+            worker = ReceiptWorker(settings, store, YooKassaStub(), nalog, mail)
+            worker.run_once(now)
+            self.assertEqual(store.job('uncertain')['state'], 'unknown')
+            self.assertIn('ConnectError', store.job('uncertain')['last_error'])
+            self.assertEqual(store.job(PAYMENT['id'])['state'], 'emailed')
+            worker.run_once(now)
+            self.assertEqual(store.job('uncertain')['state'], 'emailed')
+            self.assertEqual(nalog.created, 1)
+
+    def test_yookassa_failure_does_not_block_existing_receipt_jobs(self):
+        with TemporaryDirectory() as directory:
+            store = StateStore(str(Path(directory) / 'state.db'))
+            for state in ('ready', 'registered', 'email_pending', 'unknown', 'manual_review'):
+                payment = dict(PAYMENT, id=state)
+                store.add_payment(payment)
+                if state != 'ready':
+                    store.transition(state, 'ready', state, receipt_uuid='receipt-' + state)
+            checkpoint = datetime(2026, 10, 28, 11, tzinfo=timezone.utc).isoformat()
+            store.set_value('yookassa_checkpoint', checkpoint)
+            reader = Mock()
+            reader.successful_payments.side_effect = httpx.ConnectError('offline')
+            nalog, mail = NalogStub(), MailStub()
+            nalog.find_income = lambda *args: 'receipt-found'
+            settings = SimpleNamespace(sync_from=datetime(2026, 10, 28, tzinfo=timezone.utc),
+                                       mynalog_writes_enabled=True, email_enabled=True,
+                                       mynalog_inn='123456789012', admin_email='owner@example.com')
+            worker = ReceiptWorker(settings, store, reader, nalog, mail)
+            # The caller still learns that discovery failed, but delivery has
+            # progressed independently without skipping undiscovered payments.
+            with self.assertRaises(httpx.ConnectError):
+                worker.run_once(datetime(2026, 10, 28, 12, tzinfo=timezone.utc))
+            self.assertEqual(store.counts(), {'emailed': 4, 'manual_review': 1})
+            self.assertEqual(store.get_value('yookassa_checkpoint'), checkpoint)
+            self.assertEqual(nalog.created, 1)
+            self.assertEqual(len(mail.sent), 5)  # Four receipts and one admin alert.
+            with self.assertRaises(httpx.ConnectError):
+                worker.run_once(datetime(2026, 10, 28, 13, tzinfo=timezone.utc))
+            self.assertEqual(nalog.created, 1)
+            self.assertEqual(len(mail.sent), 5)
+
     def test_overlap_never_moves_before_initial_receipt_cutoff(self):
         with TemporaryDirectory() as directory:
             store = StateStore(str(Path(directory) / 'state.db'))
