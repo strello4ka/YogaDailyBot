@@ -277,8 +277,16 @@ async def deliver_reminders(context):
             for event in events:
                 try:
                     await _send_reminder(context, user_id, event, profile, now)
-                except Exception:
-                    logger.warning('Subscription reminder failed user=%s kind=%s', user_id, event.kind)
+                except Exception as error:
+                    # A blocked recipient must leave the reminder queue. Other
+                    # failures remain unacknowledged and are retried later.
+                    from app.block import mark_blocked_if_forbidden
+                    blocked = await asyncio.to_thread(
+                        mark_blocked_if_forbidden, user_id, error)
+                    if not blocked:
+                        logger.warning(
+                            'Subscription reminder failed user=%s kind=%s',
+                            user_id, event.kind, exc_info=True)
         except Exception:
             logger.warning('Subscription reminder worker failed user=%s', user_id)
 

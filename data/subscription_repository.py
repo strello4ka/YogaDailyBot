@@ -422,7 +422,11 @@ class SubscriptionRepository:
 
     def reminder_profile(self, user_id, trial=None):
         with self._transaction() as cursor:
-            cursor.execute("SELECT chat_id,COALESCE(user_name,''),bot_mode FROM users WHERE user_id=%s", (user_id,))
+            cursor.execute(
+                "SELECT chat_id,COALESCE(user_name,''),bot_mode FROM users "
+                "WHERE user_id=%s AND NOT COALESCE(is_blocked,FALSE)",
+                (user_id,),
+            )
             user = cursor.fetchone()
             if not user:
                 return None

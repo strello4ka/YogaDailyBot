@@ -331,6 +331,18 @@ class ReminderWorkerTest(unittest.IsolatedAsyncioTestCase):
             'subscription_repository': self.repo, 'subscription_allowed_users': {10},
             'subscription_miniapp_url': 'https://example.org'})
 
+    async def test_blocked_recipient_is_marked_and_not_acknowledged(self):
+        moment = at(12, 13)
+        error = RuntimeError('Forbidden: bot was blocked by the user')
+        self.context.bot.send_message.side_effect = error
+        with (patch('app.subscription.jobs.datetime') as clock,
+              patch('app.block.mark_blocked_if_forbidden', return_value=True) as mark_blocked):
+            clock.now.return_value = moment
+            clock.combine.side_effect = datetime.combine
+            await deliver_reminders(self.context)
+        mark_blocked.assert_called_once_with(10, error)
+        self.assertFalse(self.sent)
+
     async def test_failed_launch_does_not_send_feedback_and_success_starts_its_timer(self):
         offer = launch_offer(at(1))
         self.repo.old_user_reminder_context.return_value = (offer, False)
