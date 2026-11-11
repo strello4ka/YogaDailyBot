@@ -58,6 +58,7 @@ from .handlers.secret import (
     handle_secret_edit_input,
 )
 from .block import clear_stale_block_on_private_activity, handle_user_block_event
+from .activity import record_private_user_activity
 from .schedule.scheduler import schedule_daily_practices, send_test_practice
 from .challenge.jobs import schedule_challenge_jobs
 from .challenge.summary.commands import (
@@ -292,6 +293,21 @@ def main():
     from app.subscription.subscription_menu import install_subscriptions
     from data.postgres_db import get_connection
     install_subscriptions(application, os.environ, get_connection)
+
+    # Любое действие пользователя сбрасывает срок неактивности независимо от
+    # режима. Регистрируем раньше всех сценарных guard-обработчиков.
+    application.add_handler(
+        MessageHandler(
+            filters.ALL & filters.ChatType.PRIVATE,
+            record_private_user_activity,
+            block=False,
+        ),
+        group=-8,
+    )
+    application.add_handler(
+        CallbackQueryHandler(record_private_user_activity, block=False),
+        group=-8,
+    )
 
     # Блокировка / разблокировка бота пользователем
     application.add_handler(

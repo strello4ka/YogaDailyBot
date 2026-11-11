@@ -249,7 +249,7 @@ async def handle_schedule_menu_time_input(update: Update, context: ContextTypes.
     await update.effective_message.reply_text(
         "Готово ✅\n\n"
         f"Завтра в <b>{result}</b> начнется наш YogaDaily путь!\n\n"
-        "Изменить время и остановить рассылку можно в любой момент",
+        "Изменить время и остановить рассылку можно в любой момент в меню",
         parse_mode="HTML",
     )
     return True
