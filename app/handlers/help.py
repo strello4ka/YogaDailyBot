@@ -5,7 +5,13 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.onboarding.messages import FILTER_HELP, WEEK_DESCRIPTION
+from app.onboarding.messages import (
+    AGREEMENT_URL,
+    FILTER_HELP,
+    OFFER_URL,
+    PRIVACY_URL,
+    WEEK_DESCRIPTION,
+)
 from app.rich_messages import button_row, edit_rich_message, paragraph, send_rich_message
 
 
@@ -70,6 +76,7 @@ def _root_blocks():
         ),
         button_row([{"text": "Частые вопросы", "callback_data": "help_faq"}]),
         button_row([{"text": "Советы", "callback_data": "help_tips"}]),
+        button_row([{"text": "Документы", "callback_data": "help_documents"}]),
         button_row([{"text": "Порекомендовать практику", "callback_data": "help_suggest"}]),
     ]
 
@@ -140,6 +147,16 @@ def _suggest_blocks():
     ]
 
 
+def _documents_blocks():
+    return [
+        _title("Документы"),
+        button_row([{"text": "🌀 Пользовательское соглашение", "url": AGREEMENT_URL}]),
+        button_row([{"text": "🌀 Политика конфиденциальности", "url": PRIVACY_URL}]),
+        button_row([{"text": "🌀 Публичная оферта", "url": OFFER_URL}]),
+        _back_button(),
+    ]
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entry point for help, existing tips and existing suggestion flow."""
     context.user_data.pop("waiting_for_practice_suggestion", None)
@@ -159,6 +176,7 @@ async def help_section_callback(update: Update, context: ContextTypes.DEFAULT_TY
         "help_back": _root_blocks,
         "help_faq": _faq_blocks,
         "help_tips": _tips_blocks,
+        "help_documents": _documents_blocks,
         "help_suggest": _suggest_blocks,
     }.get(data)
     if blocks is None:

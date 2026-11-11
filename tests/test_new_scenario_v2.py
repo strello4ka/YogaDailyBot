@@ -11,7 +11,15 @@ from app.keyboards import (
 from app.challenge.flow.start_flow import build_challenge_welcome_text, handle_challenge_time_input
 from app.challenge.flow.exit_flow import build_challenge_finished_text
 from app.handlers.progress import _progress_blocks
-from app.handlers.help import _faq_blocks, _root_blocks, _suggest_blocks, _tips_blocks, help_section_callback
+from app.handlers.help import (
+    _documents_blocks,
+    _faq_blocks,
+    _root_blocks,
+    _suggest_blocks,
+    _tips_blocks,
+    help_section_callback,
+)
+from app.onboarding.messages import AGREEMENT_URL, OFFER_URL, PRIVACY_URL
 from app.challenge.flow.post_challenge import (
     keyboard as post_challenge_keyboard,
     offer_text,
@@ -549,6 +557,27 @@ class NewScenarioCopyTest(unittest.TestCase):
         tips = _tips_blocks()
         self.assertTrue(tips[1]["text"].startswith("\n"))
         self.assertFalse(tips[1]["text"].startswith("\n\n"))
+
+    def test_help_documents_link_to_all_legal_pages(self):
+        root = _root_blocks()
+        self.assertIn("help_documents", str(root))
+
+        blocks = _documents_blocks()
+        links = [
+            button
+            for block in blocks
+            for button in block.get("buttons", [])
+            if "url" in button
+        ]
+        self.assertEqual(
+            [(button["text"], button["url"]) for button in links],
+            [
+                ("🌀 Пользовательское соглашение", AGREEMENT_URL),
+                ("🌀 Политика конфиденциальности", PRIVACY_URL),
+                ("🌀 Публичная оферта", OFFER_URL),
+            ],
+        )
+        self.assertIn("help_back", str(blocks))
 
     def test_practice_suggestion_starts_with_question_and_uses_static_quote(self):
         blocks = _suggest_blocks()
