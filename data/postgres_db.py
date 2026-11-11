@@ -1665,8 +1665,40 @@ def touch_by_mood_activity(user_id: int) -> bool:
         return False
 
 
+def touch_user_activity_for_inactivity_reminders(user_id: int) -> bool:
+    """Сбрасывает срок неактивности при любом действии пользователя в боте.
+
+    Не меняет users.updated_at, чтобы обычная активность не влияла на условия
+    первой ежедневной рассылки и другие сценарии, использующие это поле.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE users
+            SET last_by_mood_active_at = CURRENT_TIMESTAMP,
+                last_by_mood_reminder_at = NULL,
+                by_mood_reminder_step = 0
+            WHERE user_id = %s
+            ''',
+            (user_id,),
+        )
+        conn.commit()
+        changed = cursor.rowcount > 0
+        conn.close()
+        return changed
+    except Exception as e:
+        print(f"Ошибка touch_user_activity_for_inactivity_reminders для {user_id}: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
 def get_users_for_by_mood_reminder() -> list:
-    """Пользователи в By mood, которые 7+ дней не запрашивали практику.
+    """Пользователи в By mood без действий и новых практик 7+ дней.
     Напоминания шлются не чаще раза в неделю.
     Возвращает: [(user_id, chat_id, by_mood_reminder_step)]"""
     conn = None

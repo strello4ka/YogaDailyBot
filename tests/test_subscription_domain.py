@@ -130,6 +130,13 @@ class SubscriptionStorageBoundaryTest(unittest.TestCase):
         self.cursor.fetchone.return_value = None
         self.assertIsNone(self.repository.notification_sent_at(10, 'launch:period'))
 
+    def test_blocked_user_has_no_reminder_profile(self):
+        self.cursor.fetchone.return_value = None
+        self.assertIsNone(self.repository.reminder_profile(10))
+        sql, params = self.cursor.execute.call_args.args
+        self.assertIn('NOT COALESCE(is_blocked,FALSE)', sql)
+        self.assertEqual(params, (10,))
+
     def test_old_user_reminders_read_frozen_offer_and_pending_checkout(self):
         from app.subscription.old_users.rules import launch_offer
         offer = launch_offer(at(1))

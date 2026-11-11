@@ -31,6 +31,7 @@ from data.db import (
     get_bonus_practices_by_parent,
     is_user_favorite,
     get_user_bot_mode,
+    touch_user_activity_for_inactivity_reminders,
 )
 from app.challenge.cohort import get_cohort_challenge_day, is_cohort_configured
 from app.config import DEFAULT_TZ  # Подтягиваем базовую таймзону проекта
@@ -161,6 +162,7 @@ async def send_practice_to_user(context: ContextTypes.DEFAULT_TYPE, user_id: int
             reply_markup=done_keyboard
         )
         set_last_practice_message_id(user_id, message.message_id, practice_id)
+        touch_user_activity_for_inactivity_reminders(user_id)
 
         # Подтверждаем прогресс только после успешной отправки пользователю.
         if is_challenge:
@@ -342,6 +344,7 @@ async def send_test_practice(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
             reply_markup=done_keyboard
         )
         set_last_practice_message_id(user_id, message.message_id, practice_id)
+        touch_user_activity_for_inactivity_reminders(user_id)
 
         increment_program_position(user_id)
         increment_total_practices(user_id)

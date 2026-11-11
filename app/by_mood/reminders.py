@@ -1,5 +1,4 @@
-"""Еженедельные напоминания пользователям в режиме By mood,
-которые давно не запрашивали практику. Логика повторяет pause-напоминания."""
+"""Еженедельные напоминания неактивным пользователям в режиме By mood."""
 
 import logging
 
@@ -27,7 +26,7 @@ BY_MOOD_REMINDER_TEXTS = [
 
 
 async def send_weekly_by_mood_reminders(context: ContextTypes.DEFAULT_TYPE):
-    """Шлёт напоминание не чаще раза в 7 дней пользователям By mood без активности 7+ дней."""
+    """Напоминает By mood-пользователям без действий и новых практик 7+ дней."""
     try:
         users = get_users_for_by_mood_reminder()
         if not users:
