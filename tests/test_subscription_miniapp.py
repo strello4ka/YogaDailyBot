@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 
 from app.miniapp.auth import authenticate
 from app.miniapp.server import MiniApp, create_hosted_test_app, create_test_app
+from app.onboarding.messages import PRIVACY_URL
 from app.subscription.tariff import MOSCOW
 from app.subscription.old_users.repository import CheckoutProfile
 from app.subscription.old_users.rules import launch_offer
@@ -100,6 +101,17 @@ class MiniAppHTTPTest(unittest.TestCase):
         status, body = self.request('/', method='GET')
         self.assertEqual(status, '200 OK')
         self.assertIn('Email для чека'.encode(), body)
+        self.assertIn('Email нужен для отправки чека.'.encode(), body)
+        self.assertIn('Политике конфиденциальности'.encode(), body)
+
+    def test_session_exposes_privacy_policy_next_to_email(self):
+        status, body = self.request('/api/session')
+        data = json.loads(body)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(data['privacy_url'], PRIVACY_URL)
+
+        _, script = self.request('/app.js', method='GET')
+        self.assertIn("$('privacy').href = data.privacy_url", script.decode())
 
     def test_checkout_section_labels_share_one_typographic_level(self):
         _, stylesheet = self.request('/styles.css', method='GET')

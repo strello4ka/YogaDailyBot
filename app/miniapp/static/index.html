@@ -36,7 +36,8 @@
       <div class="field" id="email-field">
         <div class="field-label-row"><label for="email">Email для чека <span class="required" aria-hidden="true">*</span></label>
           <button id="email-done" class="keyboard-done" type="button" hidden>Готово</button></div>
-        <input id="email" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" enterkeyhint="done" required maxlength="254" placeholder="you@example.com" aria-required="true" aria-invalid="false" aria-describedby="email-error">
+        <input id="email" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" enterkeyhint="done" required maxlength="254" placeholder="you@example.com" aria-required="true" aria-invalid="false" aria-describedby="email-help email-error">
+        <small id="email-help" class="field-help">Email нужен для отправки чека. Подробнее в <a id="privacy" target="_blank" rel="noopener noreferrer">Политике конфиденциальности</a>.</small>
         <small id="email-error" class="field-error" role="alert" hidden></small>
       </div>
       <details class="promo-field"><summary>Есть промокод</summary>

@@ -163,7 +163,7 @@ async def try_send_progress_widget(update: Update, context: ContextTypes.DEFAULT
 
     today = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
     try:
-        total, done, streak, best = get_progress_widget_stats(user.id, today)
+        total, done, _, best = get_progress_widget_stats(user.id, today)
     except Exception as exc:
         logger.warning("Progress widget stats unavailable (%s)", type(exc).__name__)
         return False
@@ -176,23 +176,27 @@ async def try_send_progress_widget(update: Update, context: ContextTypes.DEFAULT
         classes = "done" if day <= today and day in done else "future" if day > today else ""
         if day == today:
             classes += " today"
-        mark = "✓" if classes.startswith("done") else "·"
-        cells.append(f'<div><span>{label}</span><button class="{classes}">{mark}</button></div>')
-    challenge = format_challenge_progress_line(user.id).replace("*", "")
-    stats = (
-        f"Текущая серия: {streak} дн.",
-        f"Лучшая серия: {best} дн.",
-        f"Выполнено практик: {total}",
-    )
-    lines = [*stats, *([challenge] if challenge else [])]
+        mark = "✓" if classes.startswith("done") else ""
+        status = "выполнено" if day in done else "сегодня" if day == today else "впереди" if day > today else "не выполнено"
+        cells.append(
+            f'<button class="weekday {classes.strip()}" aria-label="{label}, {day.day}: {status}">'
+            f'<span class="label">{label}</span><span class="mark">{mark}</span>'
+            f'<span class="date">{day.day}</span></button>'
+        )
+    week_done = sum(day in done for day in week)
     html = Path(__file__).with_name("progress_widget.html").read_text(encoding="utf-8")
-    html = html.replace("{{dates}}", dates).replace("{{week}}", "".join(cells))
-    html = html.replace("{{stats}}", "<br>".join(lines))
-    checked = ", ".join(label for label, day in zip(labels, week) if day <= today and day in done)
+    html = (
+        html.replace("{{dates}}", dates)
+        .replace("{{week}}", "".join(cells))
+        .replace("{{week_done}}", str(week_done))
+        .replace("{{week_percent}}", f"{week_done / 7 * 100:.1f}")
+        .replace("{{best}}", f"{best} дн." if best else "пока впереди")
+    )
     payload = {
         "chat_id": chat.id,
         "html": html,
-        "caption": "\n".join([f"Мой прогресс · {dates}", f"Дни с практикой: {checked or 'пока нет'}", *lines]),
+        "caption": _progress_text(user.id) + format_social_proof_line(user.id),
+        "parse_mode": "Markdown",
     }
     if total:
         payload["reply_markup"] = _progress_keyboard("progress_reset_widget").to_dict()

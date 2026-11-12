@@ -12,6 +12,7 @@ from uuid import UUID
 
 import httpx
 
+from app.onboarding.messages import OFFER_URL, PRIVACY_URL
 from app.payments.service import PriceChanged
 from app.subscription.old_users.prices import checkout_price
 from app.subscription.tariff import MOSCOW, TARIFFS, last_access_date
@@ -19,7 +20,6 @@ from .auth import authenticate
 
 logger = logging.getLogger(__name__)
 STATIC = Path(__file__).with_name('static')
-OFFER_URL = 'https://seatbackandrelax.tilda.ws/yogadailybot-offer'
 
 
 def tariffs(offer=None, now=None):
@@ -75,6 +75,7 @@ class MiniApp:
                                      if offer and offer.special_price_active(now) else None)
                     return respond('200 OK', {'tariffs': tariffs(offer, now), 'email': '', 'note': '',
                                              'offer_ends_on': offer_ends_on, 'offer_url': OFFER_URL,
+                                             'privacy_url': PRIVACY_URL,
                                              'preview': True, 'order_id': None})
                 return respond('403 Forbidden', {'error': 'В предпросмотре оплата отключена'})
             if self.repository is None or self.payments is None:
@@ -105,7 +106,8 @@ class MiniApp:
                                  profile.old_user_offer.special_price_active(now) else None)
                 return respond('200 OK', {'tariffs': catalog, 'email': email or '', 'note': note,
                                          'offer_ends_on': offer_ends_on,
-                                         'offer_url': OFFER_URL, 'preview': False,
+                                         'offer_url': OFFER_URL, 'privacy_url': PRIVACY_URL,
+                                         'preview': False,
                                          'order_id': self.repository.open_order_id(user_id)})
             if path == '/api/payments':
                 order_id = str(UUID(data['order_id']))

@@ -327,6 +327,7 @@ async function load() {
       $('offer-ends').hidden = false;
     }
     $('offer').href = data.offer_url;
+    $('privacy').href = data.privacy_url;
     for (const [index, tariff] of catalog.entries()) {
       const label = document.createElement('label'); label.className = 'tariff';
       const input = document.createElement('input'); input.type = 'radio'; input.name = 'tariff';
