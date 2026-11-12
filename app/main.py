@@ -392,7 +392,10 @@ def main():
     application.add_handler(CallbackQueryHandler(schedule_toggle_callback, pattern="^schedule_toggle$"))
     application.add_handler(CallbackQueryHandler(schedule_change_time_callback, pattern="^schedule_change_time$"))
     application.add_handler(CallbackQueryHandler(schedule_challenge_week_callback, pattern="^schedule_challenge_week$"))
-    application.add_handler(CallbackQueryHandler(help_section_callback, pattern="^help_(faq|tips|suggest|back)$"))
+    application.add_handler(CallbackQueryHandler(
+        help_section_callback,
+        pattern="^help_(faq|tips|documents|suggest|back)$",
+    ))
     application.add_handler(CallbackQueryHandler(
         old_user_access_details_callback,
         pattern="^old_users:(subscription_details|free_details)$",
