@@ -59,7 +59,7 @@ class CheckoutOnboardingTest(unittest.IsolatedAsyncioTestCase):
         self.repo.get.return_value = Subscription(paid=purchased_period('month', datetime.now(MOSCOW)))
         self.context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()), bot_data={
             'subscription_repository': self.repo, 'subscription_allowed_users': None,
-            'subscription_miniapp_url': 'https://example.org/?test=1'})
+            'subscription_miniapp_url': 'https://example.org/?source=fixture'})
 
     async def test_success_waits_for_notice_then_advances_once(self):
         self.repo.onboarding_payment_results.return_value = [('order', 'succeeded')]

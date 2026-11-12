@@ -10,10 +10,7 @@ from uuid import uuid4
 from urllib.parse import urlencode
 
 from app.miniapp.auth import authenticate
-from app.miniapp.server import (MiniApp, create_hosted_test_app, create_preview_app,
-                                create_test_app)
-from app.miniapp.gateway import TestGateway
-import httpx
+from app.miniapp.server import MiniApp, create_hosted_test_app, create_test_app
 from app.subscription.tariff import MOSCOW
 from app.subscription.old_users.repository import CheckoutProfile
 from app.subscription.old_users.rules import launch_offer
@@ -70,7 +67,7 @@ class MiniAppHTTPTest(unittest.TestCase):
         return response[0][0], payload
 
     def test_preview_shows_prices_but_cannot_create_payments(self):
-        preview = create_preview_app()
+        preview = MiniApp(preview=True)
         status, body = self.request('/api/session', {}, app=preview)
         self.assertEqual(status, '200 OK')
         self.assertEqual([x['final_price'] for x in json.loads(body)['tariffs']],
@@ -95,40 +92,6 @@ class MiniAppHTTPTest(unittest.TestCase):
         status, _ = self.request('/api/session', {'init_data': 'hash=forged'})
         self.assertTrue(status.startswith('401'))
         self.repo.checkout_profile.assert_not_called()
-
-    def test_gateway_preserves_preview_and_authenticates_test_requests(self):
-        def forward(request):
-            self.assertEqual(request.url.host, 'test.example.org')
-            self.assertNotIn('cookie', request.headers)
-            status, body = self.request(request.url.path, json.loads(request.content))
-            return httpx.Response(int(status.split()[0]), content=body)
-        gateway = TestGateway(MiniApp(preview=True), 'https://test.example.org',
-                              transport=httpx.MockTransport(forward))
-        status, body = self.request('/api/session', app=gateway)
-        self.assertTrue(json.loads(body)['preview'])
-        status, body = self.request('/api/payments', app=gateway)
-        self.assertEqual(status, '403 Forbidden')
-        self.payments.checkout.assert_not_called()
-        status, body = self.request('/test-api/session', app=gateway)
-        self.assertEqual(status, '200 OK')
-        self.assertFalse(json.loads(body)['preview'])
-        self.repo.reset_mock()
-        status, body = self.request('/test-api/session', {'init_data': 'forged'}, app=gateway)
-        self.assertEqual(status, '401 Unauthorized')
-        self.repo.checkout_profile.assert_not_called()
-
-    def test_gateway_outage_does_not_break_preview(self):
-        def unavailable(request):
-            raise httpx.ConnectError('private error')
-        gateway = TestGateway(MiniApp(preview=True), 'https://test.example.org',
-                              transport=httpx.MockTransport(unavailable))
-        status, body = self.request('/test-api/session', app=gateway)
-        self.assertEqual(status, '503 Service Unavailable')
-        self.assertNotIn(b'private error', body)
-        status, body = self.request('/api/session', app=gateway)
-        self.assertTrue(json.loads(body)['preview'])
-        status, body = self.request('/test-api/../me', app=gateway)
-        self.assertEqual(status, '404 Not Found')
 
     def test_static_paths_do_not_expose_repository_files(self):
         for path in ('/../.env', '/static/../../.env', '/server.py'):
@@ -249,7 +212,7 @@ class TestServerSetupTest(unittest.TestCase):
                     BOT_TOKEN='123:fake',
                     SUBSCRIPTION_TEST_USERS='10', SUBSCRIPTION_TEST_DATABASE='yogadaily_test',
                     SUBSCRIPTION_MINIAPP_URL='https://example.org/pay',
-                    SUBSCRIPTION_PAYMENT_RETURN_URL='https://example.org/pay?test=1',
+                    SUBSCRIPTION_PAYMENT_RETURN_URL='https://example.org/pay?source=fixture',
                     SUBSCRIPTION_YOOKASSA_TEST_SHOP_ID='123',
                     SUBSCRIPTION_YOOKASSA_TEST_SECRET_KEY='fake')
 
@@ -270,7 +233,7 @@ class TestServerSetupTest(unittest.TestCase):
             repository_class.return_value.verify_database.assert_called_once_with('yogadaily_test')
             provider.verify_test_store.assert_called_once()
             self.assertEqual(app.allowed_users, {10})
-            self.assertEqual(app.return_url, 'https://example.org/pay?test=1')
+            self.assertEqual(app.return_url, 'https://example.org/pay?source=fixture')
             self.assertFalse(app.preview)
 
     def test_return_url_must_be_the_same_miniapp_host(self):

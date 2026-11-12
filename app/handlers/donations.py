@@ -4,9 +4,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppI
 from telegram.ext import ContextTypes
 
 
-MINIAPP_PREVIEW_URL = "https://miniapp-preview-production-4b53.up.railway.app/"
-
-
 async def handle_donations_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки 'Донаты'.
     
@@ -27,18 +24,20 @@ async def handle_donations_callback(update: Update, context: ContextTypes.DEFAUL
     # Получаем chat_id
     chat_id = update.effective_chat.id
     
-    # До запуска оплаты в рабочем боте показываем только предпросмотр тарифов.
+    miniapp_url = context.bot_data.get("subscription_miniapp_url", "")
     donations_text = (
-        "Скоро здесь появится подписка 🧡\n\n"
-        "Пока YogaDailyBot бесплатный. Если хочешь поддержать его развитие, "
-        "можешь сделать это через Telegram Stars.\n\n"
-        "Тарифы уже можно посмотреть, но оплата подписки пока недоступна."
+        "Поддержка YogaDailyBot 🧡\n\n"
+        "Здесь можно поддержать развитие проекта. "
+        "Статус подписки и тарифы доступны по кнопке ниже."
     )
-    
+
     keyboard = [
         [InlineKeyboardButton("Поддержать через Telegram Stars", callback_data="donate_stars")],
-        [InlineKeyboardButton("Посмотреть тарифы", web_app=WebAppInfo(url=MINIAPP_PREVIEW_URL))],
     ]
+    if miniapp_url:
+        keyboard.append([
+            InlineKeyboardButton("Посмотреть тарифы", web_app=WebAppInfo(url=miniapp_url))
+        ])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     # Отправляем сообщение с кнопками

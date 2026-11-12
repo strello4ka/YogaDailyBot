@@ -2,8 +2,6 @@
 const $ = id => document.getElementById(id);
 const tg = window.Telegram?.WebApp;
 const launchParams = new URLSearchParams(window.location.search);
-// This switch selects a route only; the local server authenticates every request.
-const testCheckout = launchParams.get('test') === '1';
 const browserPaymentReturn = launchParams.get('payment_return') === '1';
 function clearSavedOrder() {
   sessionStorage.removeItem('yoga-order');
@@ -29,8 +27,7 @@ tg?.ready();
 tg?.expand();
 
 async function api(path, body = {}) {
-  const endpoint = testCheckout ? path.replace(/^\/api\//, '/test-api/') : path;
-  const response = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'},
+  const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({...body, init_data:initData}), signal:AbortSignal.timeout(12000)});
   const data = await response.json();
   if (!response.ok) {

@@ -280,7 +280,7 @@ class PaymentsTest(unittest.TestCase):
         client = YooKassaTestClient('123', 'fake', transport=httpx.MockTransport(transport))
         try:
             for _ in range(2):
-                client.create_payment(self.order, 'https://example.org/return?test=1&payment_return=stale', NOW)
+                client.create_payment(self.order, 'https://example.org/return?source=fixture&payment_return=stale', NOW)
             posts = [r for r in calls if r.method == 'POST']
             self.assertEqual([r.headers['Idempotence-Key'] for r in posts], [self.order.order_id] * 2)
             payload = json.loads(posts[0].content)
@@ -294,7 +294,7 @@ class PaymentsTest(unittest.TestCase):
             })
             returned = urlparse(payload['confirmation']['return_url'])
             self.assertEqual(parse_qs(returned.query)['payment_return'], ['1'])
-            self.assertEqual(parse_qs(returned.query)['test'], ['1'])
+            self.assertEqual(parse_qs(returned.query)['source'], ['fixture'])
             with self.assertRaises(ValueError):
                 client.create_payment(self.order, 'https://example.org/return', NOW + timedelta(days=1))
             self.assertEqual(len(calls), 4)

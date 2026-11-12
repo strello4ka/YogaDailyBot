@@ -142,13 +142,6 @@ class MiniApp:
             return respond('503 Service Unavailable', {'error': 'Не удалось завершить запрос. Повтори проверку позже.'})
 
 
-def create_preview_app():
-    """Public preview: tariff UI only, with all payment routes disabled."""
-    import os
-    from .gateway import TestGateway
-    return TestGateway(MiniApp(preview=True), os.environ.get('MINIAPP_TEST_BACKEND_URL', ''))
-
-
 def _create_subscription_app(environment, connection_factory, expected_runtime, *, provider=None):
     """Build one checkout app after validating the selected isolated runtime."""
     from app.subscription.runtime import subscription_settings

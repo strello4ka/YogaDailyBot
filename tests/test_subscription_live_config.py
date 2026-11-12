@@ -16,7 +16,7 @@ class LiveConfigTest(unittest.TestCase):
     def settings(self, **changes):
         values = dict(ENV_FILE='test/.env.test', SUBSCRIPTION_TEST_ENABLED='true',
                       SUBSCRIPTION_TEST_DATABASE='yogadaily_test', BOT_TOKEN='123:fake',
-                      SUBSCRIPTION_MINIAPP_URL='https://example.org/?test=1',
+                      SUBSCRIPTION_MINIAPP_URL='https://example.org/?source=fixture',
                       SUBSCRIPTION_PAYMENT_MODE='live',
                       SUBSCRIPTION_YOOKASSA_LIVE_SHOP_ID='1495040',
                       SUBSCRIPTION_YOOKASSA_LIVE_SECRET_KEY='fake-live-secret')

@@ -52,12 +52,12 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
       let releaseSession, releasePayment;
       const sessionGate = new Promise(resolve => releaseSession=resolve);
       const paymentGate = new Promise(resolve => releasePayment=resolve);
-      await page.route('**/test-api/session', async route => {
+      await page.route('**/api/session', async route => {
         await sessionGate;
         await route.fulfill({status:scenario.failed ? scenario.statusCode : 200,contentType:'application/json',
           body:JSON.stringify(scenario.failed ? {error:'Временно недоступно'} : session)});
       });
-      await page.route('**/test-api/payments/*', async route => {
+      await page.route('**/api/payments/*', async route => {
         assert.equal(new URL(route.request().url()).pathname.split('/').pop(),order);
         await paymentGate;
         await route.fulfill({status:scenario.paymentFailed ? 503 : 200,contentType:'application/json',
@@ -65,8 +65,8 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
             status:scenario.status,ends_on:'2026-12-31',
             confirmation_url:scenario.status==='pending' ? 'https://yookassa.ru/checkout' : null})});
       });
-      await page.goto(`http://127.0.0.1:${server.address().port}/?test=1` +
-        (scenario.browserReturned ? '&payment_return=1' : ''),
+      await page.goto(`http://127.0.0.1:${server.address().port}/` +
+        (scenario.browserReturned ? '?payment_return=1' : ''),
         {waitUntil:'domcontentloaded'});
       assert.equal(await page.locator('#checkout').isVisible(),false);
       assert.equal(await page.locator('#loading').isVisible(),true);
@@ -159,17 +159,17 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
         openLink(url){window.openedPaymentUrl=url;},close(){window.miniAppClosed=true;}}};
     });
     await loaderPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
-    await loaderPage.route('**/test-api/session', route => route.fulfill({status:200,
+    await loaderPage.route('**/api/session', route => route.fulfill({status:200,
       contentType:'application/json',body:JSON.stringify(session)}));
     let releaseCreate;
     const createGate = new Promise(resolve => releaseCreate=resolve);
-    await loaderPage.route('**/test-api/payments', async route => {
+    await loaderPage.route('**/api/payments', async route => {
       await createGate;
       await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
         order_id:order,confirmation_url:'https://yookassa.ru/checkout'})});
     });
     await loaderPage.route('https://yookassa.ru/**', route => route.fulfill({body:'checkout'}));
-    await loaderPage.goto(`http://127.0.0.1:${server.address().port}/?test=1`);
+    await loaderPage.goto(`http://127.0.0.1:${server.address().port}/`);
     await loaderPage.locator('#checkout').waitFor({state:'visible'});
     await loaderPage.locator('#payment-form').evaluate(form => form.requestSubmit());
     await loaderPage.locator('#pay .button-loader').waitFor({state:'visible'});
@@ -191,11 +191,11 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
       window.advanceTestClock=value=>{ offset+=value; };
     });
     await timeoutPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
-    await timeoutPage.route('**/test-api/session', route => route.fulfill({status:200,
+    await timeoutPage.route('**/api/session', route => route.fulfill({status:200,
       contentType:'application/json',body:JSON.stringify(session)}));
     let releaseSlowCreate;
     const slowCreateGate = new Promise(resolve => releaseSlowCreate=resolve);
-    await timeoutPage.route('**/test-api/payments**', async route => {
+    await timeoutPage.route('**/api/payments**', async route => {
       const pathname = new URL(route.request().url()).pathname;
       if(pathname.endsWith('/payments')) {
         await slowCreateGate;
@@ -206,7 +206,7 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
           status:'created',confirmation_url:null})});
       }
     });
-    await timeoutPage.goto(`http://127.0.0.1:${server.address().port}/?test=1`);
+    await timeoutPage.goto(`http://127.0.0.1:${server.address().port}/`);
     await timeoutPage.locator('#checkout').waitFor({state:'visible'});
     await timeoutPage.locator('#payment-form').evaluate(form => form.requestSubmit());
     await timeoutPage.locator('#pay .button-loader').waitFor({state:'visible'});
@@ -230,11 +230,11 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
       sessionStorage.setItem('yoga-order',order);
     }, {order});
     await pendingWithoutUrlPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
-    await pendingWithoutUrlPage.route('**/test-api/session', route => route.fulfill({status:200,
+    await pendingWithoutUrlPage.route('**/api/session', route => route.fulfill({status:200,
       contentType:'application/json',body:JSON.stringify({...session,order_id:order})}));
-    await pendingWithoutUrlPage.route('**/test-api/payments/*', route => route.fulfill({status:200,
+    await pendingWithoutUrlPage.route('**/api/payments/*', route => route.fulfill({status:200,
       contentType:'application/json',body:JSON.stringify({status:'pending',confirmation_url:null})}));
-    await pendingWithoutUrlPage.goto(`http://127.0.0.1:${server.address().port}/?test=1`);
+    await pendingWithoutUrlPage.goto(`http://127.0.0.1:${server.address().port}/`);
     await pendingWithoutUrlPage.locator('#payment-status').waitFor({state:'visible'});
     await pendingWithoutUrlPage.waitForFunction(() => checking===false);
     await pendingWithoutUrlPage.evaluate(() => window.advanceTestClock(31000));
@@ -257,12 +257,12 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
       }, {order});
       let statusCalls=0, creates=0, recovery=null;
       await retryPage.route('https://telegram.org/**', route => route.fulfill({body:''}));
-      await retryPage.route('**/test-api/session', route => route.fulfill({json:session}));
-      await retryPage.route('**/test-api/payments', route => {
+      await retryPage.route('**/api/session', route => route.fulfill({json:session}));
+      await retryPage.route('**/api/payments', route => {
         creates++;
         return route.fulfill({status:500,json:{error:'Must not create another payment'}});
       });
-      await retryPage.route('**/test-api/payments/*', route => {
+      await retryPage.route('**/api/payments/*', route => {
         statusCalls++;
         assert.equal(new URL(route.request().url()).pathname.split('/').pop(),order);
         return route.fulfill(recovery === null
@@ -270,7 +270,7 @@ const session = {tariffs: [{code:'month',title:'30 дней',days:30,amount:3500
           : {json:{status:recovery,ends_on:'2026-12-31',
             confirmation_url:recovery==='pending' ? 'https://yookassa.ru/checkout' : null}});
       });
-      await retryPage.goto(`http://127.0.0.1:${server.address().port}/?test=1`);
+      await retryPage.goto(`http://127.0.0.1:${server.address().port}/`);
       await retryPage.locator('#resume').waitFor({state:'visible'});
       assert.equal(await retryPage.locator('#checkout').isVisible(),false);
       await retryPage.locator('#resume').click();

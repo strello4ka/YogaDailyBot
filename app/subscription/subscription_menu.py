@@ -72,10 +72,9 @@ def install_subscriptions(application, environment, connection_factory):
     from telegram.ext import CallbackQueryHandler, MessageHandler, filters
     from app.payments.config import payment_settings
     payment_config = payment_settings(environment)
-    # Test reminders may show the existing tariff preview before checkout is
-    # connected. Production is rejected earlier unless its Mini App URL exists.
-    from app.handlers.donations import MINIAPP_PREVIEW_URL
-    url = settings.miniapp_url or MINIAPP_PREVIEW_URL
+    # Production is rejected earlier unless its Mini App URL exists. Test mode
+    # may run without checkout; in that case tariff buttons are omitted.
+    url = settings.miniapp_url
     repository = SubscriptionRepository(connection_factory, payment_scope=payment_config.scope)
     repository.verify_database(settings.database_name)
     application.bot_data.update(subscription_repository=repository,

@@ -8,8 +8,14 @@ from app.subscription.access import Feature, Subscription, repository_for, runti
 from app.subscription.demo import start_trial
 from app.subscription.old_users.rules import GiftPeriod
 from app.subscription.free import locked_text, reply_keyboard, send_locked
-from app.subscription.subscription_menu import (menu_text, send_menu, tariff_keyboard,
-    install_subscriptions, guard_update)
+from app.subscription.subscription_menu import (
+    guard_update,
+    install_subscriptions,
+    menu_text,
+    optional_tariff_keyboard,
+    send_menu,
+    tariff_keyboard,
+)
 from app.subscription.runtime import subscription_settings
 from app.subscription.tariff import MOSCOW, purchased_period
 from app.onboarding import messages as onboarding_messages
@@ -165,17 +171,16 @@ class TestRolloutSafetyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             subscription_settings(dict(env, SUBSCRIPTION_MINIAPP_URL="http://localhost:8765"))
 
-    def test_test_bot_uses_tariff_preview_without_checkout_url(self):
-        from app.handlers.donations import MINIAPP_PREVIEW_URL
+    def test_test_bot_omits_tariffs_without_checkout_url(self):
         env = dict(self.settings(), SUBSCRIPTION_MINIAPP_URL="",
                    SUBSCRIPTION_YOOKASSA_TEST_SHOP_ID="test-shop",
                    SUBSCRIPTION_YOOKASSA_TEST_SECRET_KEY="test-secret")
         application = Mock(bot_data={}, job_queue=Mock())
         with patch('data.subscription_repository.SubscriptionRepository'):
             install_subscriptions(application, env, Mock())
-        self.assertEqual(application.bot_data['subscription_miniapp_url'], MINIAPP_PREVIEW_URL)
-        self.assertEqual(tariff_keyboard(application.bot_data['subscription_miniapp_url'])
-                         .inline_keyboard[0][0].text, 'Посмотреть тарифы')
+        self.assertEqual(application.bot_data['subscription_miniapp_url'], '')
+        self.assertIsNone(optional_tariff_keyboard(
+            application.bot_data['subscription_miniapp_url']))
         self.assertNotIn('subscription_payment_service', application.bot_data)
         handlers = [call.args[0] for call in application.add_handler.call_args_list]
         self.assertNotIn('CommandHandler', [type(handler).__name__ for handler in handlers])

@@ -1,18 +1,12 @@
 """Server notifications work without a Mini App or a Telegram initData session."""
 from dataclasses import replace
 from datetime import datetime
-from io import BytesIO
-import json
 import unittest
 from unittest.mock import Mock, MagicMock
 from uuid import uuid4
 
-import httpx
-
 from app.payments.service import PaymentService, new_order
 from app.payments.webhook import handle_notification
-from app.miniapp.server import MiniApp
-from app.miniapp.gateway import TestGateway
 from app.subscription.tariff import MOSCOW
 from data.subscription_repository import SubscriptionRepository
 
@@ -104,41 +98,6 @@ class WebhookTest(unittest.TestCase):
         self.repo.signal_payment.side_effect=RuntimeError('offline')
         with self.assertLogs('app.payments.service',level='WARNING'):
             self.assertEqual(handle_notification(self.event,self.service,NOW),'succeeded')
-
-    def request(self,app,data):
-        body=json.dumps(data).encode()
-        result=[]
-        response=b''.join(app({'PATH_INFO':'/test-api/yookassa/webhook','REQUEST_METHOD':'POST',
-            'CONTENT_TYPE':'application/json','CONTENT_LENGTH':str(len(body)),
-            'wsgi.input':BytesIO(body)},lambda status,headers:result.append(status)))
-        return result[0],response
-
-    def gateway(self):
-        backend=MiniApp(repository=self.repo,payments=self.service,allowed_users=None,clock=lambda:NOW)
-        def transport(request):
-            self.assertEqual(str(request.url),'https://backend.example/api/yookassa/webhook')
-            response=[]
-            body=b''.join(backend({'PATH_INFO':'/api/yookassa/webhook','REQUEST_METHOD':'POST',
-                'CONTENT_TYPE':'application/json','CONTENT_LENGTH':str(len(request.content)),
-                'wsgi.input':BytesIO(request.content)},lambda status,headers:response.append(status)))
-            return httpx.Response(int(response[0].split()[0]),content=body)
-        return TestGateway(MiniApp(preview=True),'https://backend.example',
-                           transport=httpx.MockTransport(transport))
-
-    def test_public_gateway_to_backend_without_telegram_auth(self):
-        status,_=self.request(self.gateway(),self.event)
-        self.assertEqual(status,'200 OK')
-        self.repo.grant_order.assert_called_once()
-
-    def test_transient_provider_error_is_503_for_retry(self):
-        self.provider.get_payment.side_effect=httpx.ConnectError('offline')
-        status,_=self.request(self.gateway(),self.event)
-        self.assertEqual(status,'503 Service Unavailable')
-        self.repo.grant_order.assert_not_called()
-
-    def test_missing_tunnel_is_not_acknowledged(self):
-        status,_=self.request(TestGateway(MiniApp(preview=True)),self.event)
-        self.assertEqual(status,'503 Service Unavailable')
 
     def test_scope_is_bound_in_webhook_lookup(self):
         connection=MagicMock()
