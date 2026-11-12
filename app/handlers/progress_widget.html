@@ -1,0 +1,29 @@
+<style>
+  h3 {margin:0}
+  .meta,#day {color:var(--tg-theme-hint-color);font-size:.86em}
+  .week {display:flex;justify-content:space-between;margin:12px 0 4px;text-align:center;font-size:.8em}
+  .week span {display:block;margin-bottom:4px}
+  .week button {padding:0;width:24px;height:24px;border:1px solid transparent;border-radius:50%;background:var(--tg-theme-secondary-bg-color);color:var(--tg-theme-text-color)}
+  .week .today {border-color:var(--tg-theme-link-color)}
+  .week .future {background:transparent;color:var(--tg-theme-hint-color)}
+  .week .done {background:var(--tg-theme-button-color);color:var(--tg-theme-button-text-color);animation:appear .3s ease-out}
+  @keyframes appear {from {transform:scale(.75)} to {transform:scale(1)}}
+  @media (prefers-reduced-motion:reduce) {.week .done {animation:none}}
+</style>
+<h3>Мой прогресс</h3>
+<div class="meta">{{dates}}</div>
+<div class="week">{{week}}</div>
+<div id="day">Нажми на день недели</div>
+<p>{{stats}}</p>
+<script>
+  const widget = window.TelegramWidget;
+  document.querySelectorAll('.week button').forEach((button) => {
+    button.addEventListener('click', () => {
+      const label = button.parentElement.firstElementChild.textContent;
+      const status = button.classList.contains('done') ? 'практика выполнена'
+        : button.classList.contains('future') ? 'день ещё впереди' : 'практика не отмечена';
+      document.getElementById('day').textContent = label + ' · ' + status;
+      if (widget && widget.HapticFeedback) widget.HapticFeedback.selectionChanged();
+    });
+  });
+</script>

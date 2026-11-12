@@ -4812,6 +4812,29 @@ def _streak_from_completion_days(completion_days: set, today: date) -> int:
     return streak
 
 
+def get_progress_widget_stats(user_id: int, today: date):
+    """Число практик, даты выполнения и обе серии из одного снимка журнала."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT completed_at FROM practice_logs
+                WHERE user_id = %s AND completed_at IS NOT NULL
+            """, (user_id,))
+            rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    days = {_completed_at_to_moscow_date(row[0]) for row in rows}
+    best = run = 0
+    previous = None
+    for day in sorted(day for day in days if day <= today):
+        run = run + 1 if previous and day - previous == timedelta(days=1) else 1
+        best = max(best, run)
+        previous = day
+    return len(rows), days, _streak_from_completion_days(days, today), best
+
+
 def has_best_streak(user_id: int, min_streak: int = 7) -> bool:
     """True, если текущая серия пользователя — максимальная среди незаблокированных (≥ min_streak).
 

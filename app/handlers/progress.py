@@ -1,10 +1,16 @@
 """Обработчики кнопки «Мой прогресс» и сброса прогресса."""
 
 import logging
+import os
+from datetime import datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from app.rich_messages import button_row, paragraph, send_rich_message
+from app.config import DEFAULT_TZ
 
 from app.challenge.cohort import CHALLENGE_DURATION
 from data.db import (
@@ -108,10 +114,10 @@ def _progress_text(user_id: int) -> str:
     return format_progress_stats(n, streak, format_challenge_progress_line(user_id))
 
 
-def _progress_keyboard() -> InlineKeyboardMarkup:
+def _progress_keyboard(callback_data: str = "progress_reset") -> InlineKeyboardMarkup:
     """Клавиатура с кнопкой «Сбросить прогресс»."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Сбросить прогресс", callback_data="progress_reset")]
+        [InlineKeyboardButton("Сбросить прогресс", callback_data=callback_data)]
     ])
 
 
@@ -144,6 +150,60 @@ def _confirm_keyboard(*, reset_challenge: bool = False) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(confirm_label, callback_data="progress_reset_yes")],
         [InlineKeyboardButton("Нет", callback_data="progress_reset_no")]
     ])
+
+
+async def try_send_progress_widget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if os.getenv("PROGRESS_WIDGET_ENABLED", "").strip().lower() not in {"1", "true"}:
+        return False
+    chat, user, msg = update.effective_chat, update.effective_user, update.effective_message
+    if not (chat and chat.type == "private" and user and msg):
+        return False
+
+    from data.postgres_db import get_progress_widget_stats
+
+    today = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
+    try:
+        total, done, streak, best = get_progress_widget_stats(user.id, today)
+    except Exception as exc:
+        logger.warning("Progress widget stats unavailable (%s)", type(exc).__name__)
+        return False
+    monday = today - timedelta(days=today.weekday())
+    week = [monday + timedelta(days=i) for i in range(7)]
+    dates = f"{monday:%d.%m}–{week[-1]:%d.%m}"
+    labels = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+    cells = []
+    for label, day in zip(labels, week):
+        classes = "done" if day <= today and day in done else "future" if day > today else ""
+        if day == today:
+            classes += " today"
+        mark = "✓" if classes.startswith("done") else "·"
+        cells.append(f'<div><span>{label}</span><button class="{classes}">{mark}</button></div>')
+    challenge = format_challenge_progress_line(user.id).replace("*", "")
+    stats = (
+        f"Текущая серия: {streak} дн.",
+        f"Лучшая серия: {best} дн.",
+        f"Выполнено практик: {total}",
+    )
+    lines = [*stats, *([challenge] if challenge else [])]
+    html = Path(__file__).with_name("progress_widget.html").read_text(encoding="utf-8")
+    html = html.replace("{{dates}}", dates).replace("{{week}}", "".join(cells))
+    html = html.replace("{{stats}}", "<br>".join(lines))
+    checked = ", ".join(label for label, day in zip(labels, week) if day <= today and day in done)
+    payload = {
+        "chat_id": chat.id,
+        "html": html,
+        "caption": "\n".join([f"Мой прогресс · {dates}", f"Дни с практикой: {checked or 'пока нет'}", *lines]),
+    }
+    if total:
+        payload["reply_markup"] = _progress_keyboard("progress_reset_widget").to_dict()
+    if msg.is_topic_message and msg.message_thread_id:
+        payload["message_thread_id"] = msg.message_thread_id
+    try:
+        await context.bot._post("sendWidget", payload)
+    except TelegramError as exc:
+        logger.warning("Progress widget send failed (%s)", type(exc).__name__)
+        return False
+    return True
 
 
 async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -183,10 +243,11 @@ async def handle_progress_reset_callback(update: Update, context: ContextTypes.D
             "Точно хочешь сбросить? Практики будут приходить как раньше, "
             "просто цифры начнутся заново."
         )
-    await query.edit_message_text(
-        text,
-        reply_markup=_confirm_keyboard(reset_challenge=reset_challenge)
-    )
+    keyboard = _confirm_keyboard(reset_challenge=reset_challenge)
+    if query.data == "progress_reset_widget":
+        await query.message.reply_text(text, reply_markup=keyboard)
+    else:
+        await query.edit_message_text(text, reply_markup=keyboard)
 
 
 async def handle_progress_reset_yes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
