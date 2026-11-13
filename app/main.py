@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 import os
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PreCheckoutQueryHandler, ChatMemberHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ChatMemberHandler, filters, ContextTypes
 from telegram import Update
 
 from .config import BOT_TOKEN
@@ -32,11 +32,7 @@ from .handlers.schedule import (
 from .handlers.suggest_practice import handle_practice_suggestion_input
 from .handlers.donations import (
     handle_donations_callback,
-    handle_donate_card_callback,
-    handle_donate_stars_callback,
-    handle_stars_amount_callback,
-    handle_pre_checkout_query,
-    handle_successful_payment
+    handle_legacy_donation_callback,
 )
 from .handlers.done import (
     handle_practice_done_callback,
@@ -82,7 +78,6 @@ from .challenge.flow.start_flow import (
     handle_challenge_time_input,
 )
 from .handlers.suggest_practice import handle_suggest_practice_callback
-from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback
 from .handlers.breathing import breathing_command
 from .handlers.help import help_command, help_section_callback
@@ -413,12 +408,11 @@ def main():
         CallbackQueryHandler(handle_extra_self_difficulty_callback, pattern="^extra_self_difficulty:")
     )
 
-    # Регистрируем обработчики для донатов
-    application.add_handler(CallbackQueryHandler(handle_donate_card_callback, pattern="^donate_card$"))
-    application.add_handler(CallbackQueryHandler(handle_donate_stars_callback, pattern="^donate_stars$"))
-    
-    # Регистрируем обработчики для выбора количества звезд
-    application.add_handler(CallbackQueryHandler(handle_stars_amount_callback, pattern="^stars_"))
+    # Старые кнопки донатов не должны запускать удалённый сценарий.
+    application.add_handler(CallbackQueryHandler(
+        handle_legacy_donation_callback,
+        pattern="^(donate_card|donate_stars|stars_.*)$",
+    ))
 
     # Трекер прогресса: кнопка «✅ Я сделал!» и «Мой прогресс» / сброс
     application.add_handler(CallbackQueryHandler(handle_practice_done_callback, pattern="^practice_done"))
@@ -428,10 +422,6 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_progress_reset_callback, pattern="^progress_reset$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_yes_callback, pattern="^progress_reset_yes$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_no_callback, pattern="^progress_reset_no$"))
-    
-    # Регистрируем обработчики для платежей
-    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
-    application.add_handler(PreCheckoutQueryHandler(handle_pre_checkout_query))
     
     # Reply-кнопки Daily и By mood (один обработчик — внутри проверяется режим)
     reply_buttons = [

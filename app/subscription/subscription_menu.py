@@ -128,13 +128,14 @@ async def guard_update(update, context):
     from telegram.ext import ApplicationHandlerStop
     from .access import repository_for
     user, chat = update.effective_user, update.effective_chat
-    if not user or not chat or chat.type != "private" or repository_for(context, user.id) is None:
+    if not user or not chat or chat.type != "private":
+        return
+    repository = repository_for(context, user.id)
+    if repository is None:
         return
     now = datetime.now(MOSCOW)
     state = await asyncio.to_thread(
-        repository_for(context, user.id).synchronize_access, user.id, now)
-    if state is None:
-        return
+        repository.synchronize_access, user.id, now)
     message = update.effective_message
     text = (message.text or "") if message else ""
     callback = (update.callback_query.data or "") if update.callback_query else ""
@@ -148,8 +149,12 @@ async def guard_update(update, context):
         onboarding = load_state(user.id)
         if onboarding and onboarding.get("step") != "complete":
             return  # Existing onboarding guard still applies.
-        await send_menu(context.bot, chat.id, state, now, url)
+        # A new user may not have a subscription_accounts row yet. The menu is
+        # still the free subscription menu, never the removed donations flow.
+        await send_menu(context.bot, chat.id, state or Subscription(), now, url)
         raise ApplicationHandlerStop
+    if state is None:
+        return
     feature = requested_feature(text, callback, waiting_for_time=bool(context.user_data.get("waiting_for_time")))
     if feature and not has_access(state, feature, now):
         # Active challenges are a separate product and remain outside this rollout.
