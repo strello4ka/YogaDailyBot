@@ -64,7 +64,7 @@ class BreathingWidgetTests(unittest.TestCase):
         )
 
         self.assertEqual(len(replies), 1)
-        self.assertIn("не поддерживается", replies[0])
+        self.assertIn("не смог открыть", replies[0])
 
 
 if __name__ == "__main__":

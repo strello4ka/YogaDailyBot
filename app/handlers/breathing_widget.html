@@ -13,9 +13,9 @@
   .paused .orb{animation-play-state:paused}
   @keyframes breathe44{0%,100%{transform:scale(.56)}50%{transform:scale(1.22)}}
   @keyframes breathe46{0%,100%{transform:scale(.56)}40%{transform:scale(1.22)}}
-  .panel{position:absolute;z-index:4;left:5%;right:5%;bottom:5%;display:grid;grid-template-columns:1fr auto;align-items:end;gap:2.6vw}
+  .panel{position:absolute;z-index:4;left:5%;right:5%;bottom:5%;display:flex;align-items:flex-end;gap:2.6vw}
   .controls{display:flex;align-items:center;justify-content:center;gap:2.4vw}
-  .settings{display:grid;gap:2.6vw}
+  .settings{display:flex;flex:1;min-width:0;flex-direction:column;gap:2.6vw}
   button{appearance:none;-webkit-appearance:none;border:0;font:inherit;cursor:pointer}
   .choice{min-width:12%;padding:1.8vw 2.5vw;border-radius:999px;background:#141b1bbd;color:#ffffffb8;font-size:clamp(11px,3.3vw,14px);font-weight:570;line-height:1}
   .choice.active{background:#fff;color:#172125;box-shadow:0 3px 12px #0002}
@@ -38,22 +38,22 @@
       </div>
       <div class="controls" id="patterns"><button class="choice active" data-pattern="44">4 : 4</button><button class="choice" data-pattern="46">4 : 6</button></div>
     </div>
-    <button class="play" id="play" aria-label="Начать"><i class="icon"></i><span class="time" id="time">01:00</span></button>
+    <button class="play" id="play"><i class="icon"></i><span class="time" id="time">01:00</span></button>
   </div>
 </div>
 <script>
   const app=document.getElementById('app'),play=document.getElementById('play'),time=document.getElementById('time'),phase=document.getElementById('phase'),patternLabel=document.getElementById('patternLabel'),widget=window.TelegramWidget;
   let minutes=1,pattern='44',running=false,remaining=60,last=0,timer=0,lastPhase='';
   try{minutes=Number(localStorage.getItem('breath-minutes'))||1;pattern=localStorage.getItem('breath-pattern')||'44'}catch(e){}
-  if(![1,2,3].includes(minutes))minutes=1;if(!['44','46'].includes(pattern))pattern='44';
+  if(minutes!==1&&minutes!==2&&minutes!==3)minutes=1;if(pattern!=='44'&&pattern!=='46')pattern='44';
   function haptic(kind){if(!widget||!widget.HapticFeedback)return;if(kind==='phase')widget.HapticFeedback.impactOccurred('light');else widget.HapticFeedback.selectionChanged()}
   function format(value){value=Math.max(0,Math.ceil(value));return String(Math.floor(value/60)).padStart(2,'0')+':'+String(value%60).padStart(2,'0')}
   function select(){document.querySelectorAll('[data-min]').forEach(b=>b.classList.toggle('active',Number(b.dataset.min)===minutes));document.querySelectorAll('[data-pattern]').forEach(b=>b.classList.toggle('active',b.dataset.pattern===pattern));app.classList.toggle('p44',pattern==='44');app.classList.toggle('p46',pattern==='46');patternLabel.textContent=pattern==='44'?'4 : 4':'4 : 6';remaining=minutes*60;time.textContent=format(remaining)}
-  function stop(done){running=false;clearInterval(timer);app.classList.remove('running','paused');app.classList.toggle('done',done);play.setAttribute('aria-label',done?'Начать заново':'Начать');phase.textContent=done?'Готово':'Вдох';if(done){remaining=0;time.textContent='00:00';haptic('phase')}}
+  function stop(done){running=false;clearInterval(timer);app.classList.remove('running','paused');app.classList.toggle('done',done);phase.textContent=done?'Готово':'Вдох';if(done){remaining=0;time.textContent='00:00';haptic('phase')}}
   function tick(){const now=Date.now(),delta=(now-last)/1000;last=now;remaining-=delta;if(remaining<=0){stop(true);return}time.textContent=format(remaining);const cycle=pattern==='44'?8:10,inhale=4,elapsed=(minutes*60-remaining)%cycle,next=elapsed<inhale?'Вдох':'Выдох';phase.textContent=next;if(next!==lastPhase){lastPhase=next;haptic('phase')}}
-  play.addEventListener('click',()=>{if(running){running=false;clearInterval(timer);app.classList.add('paused');play.setAttribute('aria-label','Продолжить');phase.textContent='Пауза';return}if(remaining<=0)select();running=true;app.classList.remove('done','paused');app.classList.add('running');play.setAttribute('aria-label','Пауза');last=Date.now();lastPhase='';tick();timer=setInterval(tick,250)});
+  play.addEventListener('click',()=>{if(running){running=false;clearInterval(timer);app.classList.add('paused');phase.textContent='Пауза';return}if(remaining<=0)select();running=true;app.classList.remove('done','paused');app.classList.add('running');last=Date.now();lastPhase='';tick();timer=setInterval(tick,250)});
   document.getElementById('minutes').addEventListener('click',e=>{const b=e.target.closest('[data-min]');if(!b||running)return;minutes=Number(b.dataset.min);try{localStorage.setItem('breath-minutes',minutes)}catch(err){}select();haptic()});
   document.getElementById('patterns').addEventListener('click',e=>{const b=e.target.closest('[data-pattern]');if(!b||running)return;pattern=b.dataset.pattern;try{localStorage.setItem('breath-pattern',pattern)}catch(err){}select();haptic()});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&running){running=false;clearInterval(timer);app.classList.add('paused');play.setAttribute('aria-label','Продолжить');phase.textContent='Пауза'}});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&running){running=false;clearInterval(timer);app.classList.add('paused');phase.textContent='Пауза'}});
   select();if(widget)widget.ready();
 </script>

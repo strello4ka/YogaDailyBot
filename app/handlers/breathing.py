@@ -24,8 +24,7 @@ async def breathing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         await context.bot._post("sendWidget", payload)
     except TelegramError as exc:
-        logger.warning("Breathing widget send failed (%s)", type(exc).__name__)
+        logger.warning("Breathing widget send failed: %s", exc)
         await message.reply_text(
-            "Этот виджет пока не поддерживается в твоей версии Telegram. "
-            "Обнови приложение и попробуй снова."
+            "Telegram не смог открыть дыхательный виджет. Попробуй ещё раз чуть позже."
         )
