@@ -49,7 +49,7 @@ class ProgressResetTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(markup.inline_keyboard[0][0].text, "Сбросить прогресс")
 
     async def test_challenge_reset_requires_explicit_confirmation(self):
-        query = types.SimpleNamespace(data="progress_reset", answer=AsyncMock(), edit_message_text=AsyncMock())
+        query = types.SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
         update = types.SimpleNamespace(
             effective_user=types.SimpleNamespace(id=123),
             callback_query=query,

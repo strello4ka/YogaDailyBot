@@ -83,7 +83,7 @@ from .challenge.flow.start_flow import (
 )
 from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
-from .handlers.progress import handle_progress_callback, try_send_progress_widget
+from .handlers.progress import handle_progress_callback
 from .handlers.breathing import breathing_command
 from .handlers.help import help_command, help_section_callback
 from .subscription.old_users.handlers import (
@@ -138,8 +138,6 @@ async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await try_send_progress_widget(update, context):
-        return
     await handle_progress_callback(update, context)
 
 
@@ -431,7 +429,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_fav_toggle_callback, pattern="^fav_toggle:"))
     application.add_handler(CallbackQueryHandler(handle_fav_nav_callback, pattern="^fav_nav:"))
     application.add_handler(CallbackQueryHandler(handle_fav_noop_callback, pattern="^fav_noop$"))
-    application.add_handler(CallbackQueryHandler(handle_progress_reset_callback, pattern="^progress_reset(?:_widget)?$"))
+    application.add_handler(CallbackQueryHandler(handle_progress_reset_callback, pattern="^progress_reset$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_yes_callback, pattern="^progress_reset_yes$"))
     application.add_handler(CallbackQueryHandler(handle_progress_reset_no_callback, pattern="^progress_reset_no$"))
     
