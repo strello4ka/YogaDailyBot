@@ -28,9 +28,7 @@ from app.challenge.flow.post_challenge import (
 )
 from app.onboarding.flow import (
     _finish,
-    _send_agreement,
     _send_step,
-    agreement_callback,
     handle_reply,
     start_command,
 )
@@ -49,36 +47,16 @@ from app.handlers.schedule import (
 
 
 class NewScenarioCopyTest(unittest.TestCase):
-    def test_agreement_is_plain_message_with_linked_documents_and_reply_buttons(self):
-        bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=20)))
-
-        __import__("asyncio").run(
-            _send_agreement(SimpleNamespace(bot=bot), {"chat_id": 10})
-        )
-
-        call = bot.send_message.await_args
-        text = call.args[1]
-        keyboard = call.kwargs["reply_markup"]
-        self.assertIn(f'href="{messages.AGREEMENT_URL}"', text)
-        self.assertIn(f'href="{messages.PRIVACY_URL}"', text)
-        self.assertEqual(
-            [[button.text for button in row] for row in keyboard.keyboard],
-            [["Отказываюсь", "Принять"]],
-        )
-        self.assertEqual(keyboard.keyboard[0][0].api_kwargs, {})
-        self.assertEqual(keyboard.keyboard[0][1].api_kwargs, {"style": "primary"})
-
     @patch("app.onboarding.flow.SUBSCRIPTION_ONBOARDING_ENABLED", False)
     @patch("app.onboarding.flow._transition", new_callable=AsyncMock)
-    @patch("app.onboarding.flow.save_state")
     @patch(
         "app.onboarding.flow.load_state",
-        return_value={"user_id": 1, "chat_id": 10, "step": "agreement"},
+        return_value={"user_id": 1, "chat_id": 10, "step": "welcome"},
     )
-    def test_agreement_reply_accepts_and_continues_onboarding(
-        self, _load, save, transition
+    def test_setup_skips_agreement_and_opens_schedule_when_subscription_hidden(
+        self, _load, transition
     ):
-        message = SimpleNamespace(text="Принять", reply_text=AsyncMock())
+        message = SimpleNamespace(text="Настроить бот", reply_text=AsyncMock())
         update = SimpleNamespace(
             effective_user=SimpleNamespace(id=1), effective_message=message
         )
@@ -88,10 +66,29 @@ class NewScenarioCopyTest(unittest.TestCase):
         )
 
         self.assertTrue(handled)
-        saved_state = save.call_args.args[0]
-        self.assertEqual(saved_state["agreement_version"], messages.AGREEMENT_VERSION)
-        self.assertIn("agreement_accepted_at", saved_state)
         self.assertEqual(transition.await_args.args[2], "schedule_offer")
+
+    @patch("app.onboarding.flow.SUBSCRIPTION_ONBOARDING_ENABLED", True)
+    @patch("app.onboarding.flow._subscription_variant", new_callable=AsyncMock, return_value="new")
+    @patch("app.onboarding.flow._transition", new_callable=AsyncMock)
+    @patch(
+        "app.onboarding.flow.load_state",
+        return_value={"user_id": 1, "chat_id": 10, "step": "welcome"},
+    )
+    def test_setup_opens_subscription_without_agreement(
+        self, _load, transition, _variant
+    ):
+        message = SimpleNamespace(text="Настроить бот", reply_text=AsyncMock())
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=1), effective_message=message
+        )
+
+        handled = __import__("asyncio").run(
+            handle_reply(update, SimpleNamespace(bot_data={}))
+        )
+
+        self.assertTrue(handled)
+        self.assertEqual(transition.await_args.args[2], "subscription")
 
     @patch("data.db.clear_user_blocked_if_needed", return_value=False)
     @patch("data.db.user_exists", return_value=True)
@@ -254,36 +251,13 @@ class NewScenarioCopyTest(unittest.TestCase):
         needs_refresh.assert_not_called()
         bot.send_message.assert_not_awaited()
 
-    @patch("app.onboarding.flow.SUBSCRIPTION_ONBOARDING_ENABLED", False)
-    @patch("app.onboarding.flow._transition", new_callable=AsyncMock)
-    @patch("app.onboarding.flow.edit_rich_message", new_callable=AsyncMock)
-    @patch("app.onboarding.flow.save_state")
-    @patch(
-        "app.onboarding.flow.load_state",
-        return_value={"user_id": 1, "chat_id": 10, "step": "agreement", "screen_id": 20},
-    )
-    def test_accepted_agreement_skips_hidden_subscription(
-        self, _load, _save, _edit, transition
-    ):
-        query = SimpleNamespace(
-            data=f"ob3:accept:{messages.AGREEMENT_VERSION}",
-            answer=AsyncMock(),
-            message=SimpleNamespace(message_id=20),
-        )
-        update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=1))
-        context = SimpleNamespace(bot=object())
-
-        __import__("asyncio").run(agreement_callback(update, context))
-
-        self.assertEqual(transition.await_args.args[2], "schedule_offer")
-
     @patch("app.onboarding.flow.time.time", return_value=1000)
     @patch("app.onboarding.flow._send_step", new_callable=AsyncMock)
     @patch("app.onboarding.flow.save_state")
     def test_skipping_subscription_keeps_three_day_deadline(self, _save, _send, _time):
         from app.onboarding.flow import _transition
 
-        state = {"step": "agreement"}
+        state = {"step": "welcome"}
         __import__("asyncio").run(_transition(SimpleNamespace(), state, "schedule_offer"))
 
         self.assertEqual(state["deadline_at"], 1000 + 72 * 3600)
@@ -539,13 +513,15 @@ class NewScenarioCopyTest(unittest.TestCase):
                 for row in subscription_keyboard("https://example.org").inline_keyboard]
         self.assertEqual(rows, [["Посмотреть тарифы"], ["Не хочу"]])
 
-    @patch("app.onboarding.flow.load_state", return_value={"step": "declined"})
-    def test_declined_user_cannot_bypass_agreement_with_text(self, _state):
+    @patch("app.onboarding.flow.SUBSCRIPTION_ONBOARDING_ENABLED", False)
+    @patch("app.onboarding.flow._transition", new_callable=AsyncMock)
+    @patch("app.onboarding.flow.load_state", return_value={"user_id": 1, "step": "declined"})
+    def test_legacy_declined_state_continues_without_agreement(self, _state, transition):
         message = SimpleNamespace(text="09.30", reply_text=AsyncMock())
         update = SimpleNamespace(effective_user=SimpleNamespace(id=1), effective_message=message)
-        handled = __import__("asyncio").run(handle_reply(update, SimpleNamespace()))
+        handled = __import__("asyncio").run(handle_reply(update, SimpleNamespace(bot_data={})))
         self.assertTrue(handled)
-        message.reply_text.assert_awaited_once()
+        self.assertEqual(transition.await_args.args[2], "schedule_offer")
 
     def test_help_uses_bold_paragraph_instead_of_heading(self):
         blocks = _root_blocks()

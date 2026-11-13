@@ -60,7 +60,7 @@ async def send_challenge_welcome_dm(
     if is_user_onboarding_required(user_id):
         from app.onboarding.state import load_state, save_state
         state = load_state(user_id)
-        if not state or state.get("step") in ("declined", "complete"):
+        if not state or state.get("step") == "complete":
             return False, "сначала нужно завершить /start"
         state["pending_challenge_practice_id"] = practice_id
         save_state(state)

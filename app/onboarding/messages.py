@@ -3,7 +3,6 @@
 AGREEMENT_URL = "https://seatbackandrelax.tilda.ws/yogadailybot-agreement"
 PRIVACY_URL = "https://seatbackandrelax.tilda.ws/yogadailybot-privacy"
 OFFER_URL = "https://seatbackandrelax.tilda.ws/yogadailybot-offer"
-AGREEMENT_VERSION = "2026-09-11-v1"
 
 WELCOME_QUOTE = "Началом каждой привычки является единичное, незначительное решение."
 GENERAL_REMINDERS = (

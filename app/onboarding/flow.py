@@ -2,21 +2,16 @@
 
 import asyncio
 import html
-import logging
 import time
 from datetime import datetime, timedelta
 
-from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
-                      ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyParameters)
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, ReplyParameters
 from telegram.ext import ApplicationHandlerStop
 
 from app.onboarding import messages as copy
 from app.config import SUBSCRIPTION_ONBOARDING_ENABLED
 from app.keyboards import COMMON_REPLY_KEYBOARD_VERSION, get_common_reply_keyboard, onboarding_reply_keyboard
 from app.onboarding.state import load_state, pending_states, save_state
-from app.rich_messages import button_row, edit_rich_message, paragraph, send_rich_message
-
-logger = logging.getLogger(__name__)
 
 WELCOME_BUTTONS = [["Покажи пример", "Настроить бот"]]
 
@@ -72,64 +67,35 @@ def _new_state(update):
     }
 
 
-async def _send_agreement(context, state):
-    text = (
-        "📄 <b>Первым шагом документы</b>\n\n"
-        "Чтобы пользоваться ботом, нужно <b>принять</b> условия "
-        f'<a href="{copy.AGREEMENT_URL}">пользовательского соглашения</a> '
-        "и ознакомиться с "
-        f'<a href="{copy.PRIVACY_URL}">политикой конфиденциальности</a>.'
-    )
-    keyboard = onboarding_reply_keyboard([[
-        KeyboardButton("Отказываюсь"),
-        KeyboardButton("Принять", api_kwargs={"style": "primary"}),
-    ]])
-    return await context.bot.send_message(
-        state["chat_id"], text, parse_mode="HTML",
-        disable_web_page_preview=True, reply_markup=keyboard,
-    )
-
-
-def _agreement_result_blocks(accepted):
-    status = "✅ Соглашение принято" if accepted else "Соглашение не принято"
-    return [
-        paragraph({"type": "bold", "text": f"📄 {status}"}),
-        button_row([{"text": "Ссылка на соглашение", "url": copy.AGREEMENT_URL}]),
-    ]
-
-
 async def _send_step(context, state):
     step = state["step"]
-    if step == "agreement":
-        message = await _send_agreement(context, state)
-    else:
-        if step == "welcome":
-            text = copy.welcome(html.escape(state.get("name") or ""))
-            keyboard = onboarding_reply_keyboard(WELCOME_BUTTONS)
-        elif step == "subscription":
-            if await _subscription_variant(context, state["user_id"]) == "used":
-                text = copy.SUBSCRIPTION_USED
-                if not context.bot_data.get("subscription_miniapp_url"):
-                    text = text.replace("\n\nСмотри тарифы ниже 👇", "")
-                keyboard = _used_subscription_keyboard(context)
-            else:
-                text, keyboard = copy.SUBSCRIPTION, onboarding_reply_keyboard([["Начать 14 дней бесплатно"]])
-        elif step == "schedule_offer":
-            text = copy.SCHEDULE_OFFER
-            keyboard = onboarding_reply_keyboard([["Пропустить", "Настроить расписание"]])
-        elif step == "time_input":
-            text, keyboard = copy.TIME_INPUT, ReplyKeyboardRemove()
-        elif step == "confirmation":
-            text = copy.confirmation(state["time"])
-            keyboard = onboarding_reply_keyboard([["Последний шаг"]])
-        elif step == "location":
-            text, keyboard = copy.LOCATION, ReplyKeyboardRemove()
+    if step == "welcome":
+        text = copy.welcome(html.escape(state.get("name") or ""))
+        keyboard = onboarding_reply_keyboard(WELCOME_BUTTONS)
+    elif step == "subscription":
+        if await _subscription_variant(context, state["user_id"]) == "used":
+            text = copy.SUBSCRIPTION_USED
+            if not context.bot_data.get("subscription_miniapp_url"):
+                text = text.replace("\n\nСмотри тарифы ниже 👇", "")
+            keyboard = _used_subscription_keyboard(context)
         else:
-            raise ValueError(f"Unknown onboarding step: {step}")
-        message = await context.bot.send_message(state["chat_id"], text, parse_mode="HTML", reply_markup=keyboard)
-        if step == 'subscription' and isinstance(keyboard, ReplyKeyboardMarkup):
-            if any(button.text == 'Продолжить бесплатно' for row in keyboard.keyboard for button in row):
-                await _send_onboarding_tariffs(context, state['chat_id'])
+            text, keyboard = copy.SUBSCRIPTION, onboarding_reply_keyboard([["Начать 14 дней бесплатно"]])
+    elif step == "schedule_offer":
+        text = copy.SCHEDULE_OFFER
+        keyboard = onboarding_reply_keyboard([["Пропустить", "Настроить расписание"]])
+    elif step == "time_input":
+        text, keyboard = copy.TIME_INPUT, ReplyKeyboardRemove()
+    elif step == "confirmation":
+        text = copy.confirmation(state["time"])
+        keyboard = onboarding_reply_keyboard([["Последний шаг"]])
+    elif step == "location":
+        text, keyboard = copy.LOCATION, ReplyKeyboardRemove()
+    else:
+        raise ValueError(f"Unknown onboarding step: {step}")
+    message = await context.bot.send_message(state["chat_id"], text, parse_mode="HTML", reply_markup=keyboard)
+    if step == 'subscription' and isinstance(keyboard, ReplyKeyboardMarkup):
+        if any(button.text == 'Продолжить бесплатно' for row in keyboard.keyboard for button in row):
+            await _send_onboarding_tariffs(context, state['chat_id'])
     state["screen_id"] = message.message_id
     save_state(state)
 
@@ -140,6 +106,13 @@ async def _transition(context, state, step, *, schedule_time=None):
         state["deadline_at"] = time.time() + 72 * 3600
     save_state(state, schedule_time=schedule_time)
     await _send_step(context, state)
+
+
+async def _next_setup_step(context, state):
+    if (_subscription_step_enabled(context, state["user_id"])
+            and await _subscription_variant(context, state["user_id"]) != "active"):
+        return "subscription"
+    return "schedule_offer"
 
 
 async def _finish_second_message(context, state):
@@ -279,66 +252,6 @@ async def restart_yes(update, context):
     await begin(update, context)
 
 
-async def agreement_callback(update, context):
-    query = update.callback_query
-    state = load_state(update.effective_user.id)
-    parts = query.data.split(":", 2)
-    action = parts[1]
-    version = parts[2] if len(parts) == 3 else None
-    if not state or state.get("step") != "agreement" or version != copy.AGREEMENT_VERSION:
-        await query.answer("Эта версия соглашения уже не актуальна.", show_alert=True)
-        return
-    await query.answer()
-    agreement_message_id = state.get("screen_id") or query.message.message_id
-    if query.message.message_id != agreement_message_id:
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-    if action == "decline":
-        state["step"] = "declined"
-        save_state(state)
-        try:
-            await edit_rich_message(context.bot, state["chat_id"], agreement_message_id, _agreement_result_blocks(False))
-        except Exception:
-            logger.exception("Не удалось обновить Rich Message соглашения user=%s", state["user_id"])
-        await query.message.reply_text(
-            "Ты не принял условия соглашения, поэтому продолжить настройку и получать практики пока нельзя.\n\n"
-            "Если передумаешь, вернись к соглашению по кнопке ниже. Твои сохранённые данные останутся на месте.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Вернуться к соглашению", callback_data="ob3:return")],
-                [InlineKeyboardButton("Помощь", callback_data="ob3:help")],
-            ]),
-        )
-        return
-    state["agreement_version"] = copy.AGREEMENT_VERSION
-    state["agreement_accepted_at"] = time.time()
-    save_state(state)
-    try:
-        await edit_rich_message(context.bot, state["chat_id"], agreement_message_id, _agreement_result_blocks(True))
-    except Exception:
-        logger.exception("Не удалось обновить Rich Message соглашения user=%s", state["user_id"])
-    next_step = ("subscription" if _subscription_step_enabled(context, state["user_id"])
-                 and await _subscription_variant(context, state["user_id"]) != "active"
-                 else "schedule_offer")
-    await _transition(context, state, next_step)
-
-
-async def agreement_aux_callback(update, context):
-    query = update.callback_query
-    await query.answer()
-    state = load_state(update.effective_user.id)
-    if not state or state.get("step") != "declined":
-        return
-    if query.data == "ob3:help":
-        from app.handlers.help import help_command
-        await help_command(update, context)
-        return
-    state["step"] = "agreement"
-    save_state(state)
-    await _send_step(context, state)
-
-
 async def guard_command(update, context):
     state = load_state(update.effective_user.id) if update.effective_user else None
     text = update.effective_message.text or ""
@@ -350,7 +263,7 @@ async def guard_command(update, context):
 async def guard_callback(update, context):
     state = load_state(update.effective_user.id) if update.effective_user else None
     data = update.callback_query.data or ""
-    if state and state.get("step") != "complete" and not data.startswith(("ob3:", "start_restart_")):
+    if state and state.get("step") != "complete" and not data.startswith("start_restart_"):
         from app.subscription.old_users.messages import (FEEDBACK_CALLBACK, FREE_DETAILS_CALLBACK,
                                                          SUBSCRIPTION_DETAILS_CALLBACK)
         if data in (FEEDBACK_CALLBACK, FREE_DETAILS_CALLBACK, SUBSCRIPTION_DETAILS_CALLBACK):
@@ -367,33 +280,11 @@ async def handle_reply(update, context):
     state = load_state(update.effective_user.id)
     if not state or state.get("step") == "complete":
         return False
-    if state.get("step") == "declined":
-        await update.effective_message.reply_text(
-            "Сначала прими пользовательское соглашение по кнопке выше."
-        )
-        return True
     text = update.effective_message.text
     step = state["step"]
-    if step == "agreement" and text == "Отказываюсь":
-        state["step"] = "declined"
-        save_state(state)
-        await update.effective_message.reply_text(
-            "Ты не принял условия соглашения, поэтому продолжить настройку и получать практики пока нельзя.\n\n"
-            "Если передумаешь, вернись к соглашению по кнопке ниже. Твои сохранённые данные останутся на месте.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Вернуться к соглашению", callback_data="ob3:return")],
-                [InlineKeyboardButton("Помощь", callback_data="ob3:help")],
-            ]),
-        )
-        return True
-    if step == "agreement" and text == "Принять":
-        state["agreement_version"] = copy.AGREEMENT_VERSION
-        state["agreement_accepted_at"] = time.time()
-        save_state(state)
-        next_step = ("subscription" if _subscription_step_enabled(context, state["user_id"])
-                     and await _subscription_variant(context, state["user_id"]) != "active"
-                     else "schedule_offer")
-        await _transition(context, state, next_step)
+    # Старые незавершённые состояния продолжаются с актуального шага.
+    if step in ("agreement", "declined"):
+        await _transition(context, state, await _next_setup_step(context, state))
         return True
     if step == 'subscription' and text == 'Посмотреть тарифы':
         await _send_step(context, state)
@@ -417,7 +308,7 @@ async def handle_reply(update, context):
         )
         return True
     if step == "welcome" and text == "Настроить бот":
-        await _transition(context, state, "agreement")
+        await _transition(context, state, await _next_setup_step(context, state))
         return True
     if step == "subscription" and text == "Начать 14 дней бесплатно":
         variant = await _subscription_variant(context, state["user_id"])
@@ -477,9 +368,12 @@ async def reminders_job(context):
         if state.get("step") == "location":
             await _finish_second_message(context, state)
             continue
-        if state.get("step") in ("complete", "declined"):
+        if state.get("step") in ("agreement", "declined"):
+            await _transition(context, state, await _next_setup_step(context, state))
             continue
-        if state.get("deadline_at") and now >= state["deadline_at"] and state.get("agreement_version") == copy.AGREEMENT_VERSION:
+        if state.get("step") == "complete":
+            continue
+        if state.get("deadline_at") and now >= state["deadline_at"]:
             await _finish(context, state)
             continue
         if state.get("step") in ("time_input", "confirmation"):
@@ -488,12 +382,8 @@ async def reminders_job(context):
         if not due:
             continue
         index = max(due)
-        reminder_markup = None
-        if state.get("step") == "agreement":
-            reminder_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Принять", callback_data=f"ob3:accept:{copy.AGREEMENT_VERSION}")]])
         await context.bot.send_message(
             state["chat_id"], copy.GENERAL_REMINDERS[index],
-            reply_markup=reminder_markup,
             reply_parameters=ReplyParameters(message_id=state.get("screen_id"), allow_sending_without_reply=True),
         )
         state["reminded"] = sorted(set(state.get("reminded", []) + due))

@@ -104,8 +104,6 @@ from .bot_commands import setup_bot_commands
 from .onboarding.flow import (
     start_command,
     restart_yes as start_restart_yes_callback,
-    agreement_callback,
-    agreement_aux_callback,
     guard_callback as onboarding_guard_callback,
     guard_command as onboarding_guard_command,
     handle_reply as handle_new_onboarding_reply,
@@ -386,8 +384,6 @@ def main():
     # Регистрируем callback-запросы нового онбординга и связанных сценариев
     application.add_handler(CallbackQueryHandler(start_restart_yes_callback, pattern="^start_restart_yes$"))
     application.add_handler(CallbackQueryHandler(start_restart_no_callback, pattern="^start_restart_no$"))
-    application.add_handler(CallbackQueryHandler(agreement_callback, pattern="^ob3:(accept|decline):"))
-    application.add_handler(CallbackQueryHandler(agreement_aux_callback, pattern="^ob3:(return|help)$"))
     application.add_handler(CallbackQueryHandler(post_challenge_callback, pattern="^pc:(no|change|continue)$"))
     application.add_handler(CallbackQueryHandler(schedule_pick_time_callback, pattern="^schedule_pick_time$"))
     application.add_handler(CallbackQueryHandler(schedule_resume_setup_callback, pattern="^schedule_resume_setup$"))
