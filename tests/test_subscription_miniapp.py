@@ -100,7 +100,8 @@ class MiniAppHTTPTest(unittest.TestCase):
             self.assertTrue(status.startswith('404'))
         status, body = self.request('/', method='GET')
         self.assertEqual(status, '200 OK')
-        self.assertIn('Email для чека'.encode(), body)
+        self.assertIn('<label for="email">Email<span'.encode(), body)
+        self.assertNotIn('Email для чека'.encode(), body)
         self.assertIn('Email нужен для отправки чека.'.encode(), body)
         self.assertIn('Политике конфиденциальности'.encode(), body)
 
@@ -119,17 +120,19 @@ class MiniAppHTTPTest(unittest.TestCase):
         self.assertIn('.field label { font-weight: 650; font-size: 16px;', css)
         self.assertIn('.promo-field summary { display: flex;', css)
         self.assertIn('color: var(--accent); font-size: 16px; font-weight: 650;', css)
+        self.assertIn('.note { margin: 0 0 10px;', css)
+        self.assertIn('.offer-ends { margin: 0 0 10px;', css)
 
-    def test_special_offer_ui_places_terms_below_tariffs(self):
+    def test_checkout_ui_places_information_above_tariffs(self):
         _, html = self.request('/', method='GET')
         _, script = self.request('/app.js', method='GET')
         page = html.decode()
         client = script.decode()
         self.assertNotIn('id="early-user-note"', page)
         self.assertNotIn('Скидки только для самых первых пользователей', page)
-        self.assertLess(page.index('id="tariffs"'), page.index('id="period-note"'))
-        self.assertLess(page.index('id="tariffs"'), page.index('id="offer-ends"'))
-        self.assertLess(page.index('id="period-note"'), page.index('id="email-field"'))
+        self.assertLess(page.index('id="period-note"'), page.index('id="tariffs"'))
+        self.assertLess(page.index('id="offer-ends"'), page.index('id="tariffs"'))
+        self.assertLess(page.index('id="tariffs"'), page.index('id="email-field"'))
         self.assertLess(page.index('id="email-field"'), page.index('class="promo-field"'))
         self.assertLess(page.index('class="promo-field"'), page.index('class="paybar"'))
         self.assertNotIn('id="resume" class="secondary" target="_blank"', page)

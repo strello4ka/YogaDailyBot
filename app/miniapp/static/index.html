@@ -29,12 +29,12 @@
     <p class="intro">Выбирай практики под настроение, сохраняй любимое и занимайся по своему расписанию.</p>
     <form id="payment-form" novalidate>
       <fieldset><legend>Выбери период подписки</legend>
-        <div id="tariffs" class="tariffs"></div>
         <p id="period-note" class="note" hidden></p>
         <p id="offer-ends" class="offer-ends" hidden></p>
+        <div id="tariffs" class="tariffs"></div>
       </fieldset>
       <div class="field" id="email-field">
-        <div class="field-label-row"><label for="email">Email для чека <span class="required" aria-hidden="true">*</span></label>
+        <div class="field-label-row"><label for="email">Email<span class="required" aria-hidden="true">*</span></label>
           <button id="email-done" class="keyboard-done" type="button" hidden>Готово</button></div>
         <input id="email" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" enterkeyhint="done" required maxlength="254" placeholder="you@example.com" aria-required="true" aria-invalid="false" aria-describedby="email-help email-error">
         <small id="email-help" class="field-help">Email нужен для отправки чека. Подробнее в <a id="privacy" target="_blank" rel="noopener noreferrer">Политике конфиденциальности</a>.</small>
