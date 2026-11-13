@@ -33,7 +33,10 @@ class BreathingWidgetTests(unittest.TestCase):
         self.assertEqual(method, "sendWidget")
         self.assertEqual(payload["chat_id"], 42)
         self.assertIn("aspect-ratio:1", payload["html"])
-        self.assertIn('data-min="5"', payload["html"])
+        self.assertIn('data-min="1">1 мин', payload["html"])
+        self.assertIn('data-min="3">3 мин', payload["html"])
+        self.assertNotIn('data-min="4"', payload["html"])
+        self.assertNotIn('id="playLabel"', payload["html"])
         self.assertIn('data-pattern="46"', payload["html"])
         self.assertLessEqual(len(payload["html"].encode()), 32 * 1024)
 

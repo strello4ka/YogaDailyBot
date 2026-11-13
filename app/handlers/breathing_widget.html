@@ -13,44 +13,47 @@
   .paused .orb{animation-play-state:paused}
   @keyframes breathe44{0%,100%{transform:scale(.56)}50%{transform:scale(1.22)}}
   @keyframes breathe46{0%,100%{transform:scale(.56)}40%{transform:scale(1.22)}}
-  .phase{position:absolute;z-index:3;left:0;right:0;bottom:27%;text-align:center;color:#ffffffd9;font-size:clamp(11px,3.4vw,15px);font-weight:560;letter-spacing:.08em;text-transform:uppercase}
-  .panel{position:absolute;z-index:4;left:5%;right:5%;bottom:5%;display:grid;gap:3.2vw}
+  .panel{position:absolute;z-index:4;left:5%;right:5%;bottom:5%;display:grid;grid-template-columns:1fr auto;align-items:end;gap:2.6vw}
   .controls{display:flex;align-items:center;justify-content:center;gap:2.4vw}
+  .settings{display:grid;gap:2.6vw}
   button{appearance:none;-webkit-appearance:none;border:0;font:inherit;cursor:pointer}
   .choice{min-width:12%;padding:1.8vw 2.5vw;border-radius:999px;background:#141b1bbd;color:#ffffffb8;font-size:clamp(11px,3.3vw,14px);font-weight:570;line-height:1}
   .choice.active{background:#fff;color:#172125;box-shadow:0 3px 12px #0002}
-  .play{display:flex;min-width:37%;align-items:center;justify-content:center;gap:2.2vw;margin:auto;padding:3.4vw 5vw;border-radius:999px;background:#fffffff2;color:#152027;font-size:clamp(15px,4.4vw,19px);font-weight:720;box-shadow:0 6px 20px #290b0838}
+  .play{display:flex;align-items:center;justify-content:center;gap:2vw;min-width:0;padding:2.5vw 3.3vw;border-radius:999px;background:#fffffff2;color:#152027;font-size:clamp(13px,3.7vw,16px);font-weight:720;box-shadow:0 6px 20px #290b0838}
   .play:active,.choice:active{transform:scale(.97)}
   .icon{width:0;height:0;border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:11px solid currentColor}
   .running .icon{width:11px;height:14px;border:0;border-left:4px solid currentColor;border-right:4px solid currentColor}
+  .paused .icon{width:0;height:0;border-top:7px solid transparent;border-right:0;border-bottom:7px solid transparent;border-left:11px solid currentColor}
   .time{font-variant-numeric:tabular-nums}
   .done .orb{transform:scale(.78)}
   @media (prefers-reduced-motion:reduce){.running .orb{animation-timing-function:linear}}
 </style>
 <div class="breath p44" id="app">
-  <div class="top"><span class="title">Дыхание</span><span class="pattern" id="patternLabel">4 : 4</span></div>
+  <div class="top"><span class="title" id="phase">Вдох</span><span class="pattern" id="patternLabel">4 : 4</span></div>
   <div class="stage"><div class="orb"></div></div>
-  <div class="phase" id="phase">Выбери ритм и время</div>
   <div class="panel">
-    <button class="play" id="play"><i class="icon"></i><span id="playLabel">Начать</span><span class="time" id="time">01:00</span></button>
-    <div class="controls" id="minutes">
-      <button class="choice active" data-min="1">1</button><button class="choice" data-min="2">2</button><button class="choice" data-min="3">3</button><button class="choice" data-min="4">4</button><button class="choice" data-min="5">5 мин</button>
+    <div class="settings">
+      <div class="controls" id="minutes">
+        <button class="choice active" data-min="1">1 мин</button><button class="choice" data-min="2">2 мин</button><button class="choice" data-min="3">3 мин</button>
+      </div>
+      <div class="controls" id="patterns"><button class="choice active" data-pattern="44">4 : 4</button><button class="choice" data-pattern="46">4 : 6</button></div>
     </div>
-    <div class="controls" id="patterns"><button class="choice active" data-pattern="44">4 : 4</button><button class="choice" data-pattern="46">4 : 6</button></div>
+    <button class="play" id="play" aria-label="Начать"><i class="icon"></i><span class="time" id="time">01:00</span></button>
   </div>
 </div>
 <script>
-  const app=document.getElementById('app'),play=document.getElementById('play'),time=document.getElementById('time'),phase=document.getElementById('phase'),playLabel=document.getElementById('playLabel'),patternLabel=document.getElementById('patternLabel'),widget=window.TelegramWidget;
+  const app=document.getElementById('app'),play=document.getElementById('play'),time=document.getElementById('time'),phase=document.getElementById('phase'),patternLabel=document.getElementById('patternLabel'),widget=window.TelegramWidget;
   let minutes=1,pattern='44',running=false,remaining=60,last=0,timer=0,lastPhase='';
   try{minutes=Number(localStorage.getItem('breath-minutes'))||1;pattern=localStorage.getItem('breath-pattern')||'44'}catch(e){}
+  if(![1,2,3].includes(minutes))minutes=1;if(!['44','46'].includes(pattern))pattern='44';
   function haptic(kind){if(!widget||!widget.HapticFeedback)return;if(kind==='phase')widget.HapticFeedback.impactOccurred('light');else widget.HapticFeedback.selectionChanged()}
   function format(value){value=Math.max(0,Math.ceil(value));return String(Math.floor(value/60)).padStart(2,'0')+':'+String(value%60).padStart(2,'0')}
   function select(){document.querySelectorAll('[data-min]').forEach(b=>b.classList.toggle('active',Number(b.dataset.min)===minutes));document.querySelectorAll('[data-pattern]').forEach(b=>b.classList.toggle('active',b.dataset.pattern===pattern));app.classList.toggle('p44',pattern==='44');app.classList.toggle('p46',pattern==='46');patternLabel.textContent=pattern==='44'?'4 : 4':'4 : 6';remaining=minutes*60;time.textContent=format(remaining)}
-  function stop(done){running=false;clearInterval(timer);app.classList.remove('running','paused');app.classList.toggle('done',done);playLabel.textContent=done?'Ещё раз':'Начать';phase.textContent=done?'Практика завершена':'Выбери ритм и время';if(done){remaining=0;time.textContent='00:00';haptic('phase')}}
+  function stop(done){running=false;clearInterval(timer);app.classList.remove('running','paused');app.classList.toggle('done',done);play.setAttribute('aria-label',done?'Начать заново':'Начать');phase.textContent=done?'Готово':'Вдох';if(done){remaining=0;time.textContent='00:00';haptic('phase')}}
   function tick(){const now=Date.now(),delta=(now-last)/1000;last=now;remaining-=delta;if(remaining<=0){stop(true);return}time.textContent=format(remaining);const cycle=pattern==='44'?8:10,inhale=4,elapsed=(minutes*60-remaining)%cycle,next=elapsed<inhale?'Вдох':'Выдох';phase.textContent=next;if(next!==lastPhase){lastPhase=next;haptic('phase')}}
-  play.addEventListener('click',()=>{if(running){running=false;clearInterval(timer);app.classList.add('paused');playLabel.textContent='Продолжить';phase.textContent='Пауза';return}if(remaining<=0)select();running=true;app.classList.remove('done','paused');app.classList.add('running');playLabel.textContent='Пауза';last=Date.now();lastPhase='';tick();timer=setInterval(tick,250)});
+  play.addEventListener('click',()=>{if(running){running=false;clearInterval(timer);app.classList.add('paused');play.setAttribute('aria-label','Продолжить');phase.textContent='Пауза';return}if(remaining<=0)select();running=true;app.classList.remove('done','paused');app.classList.add('running');play.setAttribute('aria-label','Пауза');last=Date.now();lastPhase='';tick();timer=setInterval(tick,250)});
   document.getElementById('minutes').addEventListener('click',e=>{const b=e.target.closest('[data-min]');if(!b||running)return;minutes=Number(b.dataset.min);try{localStorage.setItem('breath-minutes',minutes)}catch(err){}select();haptic()});
   document.getElementById('patterns').addEventListener('click',e=>{const b=e.target.closest('[data-pattern]');if(!b||running)return;pattern=b.dataset.pattern;try{localStorage.setItem('breath-pattern',pattern)}catch(err){}select();haptic()});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&running){running=false;clearInterval(timer);app.classList.add('paused');playLabel.textContent='Продолжить';phase.textContent='Пауза'}});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&running){running=false;clearInterval(timer);app.classList.add('paused');play.setAttribute('aria-label','Продолжить');phase.textContent='Пауза'}});
   select();if(widget)widget.ready();
 </script>
