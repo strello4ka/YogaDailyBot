@@ -84,6 +84,7 @@ from .challenge.flow.start_flow import (
 from .handlers.suggest_practice import handle_suggest_practice_callback
 from .handlers.donations import handle_donations_callback
 from .handlers.progress import handle_progress_callback, try_send_progress_widget
+from .handlers.breathing import breathing_command
 from .handlers.help import help_command, help_section_callback
 from .subscription.old_users.handlers import (
     WAITING_FOR_FEEDBACK,
@@ -365,6 +366,7 @@ def main():
     application.add_handler(CommandHandler("suggest", suggest_command))
     application.add_handler(CommandHandler("donate", donate_command))
     application.add_handler(CommandHandler("progress", progress_command))
+    application.add_handler(CommandHandler("breathing", breathing_command))
     application.add_handler(CommandHandler("favorite", favorite_command_handler))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("schedule", schedule_command))
