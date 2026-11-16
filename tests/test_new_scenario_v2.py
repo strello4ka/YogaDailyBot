@@ -28,6 +28,7 @@ from app.challenge.flow.post_challenge import (
 )
 from app.onboarding.flow import (
     _finish,
+    _record_onboarding_button_click,
     _send_step,
     handle_reply,
     start_command,
@@ -47,14 +48,46 @@ from app.handlers.schedule import (
 
 
 class NewScenarioCopyTest(unittest.TestCase):
+    @patch("data.product_events.record_product_event_for_user")
+    def test_onboarding_button_click_records_step_and_button(self, record_event):
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=1),
+            effective_message=SimpleNamespace(message_id=42),
+        )
+
+        __import__("asyncio").run(
+            _record_onboarding_button_click(update, "welcome", "Покажи пример")
+        )
+
+        record_event.assert_called_once_with(
+            1,
+            "onboarding_button_clicked",
+            "42:welcome:Покажи пример",
+            metadata={"step": "welcome", "button": "Покажи пример", "message_id": 42},
+        )
+
+    @patch("data.product_events.record_product_event_for_user")
+    def test_onboarding_free_text_is_not_recorded_as_button(self, record_event):
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=1),
+            effective_message=SimpleNamespace(message_id=43),
+        )
+
+        __import__("asyncio").run(
+            _record_onboarding_button_click(update, "time_input", "9.30")
+        )
+
+        record_event.assert_not_called()
+
     @patch("app.onboarding.flow.SUBSCRIPTION_ONBOARDING_ENABLED", False)
+    @patch("app.onboarding.flow._record_onboarding_button_click", new_callable=AsyncMock)
     @patch("app.onboarding.flow._transition", new_callable=AsyncMock)
     @patch(
         "app.onboarding.flow.load_state",
         return_value={"user_id": 1, "chat_id": 10, "step": "welcome"},
     )
     def test_setup_skips_agreement_and_opens_schedule_when_subscription_hidden(
-        self, _load, transition
+        self, _load, transition, _record_click
     ):
         message = SimpleNamespace(text="Настроить бот", reply_text=AsyncMock())
         update = SimpleNamespace(
@@ -69,6 +102,7 @@ class NewScenarioCopyTest(unittest.TestCase):
         self.assertEqual(transition.await_args.args[2], "schedule_offer")
 
     @patch("app.onboarding.flow.SUBSCRIPTION_ONBOARDING_ENABLED", True)
+    @patch("app.onboarding.flow._record_onboarding_button_click", new_callable=AsyncMock)
     @patch("app.onboarding.flow._subscription_variant", new_callable=AsyncMock, return_value="new")
     @patch("app.onboarding.flow._transition", new_callable=AsyncMock)
     @patch(
@@ -76,7 +110,7 @@ class NewScenarioCopyTest(unittest.TestCase):
         return_value={"user_id": 1, "chat_id": 10, "step": "welcome"},
     )
     def test_setup_opens_subscription_without_agreement(
-        self, _load, transition, _variant
+        self, _load, transition, _variant, _record_click
     ):
         message = SimpleNamespace(text="Настроить бот", reply_text=AsyncMock())
         update = SimpleNamespace(
