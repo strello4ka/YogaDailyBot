@@ -2,6 +2,7 @@
 
 import asyncio
 import html
+import logging
 import time
 from datetime import datetime, timedelta
 
@@ -14,6 +15,46 @@ from app.keyboards import COMMON_REPLY_KEYBOARD_VERSION, get_common_reply_keyboa
 from app.onboarding.state import load_state, pending_states, save_state
 
 WELCOME_BUTTONS = [["Покажи пример", "Настроить бот"]]
+
+logger = logging.getLogger(__name__)
+
+_TRACKED_ONBOARDING_BUTTONS = {
+    "welcome": {"Покажи пример", "Настроить бот"},
+    "subscription": {
+        "Посмотреть тарифы",
+        "Начать 14 дней бесплатно",
+        "Продолжить бесплатно",
+    },
+    "schedule_offer": {"Пропустить", "Настроить расписание"},
+    "confirmation": {"Последний шаг"},
+}
+
+
+async def _record_onboarding_button_click(update, step, text):
+    """Record a reply-keyboard selection without affecting the user flow."""
+    if text not in _TRACKED_ONBOARDING_BUTTONS.get(step, set()):
+        return
+    message_id = getattr(update.effective_message, "message_id", None)
+    if message_id is None:
+        # Telegram messages always have an id; this fallback keeps synthetic
+        # updates and unusual adapters safe while retaining retry deduplication.
+        message_id = f"fallback-{time.time_ns()}"
+    try:
+        from data.product_events import record_product_event_for_user
+        await asyncio.to_thread(
+            record_product_event_for_user,
+            update.effective_user.id,
+            "onboarding_button_clicked",
+            f"{message_id}:{step}:{text}",
+            metadata={"step": step, "button": text, "message_id": message_id},
+        )
+    except Exception:
+        logger.exception(
+            "Failed to record onboarding button click user=%s step=%s button=%s",
+            update.effective_user.id,
+            step,
+            text,
+        )
 
 
 def _subscription_step_enabled(context, user_id):
@@ -282,6 +323,7 @@ async def handle_reply(update, context):
         return False
     text = update.effective_message.text
     step = state["step"]
+    await _record_onboarding_button_click(update, step, text)
     # Старые незавершённые состояния продолжаются с актуального шага.
     if step in ("agreement", "declined"):
         await _transition(context, state, await _next_setup_step(context, state))

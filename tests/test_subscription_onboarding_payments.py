@@ -49,6 +49,10 @@ class CheckoutOnboardingTest(unittest.IsolatedAsyncioTestCase):
         self.repo.begin_trial.assert_not_called()
 
     def setUp(self):
+        self.analytics_patcher = patch(
+            'app.onboarding.flow._record_onboarding_button_click', new_callable=AsyncMock)
+        self.analytics_patcher.start()
+        self.addCleanup(self.analytics_patcher.stop)
         self.state = dict(user_id=1, chat_id=10, step='subscription', entered_at=1000)
         self.repo = Mock()
         self.repo.enrolled_user_ids.return_value = [1]

@@ -290,6 +290,7 @@ class ReturningOnboardingSubscriptionTest(unittest.IsolatedAsyncioTestCase):
         update = SimpleNamespace(effective_user=SimpleNamespace(id=1),
                                  effective_message=SimpleNamespace(text="Продолжить бесплатно"))
         with patch("app.onboarding.flow.load_state", return_value=state), patch(
+                "app.onboarding.flow._record_onboarding_button_click", new_callable=AsyncMock), patch(
                 "app.subscription.access.repository_for", return_value=repository), patch(
                 "app.onboarding.flow._finish", new_callable=AsyncMock) as finish:
             self.assertTrue(await handle_reply(update, context))
