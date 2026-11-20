@@ -40,7 +40,7 @@ def build_challenge_welcome_text() -> str:
     end_label = (start + timedelta(days=27)).strftime("%d.%m") if start else "[дата окончания]"
     return (
         "<b>Ура, ты в потоке</b> 🧡\n\n"
-        "Давай <b>выберем время</b>, в которое ты хочешь получать ежедневные практики, "
+        "Давай <b>выберем время</b>, в которое ты хочешь получать ежедневные практики в течение челленджа, "
         f"с <b>{start_label}</b> по <b>{end_label}</b>\n\n{expandable_quote(WEEK_DESCRIPTION)}"
     )
 
